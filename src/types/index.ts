@@ -86,12 +86,7 @@ export interface Transaction {
   updated_at?: string;
 }
 
-export type AssetType = 
-  | 'Crypto' 
-  | 'Cổ phiếu' 
-  | 'Quỹ' 
-  | 'Vàng' 
-  | 'Khác'
+export type AssetType = 'crypto' | 'stock' | 'fund' | 'gold' | 'other'
   | 'crypto' 
   | 'stock' 
   | 'fund' 

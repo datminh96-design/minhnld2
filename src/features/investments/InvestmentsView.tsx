@@ -79,7 +79,7 @@ export const InvestmentsView: React.FC = () => {
   // Asset Form States
   const [assetSymbol, setAssetSymbol] = useState('');
   const [assetName, setAssetName] = useState('');
-  const [assetType, setAssetType] = useState<AssetType>('Crypto');
+  const [assetType, setAssetType] = useState<AssetType>('crypto');
   const [assetPrice, setAssetPrice] = useState('');
   const [assetCurrency, setAssetCurrency] = useState('VND');
 
@@ -140,7 +140,7 @@ export const InvestmentsView: React.FC = () => {
     return calculatedHoldings
       .filter((h) => h.currentValue > 0)
       .map((h) => ({
-        name: `${h.asset.asset_symbol} (${h.asset.asset_type})`,
+        name: `${h.asset.asset_symbol} (${h.asset.asset_type === 'crypto' ? 'Crypto' : h.asset.asset_type === 'stock' ? 'Cổ phiếu' : h.asset.asset_type === 'fund' ? 'Quỹ' : h.asset.asset_type === 'gold' ? 'Vàng' : 'Khác'})`,
         value: h.currentValue,
       }));
   }, [calculatedHoldings]);
@@ -215,7 +215,7 @@ export const InvestmentsView: React.FC = () => {
     setTxQuantity('');
     
     // Default currency logic based on asset type
-    const isCrypto = defaultAsset.asset_type === 'Crypto' || defaultAsset.asset_symbol === 'BTC' || defaultAsset.asset_symbol === 'ETH';
+    const isCrypto = defaultAsset.asset_type === 'crypto' || defaultAsset.asset_symbol === 'BTC' || defaultAsset.asset_symbol === 'ETH';
     setTxPriceCurrency(isCrypto ? 'USDT' : 'VND');
     setTxFeeCurrency(isCrypto ? 'BNB' : 'VND');
     setTxFee('0');
@@ -460,11 +460,11 @@ export const InvestmentsView: React.FC = () => {
               className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none"
             >
               <option value="all">Tất cả loại tài sản</option>
-              <option value="Crypto">🪙 Tiền mã hóa (Crypto)</option>
-              <option value="Cổ phiếu">📈 Cổ phiếu (Stocks)</option>
-              <option value="Quỹ">🏛️ Chứng chỉ quỹ (Funds)</option>
-              <option value="Vàng">👑 Vàng & Kim loại quý</option>
-              <option value="Khác">💎 Tài sản khác</option>
+              <option value="crypto">🪙 Tiền mã hóa (Crypto)</option>
+              <option value="stock">📈 Cổ phiếu (Stocks)</option>
+              <option value="fund">🏛️ Chứng chỉ quỹ (Funds)</option>
+              <option value="gold">👑 Vàng & Kim loại quý</option>
+              <option value="other">💎 Tài sản khác</option>
             </select>
           </div>
         </div>
@@ -528,14 +528,14 @@ export const InvestmentsView: React.FC = () => {
                                     const type = h.asset.asset_type;
                                     const known = KNOWN_ASSET_NAMES[sym];
                                     const exchangeLabel = known?.exchange || (
-                                      type === 'Crypto' || type === 'crypto' ? 'Binance' :
-                                      type === 'Cổ phiếu' || type === 'stock' ? 'HOSE' :
-                                      type === 'Quỹ' || type === 'fund' ? 'VinaCapital' :
-                                      type === 'Vàng' || type === 'gold' ? 'SJC 9999' : 'Thị trường'
+                                      type === 'crypto' || type === 'crypto' ? 'Binance' :
+                                      type === 'stock' || type === 'stock' ? 'HOSE' :
+                                      type === 'fund' || type === 'fund' ? 'VinaCapital' :
+                                      type === 'gold' || type === 'gold' ? 'SJC 9999' : 'Thị trường'
                                     );
-                                    const isCrypto = type === 'Crypto' || type === 'crypto' || exchangeLabel === 'Binance';
-                                    const isStock = type === 'Cổ phiếu' || type === 'stock' || exchangeLabel === 'HOSE' || exchangeLabel === 'HNX';
-                                    const isFund = type === 'Quỹ' || type === 'fund' || exchangeLabel.includes('VinaCapital') || exchangeLabel === 'Fmarket';
+                                    const isCrypto = type === 'crypto' || type === 'crypto' || exchangeLabel === 'Binance';
+                                    const isStock = type === 'stock' || type === 'stock' || exchangeLabel === 'HOSE' || exchangeLabel === 'HNX';
+                                    const isFund = type === 'fund' || type === 'fund' || exchangeLabel.includes('VinaCapital') || exchangeLabel === 'Fmarket';
 
                                     return (
                                       <span
@@ -562,7 +562,7 @@ export const InvestmentsView: React.FC = () => {
                           </td>
                           <td className="py-3 px-3 whitespace-nowrap">
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                              {h.asset.asset_type}
+                              {h.asset.asset_type === 'crypto' ? 'Crypto' : h.asset.asset_type === 'stock' ? 'Cổ phiếu' : h.asset.asset_type === 'fund' ? 'Quỹ' : h.asset.asset_type === 'gold' ? 'Vàng' : 'Khác'}
                             </span>
                           </td>
                           <td className="py-3 px-3 text-right font-mono font-semibold text-slate-800 dark:text-slate-200">
@@ -876,11 +876,11 @@ export const InvestmentsView: React.FC = () => {
                 onChange={(e) => setAssetType(e.target.value as AssetType)}
                 className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
               >
-                <option value="Crypto">🪙 Crypto</option>
-                <option value="Cổ phiếu">📈 Cổ phiếu</option>
-                <option value="Quỹ">🏛️ Chứng chỉ quỹ</option>
-                <option value="Vàng">👑 Vàng</option>
-                <option value="Khác">💎 Khác</option>
+                <option value="crypto">🪙 Crypto</option>
+                <option value="stock">📈 Cổ phiếu</option>
+                <option value="fund">🏛️ Chứng chỉ quỹ</option>
+                <option value="gold">👑 Vàng</option>
+                <option value="other">💎 Khác</option>
               </select>
             </div>
           </div>
@@ -1000,7 +1000,7 @@ export const InvestmentsView: React.FC = () => {
                   setTxAssetId(newAssetId);
                   const selected = investmentAssets.find(a => a.id === newAssetId);
                   if (selected) {
-                    const isCrypto = selected.asset_type === 'Crypto' || selected.asset_symbol === 'BTC' || selected.asset_symbol === 'ETH';
+                    const isCrypto = selected.asset_type === 'crypto' || selected.asset_symbol === 'BTC' || selected.asset_symbol === 'ETH';
                     setTxPriceCurrency(isCrypto ? 'USDT' : 'VND');
                     setTxFeeCurrency(isCrypto ? 'BNB' : 'VND');
                     if (isCrypto) {

@@ -46,7 +46,7 @@ export const AddAssetQuickSection: React.FC<AddAssetQuickSectionProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<'all' | 'crypto' | 'stock' | 'fund' | 'gold'>('all');
   const [customSymbol, setCustomSymbol] = useState('');
   const [customName, setCustomName] = useState('');
-  const [customType, setCustomType] = useState<AssetType>('Crypto');
+  const [customType, setCustomType] = useState<AssetType>('crypto');
   const [customPrice, setCustomPrice] = useState<number | null>(null);
   const [customUsdtPrice, setCustomUsdtPrice] = useState<number | null>(null);
   const [customChangePc, setCustomChangePc] = useState<number | null>(null);
@@ -351,10 +351,10 @@ export const AddAssetQuickSection: React.FC<AddAssetQuickSectionProps> = ({
               onChange={(e) => setCustomType(e.target.value as AssetType)}
               className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
             >
-              <option value="Crypto">🪙 Tiền mã hóa (Binance Crypto)</option>
-              <option value="Cổ phiếu">📈 Cổ phiếu VN (Sàn HOSE / HNX)</option>
-              <option value="Quỹ">🏛️ Chứng chỉ quỹ mở (Fmarket)</option>
-              <option value="Vàng">👑 Vàng (SJC 9999 / Vàng miếng)</option>
+              <option value="crypto">🪙 Tiền mã hóa (Binance Crypto)</option>
+              <option value="stock">📈 Cổ phiếu VN (Sàn HOSE / HNX)</option>
+              <option value="fund">🏛️ Chứng chỉ quỹ mở (Fmarket)</option>
+              <option value="gold">👑 Vàng (SJC 9999 / Vàng miếng)</option>
             </select>
           </div>
 
