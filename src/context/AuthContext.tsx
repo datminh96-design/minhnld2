@@ -72,7 +72,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setSession(newSession);
           setUser(newSession?.user || null);
           if (newSession?.user) {
-            const { data } = await client.from('profiles').select('*').eq('id', newSession.user.id).single();
+            const { data } = await client.from('profiles').select('*').eq('id', newSession.user.id).maybeSingle();
             if (data) setProfile(data);
           } else {
             setProfile(null);

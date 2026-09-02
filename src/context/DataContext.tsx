@@ -150,10 +150,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setLoadingData(true);
       setSyncStatus('syncing');
       
-      const { data: wsData } = await client.from('work_settings').select('*').eq('user_id', user.id).single();
+      const { data: wsData } = await client.from('work_settings').select('*').eq('user_id', user.id).maybeSingle();
       if (wsData) setWorkSettings({ ...DEFAULT_WORK_SETTINGS, ...wsData });
 
-      const { data: usData } = await client.from('user_settings').select('*').eq('user_id', user.id).single();
+      const { data: usData } = await client.from('user_settings').select('*').eq('user_id', user.id).maybeSingle();
       if (usData) setUserSettings({ ...DEFAULT_USER_SETTINGS, ...usData });
 
       const { data: wlData } = await client.from('work_logs').select('*').eq('user_id', user.id);
