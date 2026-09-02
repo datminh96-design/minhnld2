@@ -1,0 +1,6 @@
+{
+  "name": "NGUYỄN LÊ ĐẠT MINH – GIỜ CÔNG | CHI TIÊU | ĐẦU TƯ",
+  "description": "Ứng dụng quản lý tài chính và công việc cá nhân toàn diện: Quản lý chấm công, theo dõi thu chi, danh mục đầu tư và báo cáo tài chính.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
