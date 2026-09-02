@@ -406,12 +406,14 @@ export const InvestmentsView: React.FC = () => {
 
           {/* Action Buttons: Refresh, Add Asset, Add Tx */}
           <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold text-[11px] border border-emerald-200/60 dark:border-emerald-800/60 shadow-2xs">
+            <div 
+              className="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-800/60 shadow-2xs"
+              title="Tự động cập nhật 5s/lần"
+            >
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
-              <span>Cập nhật 5s/lần</span>
             </div>
 
             <button
@@ -422,7 +424,7 @@ export const InvestmentsView: React.FC = () => {
               title="Cập nhật giá thị trường trực tiếp ngay"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingPrices ? 'animate-spin text-emerald-500' : ''}`} />
-              <span>{isRefreshingPrices ? 'Đang cập nhật...' : 'Làm mới'}</span>
+              <span>Làm mới</span>
             </button>
 
             <button

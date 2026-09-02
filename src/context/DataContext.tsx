@@ -107,6 +107,20 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(new Date());
   const [syncMessage, setSyncMessage] = useState<string>('Đã kết nối');
   const backupTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const investmentAssetsRef = useRef(investmentAssets);
+
+  useEffect(() => {
+    investmentAssetsRef.current = investmentAssets;
+  }, [investmentAssets]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (investmentAssetsRef.current.length > 0) {
+        refreshMarketPrices(true, true);
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   const calculatedHoldings = useMemo(() => {
     return calculateInvestmentHoldings(investmentAssets, investmentTransactions, userSettings.cost_calculation_method);
@@ -497,26 +511,32 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     await runDelete('investment_transactions', id, 'Đã xóa giao dịch đầu tư');
   };
 
-  const refreshMarketPrices = async (silent = false) => {
+  const refreshMarketPrices = async (silent = false, skipCloudSave = false) => {
     if (isRefreshingPrices) return;
     setIsRefreshingPrices(true);
     try {
-      const priceUpdates = await priceService.fetchBatchPrices(investmentAssets);
+      const priceUpdates = await priceService.fetchBatchPrices(investmentAssetsRef.current);
       setInvestmentAssets(prev => {
+        let hasChanges = false;
         const updatedAssets = prev.map(a => {
           const update = priceUpdates[a.id];
-          if (update && update.success && update.price) {
+          if (update && update.price && update.price !== a.current_price) {
+            hasChanges = true;
             return { ...a, current_price: update.price, price_updated_at: new Date().toISOString() };
           }
           return a;
         });
         
-        if (!isDemoUser && user) {
+        if (!hasChanges) return prev; // Avoid unnecessary re-renders
+
+        if (!isDemoUser && user && !skipCloudSave) {
           const { client } = getSupabaseClient();
           if (client) {
             Promise.all(updatedAssets.map(a => {
-              if (priceUpdates[a.id]?.success) {
-                return client.from('investment_assets').update({ current_price: a.current_price, price_updated_at: a.price_updated_at }).eq('id', a.id);
+              if (priceUpdates[a.id] && priceUpdates[a.id].price !== prev.find(p => p.id === a.id)?.current_price) {
+                const { error } = client.from('investment_assets').update({ current_price: a.current_price, price_updated_at: a.price_updated_at }).eq('id', a.id);
+                if (error) console.error(error);
+                return Promise.resolve();
               }
               return Promise.resolve();
             })).catch(() => {});
