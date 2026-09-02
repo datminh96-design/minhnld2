@@ -285,13 +285,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (idx >= 0) { const next = [...prev]; next[idx] = fullLog; return next; }
       return [fullLog, ...prev];
     });
-    await runUpsert('work_logs', {
+        await runUpsert('work_logs', {
       id: fullLog.id,
       work_date: fullLog.work_date,
-      check_in: fullLog.check_in,
-      check_out: fullLog.check_out,
-      break_start: fullLog.break_start,
-      break_end: fullLog.break_end,
+      check_in: fullLog.check_in || null,
+      check_out: fullLog.check_out || null,
+      break_start: fullLog.break_start || null,
+      break_end: fullLog.break_end || null,
       break_duration_hours: fullLog.break_duration_hours,
       total_hours: fullLog.total_hours,
       overtime_hours: fullLog.overtime_hours,
