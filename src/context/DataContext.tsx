@@ -49,7 +49,8 @@ interface DataContextType {
   deleteInvestmentAsset: (id: string) => Promise<void>;
   saveInvestmentTransaction: (tx: Omit<InvestmentTransaction, 'id'> & { id?: string }) => Promise<void>;
   deleteInvestmentTransaction: (id: string) => Promise<void>;
-  refreshMarketPrices: (silent?: boolean) => Promise<void>;
+  refreshMarketPrices: (silent?: boolean, skipCloudSave?: boolean) => Promise<void>;
+  takeDailySnapshot: (totalValue: number, totalCost: number) => Promise<void>;
   updateUserSettings: (settings: Partial<UserSettings>) => Promise<void>;
   addToast: (message: string, type?: ToastMessage['type'], title?: string) => void;
   removeToast: (id: string) => void;
@@ -511,6 +512,47 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     await runDelete('investment_transactions', id, 'Đã xóa giao dịch đầu tư');
   };
 
+  const takeDailySnapshot = async (totalValue: number, totalCost: number) => {
+    if (isDemoUser || !user || totalCost <= 0) return;
+    const today = new Date().toISOString().split('T')[0];
+    const existing = portfolioSnapshots.find(s => s.snapshot_date === today);
+    
+    // Nếu giá trị không đổi so với hiện tại, bỏ qua (tối ưu hóa)
+    if (existing && existing.total_value === totalValue && existing.total_cost === totalCost) return;
+
+    const newSnapshot: PortfolioSnapshot = {
+      id: existing ? existing.id : crypto.randomUUID(),
+      user_id: user.id,
+      snapshot_date: today,
+      total_value: totalValue,
+      total_cost: totalCost,
+      total_profit: totalValue - totalCost,
+      profit_percentage: ((totalValue - totalCost) / totalCost) * 100,
+      created_at: existing ? existing.created_at : new Date().toISOString()
+    };
+
+    setPortfolioSnapshots(prev => {
+      const filtered = prev.filter(s => s.snapshot_date !== today);
+      return [...filtered, newSnapshot].sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+    });
+
+    const { client } = getSupabaseClient();
+    if (client) {
+      if (existing) {
+        const { error } = await client.from('portfolio_snapshots').update({
+          total_value: newSnapshot.total_value,
+          total_cost: newSnapshot.total_cost,
+          total_profit: newSnapshot.total_profit,
+          profit_percentage: newSnapshot.profit_percentage
+        }).eq('id', existing.id);
+        if (error) console.error('Lỗi khi cập nhật snapshot:', error);
+      } else {
+        const { error } = await client.from('portfolio_snapshots').insert(newSnapshot);
+        if (error) console.error('Lỗi khi lưu snapshot mới:', error);
+      }
+    }
+  };
+
   const refreshMarketPrices = async (silent = false, skipCloudSave = false) => {
     if (isRefreshingPrices) return;
     setIsRefreshingPrices(true);
@@ -584,7 +626,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       userSettings, calculatedHoldings, toasts, loadingData, syncStatus, lastSyncedAt, syncMessage, isRefreshingPrices,
       updateWorkSettings, saveWorkLog, deleteWorkLog, getWorkLogsForMonth, saveTransaction, deleteTransaction,
       saveCategory, deleteCategory, saveInvestmentAsset, updateAssetPrice, deleteInvestmentAsset,
-      saveInvestmentTransaction, deleteInvestmentTransaction, refreshMarketPrices, updateUserSettings,
+      saveInvestmentTransaction, deleteInvestmentTransaction, refreshMarketPrices, takeDailySnapshot, updateUserSettings,
       addToast, removeToast, clearAllData, syncWithSupabase, triggerCloudBackup
     }}>
       {children}
