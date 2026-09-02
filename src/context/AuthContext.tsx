@@ -50,7 +50,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               .from('profiles')
               .select('*')
               .eq('id', currentSession.user.id)
-              .single();
+              .maybeSingle();
 
             if (!error && data) {
               setProfile(data);

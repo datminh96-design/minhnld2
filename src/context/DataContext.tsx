@@ -150,23 +150,41 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setLoadingData(true);
       setSyncStatus('syncing');
       
-      const { data: wsData } = await client.from('work_settings').select('*').eq('user_id', user.id).maybeSingle();
-      if (wsData) setWorkSettings({ ...DEFAULT_WORK_SETTINGS, ...wsData });
+      const { data: wsData, error: wsError } = await client.from('work_settings').select('*').eq('user_id', user.id).maybeSingle();
+      if (wsError) {
+        console.error('Lỗi tải work_settings:', wsError);
+        addToast(`Lỗi đồng bộ Cài đặt Công việc: ${wsError.message}`, 'error');
+      } else if (wsData) {
+        setWorkSettings({ ...DEFAULT_WORK_SETTINGS, ...wsData });
+      }
 
-      const { data: usData } = await client.from('user_settings').select('*').eq('user_id', user.id).maybeSingle();
-      if (usData) setUserSettings({ ...DEFAULT_USER_SETTINGS, ...usData });
+      const { data: usData, error: usError } = await client.from('user_settings').select('*').eq('user_id', user.id).maybeSingle();
+      if (usError) {
+        console.error('Lỗi tải user_settings:', usError);
+        addToast(`Lỗi đồng bộ Cài đặt Hệ thống: ${usError.message}`, 'error');
+      } else if (usData) {
+        setUserSettings({ ...DEFAULT_USER_SETTINGS, ...usData });
+      }
 
-      const { data: wlData } = await client.from('work_logs').select('*').eq('user_id', user.id);
-      if (wlData) setWorkLogs(wlData.map(l => ({
-        ...l, 
-        break_duration_hours: Number(l.break_duration_hours) || 0,
-        total_hours: Number(l.total_hours) || 0,
-        overtime_hours: Number(l.overtime_hours) || 0,
-        missing_hours: Number(l.missing_hours) || 0
-      })));
+      const { data: wlData, error: wlError } = await client.from('work_logs').select('*').eq('user_id', user.id);
+      if (wlError) {
+         console.error('Lỗi tải work_logs:', wlError);
+         addToast(`Lỗi đồng bộ Giờ công: ${wlError.message}`, 'error');
+      } else if (wlData) {
+        setWorkLogs(wlData.map(l => ({
+          ...l, 
+          break_duration_hours: Number(l.break_duration_hours) || 0,
+          total_hours: Number(l.total_hours) || 0,
+          overtime_hours: Number(l.overtime_hours) || 0,
+          missing_hours: Number(l.missing_hours) || 0
+        })));
+      }
 
-      const { data: catData } = await client.from('expense_categories').select('*').or(`user_id.eq.${user.id},is_default.eq.true`);
-      if (catData && catData.length > 0) {
+      const { data: catData, error: catError } = await client.from('expense_categories').select('*').or(`user_id.eq.${user.id},is_default.eq.true`);
+      if (catError) {
+         console.error('Lỗi tải categories:', catError);
+         addToast(`Lỗi đồng bộ Danh mục: ${catError.message}`, 'error');
+      } else if (catData && catData.length > 0) {
         setCategories(catData);
       } else {
         const defaultCats = DEFAULT_EXPENSE_CATEGORIES.map(c => ({ ...c, user_id: user.id }));
@@ -174,33 +192,53 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         await client.from('expense_categories').upsert(defaultCats).catch(console.error);
       }
 
-      const { data: txData } = await client.from('transactions').select('*').eq('user_id', user.id);
-      if (txData) setTransactions(txData.map(t => ({ ...t, amount: Number(t.amount) || 0 })));
+      const { data: txData, error: txError } = await client.from('transactions').select('*').eq('user_id', user.id);
+      if (txError) {
+         console.error('Lỗi tải transactions:', txError);
+         addToast(`Lỗi đồng bộ Thu/Chi: ${txError.message}`, 'error');
+      } else if (txData) {
+         setTransactions(txData.map(t => ({ ...t, amount: Number(t.amount) || 0 })));
+      }
 
-      const { data: assetData } = await client.from('investment_assets').select('*').eq('user_id', user.id);
-      if (assetData) setInvestmentAssets(assetData.map(a => ({ ...a, current_price: Number(a.current_price) || 0 })));
+      const { data: assetData, error: assetError } = await client.from('investment_assets').select('*').eq('user_id', user.id);
+      if (assetError) {
+         console.error('Lỗi tải assets:', assetError);
+         addToast(`Lỗi đồng bộ Tài sản Đầu tư: ${assetError.message}`, 'error');
+      } else if (assetData) {
+         setInvestmentAssets(assetData.map(a => ({ ...a, current_price: Number(a.current_price) || 0 })));
+      }
 
-      const { data: itxData } = await client.from('investment_transactions').select('*').eq('user_id', user.id);
-      if (itxData) setInvestmentTransactions(itxData.map(t => ({ 
-        ...t, 
-        quantity: Number(t.quantity) || 0, 
-        price: Number(t.price) || 0, 
-        fee: Number(t.fee) || 0 
-      })));
+      const { data: itxData, error: itxError } = await client.from('investment_transactions').select('*').eq('user_id', user.id);
+      if (itxError) {
+         console.error('Lỗi tải investment_transactions:', itxError);
+         addToast(`Lỗi đồng bộ Lịch sử GD Đầu tư: ${itxError.message}`, 'error');
+      } else if (itxData) {
+         setInvestmentTransactions(itxData.map(t => ({ 
+          ...t, 
+          quantity: Number(t.quantity) || 0, 
+          price: Number(t.price) || 0, 
+          fee: Number(t.fee) || 0 
+        })));
+      }
 
-      const { data: snapData } = await client.from('portfolio_snapshots').select('*').eq('user_id', user.id);
-      if (snapData) setPortfolioSnapshots(snapData.map(s => ({
-        ...s,
-        total_value: Number(s.total_value) || 0,
-        total_cost: Number(s.total_cost) || 0,
-        total_profit: Number(s.total_profit) || 0,
-        profit_percentage: Number(s.profit_percentage) || 0
-      })));
+      const { data: snapData, error: snapError } = await client.from('portfolio_snapshots').select('*').eq('user_id', user.id);
+      if (snapError) {
+         console.error('Lỗi tải snapshots:', snapError);
+      } else if (snapData) {
+         setPortfolioSnapshots(snapData.map(s => ({
+          ...s,
+          total_value: Number(s.total_value) || 0,
+          total_cost: Number(s.total_cost) || 0,
+          total_profit: Number(s.total_profit) || 0,
+          profit_percentage: Number(s.profit_percentage) || 0
+        })));
+      }
 
       setSyncStatus('synced');
       setLastSyncedAt(new Date());
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error('Lỗi nghiêm trọng khi đồng bộ:', err);
+      addToast(`Lỗi hệ thống đồng bộ: ${err.message}`, 'error');
       setSyncStatus('error');
     } finally {
       setLoadingData(false);
