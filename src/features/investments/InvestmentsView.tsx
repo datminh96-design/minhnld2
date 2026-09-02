@@ -65,7 +65,6 @@ export const InvestmentsView: React.FC = () => {
 
   // State
   const [activeTab, setActiveTab] = useState<'holdings' | 'transactions' | 'charts'>('holdings');
-  console.log("DEBUG HOLDINGS:", { investmentAssets, calculatedHoldings, filteredHoldings });
   const [assetTypeFilter, setAssetTypeFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [showQuickAdd, setShowQuickAdd] = useState(false);

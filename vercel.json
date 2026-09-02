@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/vps-stock/:match*",
+      "destination": "https://bgapidatafeed.vps.com.vn/:match*"
+    },
+    {
+      "source": "/api/fmarket/:match*",
+      "destination": "https://api.fmarket.vn/:match*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
