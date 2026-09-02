@@ -189,7 +189,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       } else {
         const defaultCats = DEFAULT_EXPENSE_CATEGORIES.map(c => ({ ...c, user_id: user.id }));
         setCategories(defaultCats);
-        await client.from('expense_categories').upsert(defaultCats).catch(console.error);
+        const { error: insertError } = await client.from('expense_categories').upsert(defaultCats);
+        if (insertError) console.error(insertError);
       }
 
       const { data: txData, error: txError } = await client.from('transactions').select('*').eq('user_id', user.id);
@@ -448,7 +449,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!isDemoUser && user) {
       const { client } = getSupabaseClient();
       if (client) {
-        await client.from('investment_assets').update({ current_price: newPrice, price_updated_at: new Date().toISOString() }).eq('id', assetId).catch(() => {});
+        const { error } = await client.from('investment_assets').update({ current_price: newPrice, price_updated_at: new Date().toISOString() }).eq('id', assetId);
+        if (error) console.error(error);
       }
     }
   };
