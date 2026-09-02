@@ -353,6 +353,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const saveInvestmentAsset = async (assetData: Omit<InvestmentAsset, 'id'> & { id?: string }) => {
+    const cleanSym = assetData.asset_symbol.trim().toUpperCase();
+    const existingIdx = investmentAssets.findIndex(a => a.asset_symbol.toUpperCase() === cleanSym && a.id !== assetData.id);
+    if (existingIdx >= 0) {
+      addToast(`Mã tài sản ${cleanSym} đã tồn tại trong danh mục!`, 'error');
+      throw new Error('Duplicate asset symbol');
+    }
+
     const id = assetData.id || generateUUID();
     const fullAsset: InvestmentAsset = { ...assetData, id, current_price: Number(assetData.current_price) || 0 };
     setInvestmentAssets(prev => {

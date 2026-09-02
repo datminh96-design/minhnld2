@@ -133,6 +133,7 @@ export const AddAssetQuickSection: React.FC<AddAssetQuickSectionProps> = ({
   // Submit & Add Asset to Portfolio
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isAdding) return;
     const cleanSym = customSymbol.trim().toUpperCase();
     if (!cleanSym) {
       addToast('Vui lòng nhập mã tài sản (Ticker/Symbol)', 'warning');

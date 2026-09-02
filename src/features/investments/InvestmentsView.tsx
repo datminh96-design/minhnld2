@@ -184,19 +184,22 @@ export const InvestmentsView: React.FC = () => {
     }
 
     const cleanSym = assetSymbol.trim().toUpperCase();
-    await saveInvestmentAsset({
-      id: editingAsset ? editingAsset.id : undefined,
-      asset_symbol: cleanSym,
-      asset_name: assetName.trim() || `${cleanSym} Asset`,
-      asset_type: assetType,
-      current_price: numPrice,
-      currency: assetCurrency,
-      price_updated_at: new Date().toISOString(),
-    });
-
-    setIsAssetModalOpen(false);
-    await refreshMarketPrices();
-    addToast(`Đã lưu mã ${cleanSym} với giá thị trường cập nhật tự động!`, 'success');
+    try {
+      await saveInvestmentAsset({
+        id: editingAsset ? editingAsset.id : undefined,
+        asset_symbol: cleanSym,
+        asset_name: assetName.trim() || `${cleanSym} Asset`,
+        asset_type: assetType,
+        current_price: numPrice,
+        currency: assetCurrency,
+        price_updated_at: new Date().toISOString(),
+      });
+      setIsAssetModalOpen(false);
+      await refreshMarketPrices();
+      addToast(`Đã lưu mã ${cleanSym} với giá thị trường cập nhật tự động!`, 'success');
+    } catch (err) {
+      console.warn('Cannot save asset:', err);
+    }
   };
 
   // Open Add Transaction Modal
