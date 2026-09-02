@@ -237,3 +237,70 @@ export function calculateWorkHours(
     missingHours,
   };
 }
+
+export function calculateInvestmentHoldings(assets: any[], transactions: any[], method: string): any[] {
+  let totalPortfolioValue = 0;
+  
+  const holdings = assets.map(asset => {
+    const txs = transactions.filter(t => t.asset_id === asset.id).sort((a,b) => new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime());
+    let currentQuantity = 0;
+    let totalInvested = 0;
+    let realizedProfit = 0;
+    
+    // Simple weighted average implementation
+    txs.forEach(tx => {
+      if (tx.transaction_type === 'buy') {
+        currentQuantity += tx.quantity;
+        totalInvested += (tx.quantity * (tx.price || tx.price_per_unit || 0)) + (tx.fee || 0);
+      } else if (tx.transaction_type === 'sell') {
+        if (currentQuantity > 0) {
+          const avgBuyPrice = totalInvested / currentQuantity;
+          const costOfSold = avgBuyPrice * tx.quantity;
+          const revenue = (tx.quantity * (tx.price || tx.price_per_unit || 0)) - (tx.fee || 0);
+          realizedProfit += revenue - costOfSold;
+          currentQuantity -= tx.quantity;
+          totalInvested -= costOfSold;
+        }
+      } else if (tx.transaction_type === 'dividend' || tx.transaction_type === 'reward') {
+         // Free coins/money
+         if (tx.price === 0 || !tx.price) {
+            currentQuantity += tx.quantity;
+         } else {
+            // cash dividend treated as realized profit if quantity is 0?
+            if (tx.quantity === 0 && tx.total_amount) {
+               realizedProfit += tx.total_amount;
+            }
+         }
+      }
+    });
+
+    const currentPrice = asset.current_price || 0;
+    const currentValue = currentQuantity * currentPrice;
+    const avgBuyPrice = currentQuantity > 0 ? totalInvested / currentQuantity : 0;
+    const totalProfit = currentValue - totalInvested;
+    const profitPercentage = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0;
+
+    totalPortfolioValue += currentValue;
+
+    return {
+      asset,
+      currentQuantity,
+      totalQuantity: currentQuantity,
+      totalInvested,
+      avgBuyPrice,
+      averageCost: avgBuyPrice,
+      currentPrice,
+      currentValue,
+      totalProfit,
+      profitPercentage,
+      realizedProfit,
+      portfolioWeight: 0,
+      transactionsCount: txs.length
+    };
+  });
+
+  return holdings.map(h => {
+    h.portfolioWeight = totalPortfolioValue > 0 ? (h.currentValue / totalPortfolioValue) * 100 : 0;
+    return h;
+  });
+}

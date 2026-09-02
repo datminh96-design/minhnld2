@@ -1,4 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useRef, useMemo } from 'react';
+const fs = require('fs');
+
+const content = `import React, { createContext, useContext, useState, useEffect, ReactNode, useRef, useMemo } from 'react';
 import {
   WorkSettings, WorkLog, ExpenseCategory, Transaction,
   InvestmentAsset, InvestmentTransaction, PortfolioSnapshot,
@@ -17,8 +19,8 @@ import {
 import { useAuth } from './AuthContext';
 import { getSupabaseClient } from '../lib/supabase';
 import { calculateWorkHours, generateUUID } from '../lib/utils';
-import { calculateInvestmentHoldings } from '../lib/utils';
-import { priceService } from '../services/priceService';
+import { calculateInvestmentHoldings } from '../lib/investmentCalculator';
+import { fetchMarketPrices } from '../services/priceService';
 
 interface DataContextType {
   workSettings: WorkSettings;
@@ -165,7 +167,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         missing_hours: Number(l.missing_hours) || 0
       })));
 
-      const { data: catData } = await client.from('expense_categories').select('*').or(`user_id.eq.${user.id},is_default.eq.true`);
+      const { data: catData } = await client.from('expense_categories').select('*').or(\`user_id.eq.\${user.id},is_default.eq.true\`);
       if (catData && catData.length > 0) {
         setCategories(catData);
       } else {
@@ -221,7 +223,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (error) throw error;
         }
       } catch (err: any) {
-        addToast(`Lỗi lưu Cloud: ${err.message || JSON.stringify(err)}`, 'error');
+        addToast(\`Lỗi lưu Cloud: \${err.message || JSON.stringify(err)}\`, 'error');
         return;
       }
     }
@@ -238,7 +240,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (error) throw error;
         }
       } catch (err: any) {
-        addToast(`Lỗi xóa Cloud: ${err.message || JSON.stringify(err)}`, 'error');
+        addToast(\`Lỗi xóa Cloud: \${err.message || JSON.stringify(err)}\`, 'error');
         return;
       }
     }
@@ -272,7 +274,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (idx >= 0) { const next = [...prev]; next[idx] = fullLog; return next; }
       return [fullLog, ...prev];
     });
-    await runUpsert('work_logs', fullLog, `Đã lưu chấm công ngày ${fullLog.work_date}`);
+    await runUpsert('work_logs', fullLog, \`Đã lưu chấm công ngày \${fullLog.work_date}\`);
   };
 
   const deleteWorkLog = async (id: string) => {
@@ -302,7 +304,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (idx >= 0) { const next = [...prev]; next[idx] = fullTx; return next; }
       return [fullTx, ...prev];
     });
-    await runUpsert('transactions', fullTx, `Đã lưu khoản ${fullTx.transaction_type === 'income' ? 'thu' : 'chi'}`);
+    await runUpsert('transactions', fullTx, \`Đã lưu khoản \${fullTx.transaction_type === 'income' ? 'thu' : 'chi'}\`);
   };
 
   const deleteTransaction = async (id: string) => {
@@ -334,7 +336,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (idx >= 0) { const next = [...prev]; next[idx] = fullAsset; return next; }
       return [fullAsset, ...prev];
     });
-    await runUpsert('investment_assets', fullAsset, `Đã lưu tài sản ${fullAsset.asset_symbol}`);
+    await runUpsert('investment_assets', fullAsset, \`Đã lưu tài sản \${fullAsset.asset_symbol}\`);
   };
 
   const updateAssetPrice = async (assetId: string, newPrice: number) => {
@@ -373,14 +375,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (isRefreshingPrices) return;
     setIsRefreshingPrices(true);
     try {
-      const priceUpdates = await priceService.fetchBatchPrices(investmentAssets);
-      const updatedAssets = investmentAssets.map(a => {
-        const update = priceUpdates[a.id];
-        if (update && update.success && update.price) {
-          return { ...a, current_price: update.price, price_updated_at: new Date().toISOString() };
-        }
-        return a;
-      });
+      const updatedAssets = await fetchMarketPrices(investmentAssets);
       setInvestmentAssets(updatedAssets);
       if (!silent) addToast('Đã cập nhật giá thị trường', 'success');
       
@@ -444,3 +439,6 @@ export const useData = () => {
   if (!context) throw new Error('useData must be used within a DataProvider');
   return context;
 };
+`;
+
+fs.writeFileSync('src/context/DataContext.tsx', content);
