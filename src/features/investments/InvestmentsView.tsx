@@ -67,6 +67,7 @@ export const InvestmentsView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'holdings' | 'transactions' | 'charts'>('holdings');
   const [assetTypeFilter, setAssetTypeFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
 
   // Modals
   const [isAssetModalOpen, setIsAssetModalOpen] = useState(false);
@@ -159,13 +160,7 @@ export const InvestmentsView: React.FC = () => {
 
   // Open Create Asset Modal
   const handleOpenAddAsset = () => {
-    setEditingAsset(null);
-    setAssetSymbol('');
-    setAssetName('');
-    setAssetType('Crypto');
-    setAssetPrice('');
-    setAssetCurrency('VND');
-    setIsAssetModalOpen(true);
+    setShowQuickAdd((prev) => !prev);
   };
 
   // Open Edit Asset Modal
@@ -432,7 +427,7 @@ export const InvestmentsView: React.FC = () => {
               onClick={handleOpenAddAsset}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 dark:bg-slate-700 hover:bg-slate-900 text-white font-semibold text-xs shadow-xs transition-all"
             >
-              <Plus className="w-3.5 h-3.5" /> + Thêm Mã Tài Sản
+              <Plus className="w-3.5 h-3.5" /> {showQuickAdd ? 'Đóng' : 'Thêm Tài Sản Mới'}
             </button>
 
             <button
@@ -649,16 +644,18 @@ export const InvestmentsView: React.FC = () => {
           </div>
 
           {/* Quick Add Asset Section directly under Holdings */}
-          <AddAssetQuickSection
-            existingAssets={investmentAssets}
-            userCurrency={userSettings.currency}
-            onAddAsset={async (newAsset) => {
-              await saveInvestmentAsset(newAsset);
-            }}
-            onOpenAddTxForAsset={(asset) => handleOpenAddTx(asset)}
-            addToast={addToast}
-            onRefreshPrices={refreshMarketPrices}
-          />
+          {showQuickAdd && (
+            <AddAssetQuickSection
+              existingAssets={investmentAssets}
+              userCurrency={userSettings.currency}
+              onAddAsset={async (newAsset) => {
+                await saveInvestmentAsset(newAsset);
+              }}
+              onOpenAddTxForAsset={(asset) => handleOpenAddTx(asset)}
+              addToast={addToast}
+              onRefreshPrices={refreshMarketPrices}
+            />
+          )}
         </div>
       )}
 
