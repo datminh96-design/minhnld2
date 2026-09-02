@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Sidebar, NavTab } from './Sidebar';
 import { Header } from './Header';
 import { DashboardView } from '../../features/dashboard/DashboardView';
@@ -12,7 +12,19 @@ import { ToastContainer } from '../ui/Toast';
 import { useData } from '../../context/DataContext';
 
 export const AppLayout: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
+  const [activeTab, setActiveTab] = useState<NavTab>(() => {
+    if (typeof window !== 'undefined') {
+      const savedTab = localStorage.getItem('activeTab');
+      if (savedTab && ['dashboard', 'work', 'expenses', 'investments', 'reports', 'settings'].includes(savedTab)) {
+        return savedTab as NavTab;
+      }
+    }
+    return 'dashboard';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('activeTab', activeTab);
+  }, [activeTab]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isOpenMobile, setIsOpenMobile] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
