@@ -40,7 +40,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       if (tab === 'login') {
         const { error } = await signInWithEmail(email, password);
         if (error) {
-          addToast(error.message || 'Đăng nhập thất bại', 'error');
+          addToast(error.message === 'Invalid login credentials' ? 'Sai email hoặc mật khẩu. Nếu chưa có tài khoản, hãy chuyển sang Đăng Ký.' : error.message || 'Đăng nhập thất bại', 'error');
         } else {
           addToast('Đăng nhập thành công!', 'success');
           onClose();
