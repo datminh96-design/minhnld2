@@ -170,6 +170,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setProfile(DEFAULT_PROFILE);
     setIsDemoUser(true);
     localStorage.setItem('app_is_demo_mode', 'true');
+    localStorage.removeItem('app_work_logs');
+    localStorage.removeItem('app_transactions');
+    localStorage.removeItem('app_investment_assets');
+    localStorage.removeItem('app_investment_txs');
+    localStorage.removeItem('app_portfolio_snapshots');
   };
 
   const resetPassword = async (email: string) => {

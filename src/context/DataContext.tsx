@@ -266,6 +266,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           overtime_hours: Number(l.overtime_hours) || 0,
           missing_hours: Number(l.missing_hours) || 0,
         })));
+      } else {
+        setWorkLogs([]);
       }
 
       // Fetch Transactions
@@ -275,12 +277,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           ...t,
           amount: Number(t.amount) || 0,
         })));
+      } else {
+        setTransactions([]);
       }
 
       // Fetch Categories
       const { data: catData } = await client.from('expense_categories').select('*').or(`user_id.eq.${user.id},is_default.eq.true`);
       if (catData && catData.length > 0) {
         setCategories(catData);
+      } else {
+        setCategories(DEFAULT_EXPENSE_CATEGORIES);
       }
 
       // Fetch Investment Assets & Transactions
@@ -290,6 +296,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           ...a,
           current_price: Number(a.current_price) || 0,
         })));
+      } else {
+        setInvestmentAssets([]);
       }
 
       const { data: itxData } = await client.from('investment_transactions').select('*').eq('user_id', user.id).order('transaction_date', { ascending: false });
@@ -300,6 +308,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           price: Number(t.price) || 0,
           fee: Number(t.fee) || 0,
         })));
+      } else {
+        setInvestmentTransactions([]);
       }
 
       // Fetch Portfolio Snapshots
@@ -312,6 +322,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           total_profit: Number(s.total_profit) || 0,
           profit_percentage: Number(s.profit_percentage) || 0,
         })));
+      } else {
+        setPortfolioSnapshots([]);
       }
 
       setSyncStatus('synced');
