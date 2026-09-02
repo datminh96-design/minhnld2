@@ -222,10 +222,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       } catch (err: any) {
         addToast(`Lỗi lưu Cloud: ${err.message || JSON.stringify(err)}`, 'error');
-        return;
+        return { success: false, error: err };
       }
     }
     if (successMsg) addToast(successMsg, 'success');
+    return { success: true };
   };
 
   const runDelete = async (table: string, id: string, successMsg: string) => {
@@ -315,6 +316,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const saveTransaction = async (txData: Omit<Transaction, 'id'> & { id?: string }) => {
     const id = txData.id || generateUUID();
+    const isNew = !txData.id;
     // Validate category_id for PostgreSQL uuid format!
     // If it is an empty string, or undefined, we don't pass it or pass null
     const validCategoryId = (txData.category_id && txData.category_id.length > 0) ? txData.category_id : null;
@@ -328,7 +330,17 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (idx >= 0) { const next = [...prev]; next[idx] = fullTx; return next; }
       return [fullTx, ...prev];
     });
-    await runUpsert('transactions', fullTx, `Đã lưu khoản ${fullTx.transaction_type === 'income' ? 'thu' : 'chi'}`);
+    
+    const res = await runUpsert('transactions', fullTx, `Đã lưu khoản ${fullTx.transaction_type === 'income' ? 'thu' : 'chi'}`);
+    
+    if (res && res.success === false) {
+      if (isNew) {
+        setTransactions(prev => prev.filter(t => t.id !== id));
+      }
+      if (res.error?.message?.includes('foreign key') || res.error?.message?.includes('uuid')) {
+        syncWithSupabase();
+      }
+    }
   };
 
   const deleteTransaction = async (id: string) => {
@@ -338,13 +350,20 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const saveCategory = async (catData: Omit<ExpenseCategory, 'id'> & { id?: string }) => {
     const id = catData.id || generateUUID();
+    const isNew = !catData.id;
     const fullCat: ExpenseCategory = { ...catData, id, is_default: false };
     setCategories(prev => {
       const idx = prev.findIndex(c => c.id === id);
       if (idx >= 0) { const next = [...prev]; next[idx] = fullCat; return next; }
       return [fullCat, ...prev];
     });
-    await runUpsert('expense_categories', fullCat, 'Đã lưu danh mục');
+    const res = await runUpsert('expense_categories', fullCat, 'Đã lưu danh mục');
+    
+    if (res && res.success === false) {
+      if (isNew) {
+        setCategories(prev => prev.filter(c => c.id !== id));
+      }
+    }
   };
 
   const deleteCategory = async (id: string) => {
@@ -361,13 +380,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     const id = assetData.id || generateUUID();
+    const isNew = !assetData.id;
     const fullAsset: InvestmentAsset = { ...assetData, id, current_price: Number(assetData.current_price) || 0 };
     setInvestmentAssets(prev => {
       const idx = prev.findIndex(a => a.id === id);
       if (idx >= 0) { const next = [...prev]; next[idx] = fullAsset; return next; }
       return [fullAsset, ...prev];
     });
-    await runUpsert('investment_assets', {
+    const res = await runUpsert('investment_assets', {
       id: fullAsset.id,
       asset_name: fullAsset.asset_name,
       asset_symbol: fullAsset.asset_symbol,
@@ -376,6 +396,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       price_updated_at: fullAsset.price_updated_at,
       notes: fullAsset.notes
     }, `Đã lưu tài sản ${fullAsset.asset_symbol}`);
+
+    if (res && res.success === false) {
+      if (isNew) {
+        setInvestmentAssets(prev => prev.filter(a => a.id !== id));
+      }
+    }
   };
 
   const updateAssetPrice = async (assetId: string, newPrice: number) => {
@@ -396,13 +422,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const saveInvestmentTransaction = async (txData: Omit<InvestmentTransaction, 'id'> & { id?: string }) => {
     const id = txData.id || generateUUID();
-    const fullTx: InvestmentTransaction = { ...txData, id, quantity: Number(txData.quantity), price: Number(txData.price || txData.price_per_unit || 0) };
+    const isNew = !txData.id;
+    const fullTx: InvestmentTransaction = { ...txData, id, quantity: Number(txData.quantity), price: Number(txData.price || (txData as any).price_per_unit || 0) };
+    
     setInvestmentTransactions(prev => {
       const idx = prev.findIndex(t => t.id === id);
       if (idx >= 0) { const next = [...prev]; next[idx] = fullTx; return next; }
       return [fullTx, ...prev];
     });
-    await runUpsert('investment_transactions', {
+    
+    const res = await runUpsert('investment_transactions', {
       id: fullTx.id,
       asset_id: fullTx.asset_id,
       transaction_type: fullTx.transaction_type,
@@ -412,6 +441,15 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       fee: fullTx.fee,
       note: fullTx.note
     }, 'Đã lưu giao dịch đầu tư');
+
+    if (res && res.success === false) {
+      if (isNew) {
+        setInvestmentTransactions(prev => prev.filter(t => t.id !== id));
+      }
+      if (res.error?.message?.includes('foreign key')) {
+        syncWithSupabase();
+      }
+    }
   };
 
   const deleteInvestmentTransaction = async (id: string) => {
