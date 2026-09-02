@@ -248,13 +248,26 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateWorkSettings = async (newSettings: Partial<WorkSettings>) => {
     const updated = { ...workSettings, ...newSettings };
     setWorkSettings(updated);
-    await runUpsert('work_settings', updated, 'Đã lưu cấu hình giờ công');
+    await runUpsert('work_settings', {
+      id: updated.id,
+      default_check_in: updated.default_check_in,
+      default_check_out: updated.default_check_out,
+      default_break_start: updated.default_break_start,
+      default_break_end: updated.default_break_end,
+      standard_hours_per_day: updated.standard_hours_per_day
+    }, 'Đã lưu cấu hình giờ công');
   };
 
   const updateUserSettings = async (newSettings: Partial<UserSettings>) => {
     const updated = { ...userSettings, ...newSettings };
     setUserSettings(updated);
-    await runUpsert('user_settings', updated, 'Đã lưu cài đặt hệ thống');
+    await runUpsert('user_settings', {
+      id: updated.id,
+      theme: updated.theme,
+      currency: updated.currency,
+      currency_format: updated.currency_format,
+      cost_calculation_method: updated.cost_calculation_method
+    }, 'Đã lưu cài đặt hệ thống');
   };
 
   const saveWorkLog = async (logData: Omit<WorkLog, 'id'> & { id?: string }) => {
@@ -272,7 +285,20 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (idx >= 0) { const next = [...prev]; next[idx] = fullLog; return next; }
       return [fullLog, ...prev];
     });
-    await runUpsert('work_logs', fullLog, `Đã lưu chấm công ngày ${fullLog.work_date}`);
+    await runUpsert('work_logs', {
+      id: fullLog.id,
+      work_date: fullLog.work_date,
+      check_in: fullLog.check_in,
+      check_out: fullLog.check_out,
+      break_start: fullLog.break_start,
+      break_end: fullLog.break_end,
+      break_duration_hours: fullLog.break_duration_hours,
+      total_hours: fullLog.total_hours,
+      overtime_hours: fullLog.overtime_hours,
+      missing_hours: fullLog.missing_hours,
+      work_status: fullLog.work_status,
+      notes: fullLog.notes
+    }, `Đã lưu chấm công ngày ${fullLog.work_date}`);
   };
 
   const deleteWorkLog = async (id: string) => {
@@ -334,7 +360,15 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (idx >= 0) { const next = [...prev]; next[idx] = fullAsset; return next; }
       return [fullAsset, ...prev];
     });
-    await runUpsert('investment_assets', fullAsset, `Đã lưu tài sản ${fullAsset.asset_symbol}`);
+    await runUpsert('investment_assets', {
+      id: fullAsset.id,
+      asset_name: fullAsset.asset_name,
+      asset_symbol: fullAsset.asset_symbol,
+      asset_type: fullAsset.asset_type,
+      current_price: fullAsset.current_price,
+      price_updated_at: fullAsset.price_updated_at,
+      notes: fullAsset.notes
+    }, `Đã lưu tài sản ${fullAsset.asset_symbol}`);
   };
 
   const updateAssetPrice = async (assetId: string, newPrice: number) => {
@@ -361,7 +395,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (idx >= 0) { const next = [...prev]; next[idx] = fullTx; return next; }
       return [fullTx, ...prev];
     });
-    await runUpsert('investment_transactions', fullTx, 'Đã lưu giao dịch đầu tư');
+    await runUpsert('investment_transactions', {
+      id: fullTx.id,
+      asset_id: fullTx.asset_id,
+      transaction_type: fullTx.transaction_type,
+      transaction_date: fullTx.transaction_date,
+      quantity: fullTx.quantity,
+      price: fullTx.price,
+      fee: fullTx.fee,
+      note: fullTx.note
+    }, 'Đã lưu giao dịch đầu tư');
   };
 
   const deleteInvestmentTransaction = async (id: string) => {
