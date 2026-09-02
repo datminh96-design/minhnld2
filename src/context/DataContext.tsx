@@ -417,24 +417,29 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setIsRefreshingPrices(true);
     try {
       const priceUpdates = await priceService.fetchBatchPrices(investmentAssets);
-      const updatedAssets = investmentAssets.map(a => {
-        const update = priceUpdates[a.id];
-        if (update && update.success && update.price) {
-          return { ...a, current_price: update.price, price_updated_at: new Date().toISOString() };
+      setInvestmentAssets(prev => {
+        const updatedAssets = prev.map(a => {
+          const update = priceUpdates[a.id];
+          if (update && update.success && update.price) {
+            return { ...a, current_price: update.price, price_updated_at: new Date().toISOString() };
+          }
+          return a;
+        });
+        
+        if (!isDemoUser && user) {
+          const { client } = getSupabaseClient();
+          if (client) {
+            Promise.all(updatedAssets.map(a => {
+              if (priceUpdates[a.id]?.success) {
+                return client.from('investment_assets').update({ current_price: a.current_price, price_updated_at: a.price_updated_at }).eq('id', a.id);
+              }
+              return Promise.resolve();
+            })).catch(() => {});
+          }
         }
-        return a;
+        return updatedAssets;
       });
-      setInvestmentAssets(updatedAssets);
       if (!silent) addToast('Đã cập nhật giá thị trường', 'success');
-      
-      if (!isDemoUser && user) {
-        const { client } = getSupabaseClient();
-        if (client) {
-          await Promise.all(updatedAssets.map(a => 
-            client.from('investment_assets').update({ current_price: a.current_price, price_updated_at: a.price_updated_at }).eq('id', a.id)
-          ));
-        }
-      }
     } catch (err) {
       if (!silent) addToast('Lỗi cập nhật giá thị trường', 'error');
     } finally {
