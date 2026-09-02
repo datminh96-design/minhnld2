@@ -174,6 +174,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.removeItem('app_transactions');
     localStorage.removeItem('app_investment_assets');
     localStorage.removeItem('app_investment_txs');
+    localStorage.removeItem('app_expense_categories');
+    localStorage.removeItem('app_user_settings');
+    localStorage.removeItem('app_work_settings');
     localStorage.removeItem('app_portfolio_snapshots');
   };
 

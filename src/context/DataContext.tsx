@@ -22,7 +22,7 @@ import {
   getInitialInvestmentTransactions,
   getInitialPortfolioSnapshots
 } from '../lib/seedData';
-import { calculateWorkHours } from '../lib/utils';
+import { calculateWorkHours, generateUUID } from '../lib/utils';
 import { getSupabaseClient } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 import { priceService } from '../services/priceService';
@@ -124,7 +124,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
           return a;
         });
-      } catch {}
+      } catch (err) { console.error("Supabase Save Error:", err); }
     }
     return getInitialInvestmentAssets();
   });
@@ -207,7 +207,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             currency_format: userSettings.currency_format,
             cost_calculation_method: userSettings.cost_calculation_method,
           });
-        } catch {}
+        } catch (err) { console.error("Supabase Save Error:", err); }
       }
 
       // Keep glowing lightbulb visible for smooth UX feedback
@@ -430,6 +430,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const { client } = getSupabaseClient();
         if (client) {
           await client.from('work_settings').upsert({
+            
             user_id: user.id,
             default_check_in: updated.default_check_in,
             default_check_out: updated.default_check_out,
@@ -438,13 +439,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             standard_hours_per_day: updated.standard_hours_per_day,
           });
         }
-      } catch {}
+      } catch (err) { console.error("Supabase Save Error:", err); }
     }
     addToast('Đã lưu cấu hình giờ công mặc định', 'success');
   };
 
   const saveWorkLog = async (logData: Omit<WorkLog, 'id'> & { id?: string }) => {
-    const id = logData.id || `log-${logData.work_date}`;
+    const id = logData.id || generateUUID();
     
     // Auto calculate hours
     const calc = calculateWorkHours(
@@ -485,7 +486,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         const { client } = getSupabaseClient();
         if (client) {
-          await client.from('work_logs').upsert({
+          await client.from('work_logs').upsert({ id: fullLog.id,
+            
             user_id: user.id,
             work_date: fullLog.work_date,
             check_in: fullLog.check_in,
@@ -500,7 +502,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             notes: fullLog.notes,
           });
         }
-      } catch {}
+      } catch (err) { console.error("Supabase Save Error:", err); }
     }
     addToast(`Đã lưu chấm công ngày ${fullLog.work_date}`, 'success');
   };
@@ -514,7 +516,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (client) {
           await client.from('work_logs').delete().eq('id', id).eq('user_id', user.id);
         }
-      } catch {}
+      } catch (err) { console.error("Supabase Save Error:", err); }
     }
     addToast('Đã xóa bản ghi giờ công', 'info');
   };
@@ -529,7 +531,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // EXPENSE ACTIONS
   // ==========================================
   const saveTransaction = async (txData: Omit<Transaction, 'id'> & { id?: string }) => {
-    const id = txData.id || `tx-${Date.now()}`;
+    const id = txData.id || generateUUID();
     const fullTx: Transaction = {
       ...txData,
       id,
@@ -553,7 +555,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const { client } = getSupabaseClient();
         if (client) {
           await client.from('transactions').upsert({
-            id: fullTx.id.startsWith('tx-') ? undefined : fullTx.id,
+            id: fullTx.id,
+            
             user_id: user.id,
             transaction_date: fullTx.transaction_date,
             transaction_type: fullTx.transaction_type,
@@ -563,7 +566,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             note: fullTx.note,
           });
         }
-      } catch {}
+      } catch (err) { console.error("Supabase Save Error:", err); }
     }
     addToast(
       fullTx.transaction_type === 'income' ? 'Đã thêm khoản thu nhập' : 'Đã thêm khoản chi tiêu',
@@ -580,13 +583,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (client) {
           await client.from('transactions').delete().eq('id', id).eq('user_id', user.id);
         }
-      } catch {}
+      } catch (err) { console.error("Supabase Save Error:", err); }
     }
     addToast('Đã xóa giao dịch', 'info');
   };
 
   const saveCategory = async (catData: Omit<ExpenseCategory, 'id'> & { id?: string }) => {
-    const id = catData.id || `cat-${Date.now()}`;
+    const id = catData.id || generateUUID();
     const fullCat: ExpenseCategory = { ...catData, id };
 
     setCategories((prev) => {
@@ -605,7 +608,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         const { client } = getSupabaseClient();
         if (client) {
-          await client.from('expense_categories').upsert({
+          await client.from('expense_categories').upsert({ id: fullCat.id,
+            
             user_id: user.id,
             name: fullCat.name,
             type: fullCat.type,
@@ -614,7 +618,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             is_default: false,
           });
         }
-      } catch {}
+      } catch (err) { console.error("Supabase Save Error:", err); }
     }
     addToast('Đã lưu danh mục', 'success');
   };
@@ -628,7 +632,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (client) {
           await client.from('expense_categories').delete().eq('id', id).eq('user_id', user.id);
         }
-      } catch {}
+      } catch (err) { console.error("Supabase Save Error:", err); }
     }
     addToast('Đã xóa danh mục', 'info');
   };
@@ -637,7 +641,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // INVESTMENT ACTIONS
   // ==========================================
   const saveInvestmentAsset = async (assetData: Omit<InvestmentAsset, 'id'> & { id?: string }) => {
-    const id = assetData.id || `asset-${Date.now()}`;
+    const id = assetData.id || generateUUID();
     const fullAsset: InvestmentAsset = {
       ...assetData,
       id,
@@ -661,7 +665,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         const { client } = getSupabaseClient();
         if (client) {
-          await client.from('investment_assets').upsert({
+          await client.from('investment_assets').upsert({ id: fullAsset.id,
+            
             user_id: user.id,
             asset_name: fullAsset.asset_name,
             asset_symbol: fullAsset.asset_symbol,
@@ -671,7 +676,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             notes: fullAsset.notes,
           });
         }
-      } catch {}
+      } catch (err) { console.error("Supabase Save Error:", err); }
     }
     addToast(`Đã thêm tài sản ${fullAsset.asset_symbol}`, 'success');
   };
@@ -693,7 +698,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             price_updated_at: updatedTime,
           }).eq('id', assetId).eq('user_id', user.id);
         }
-      } catch {}
+      } catch (err) { console.error("Supabase Save Error:", err); }
     }
     addToast('Đã cập nhật giá tài sản thị trường', 'success');
   };
@@ -708,13 +713,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (client) {
           await client.from('investment_assets').delete().eq('id', id).eq('user_id', user.id);
         }
-      } catch {}
+      } catch (err) { console.error("Supabase Save Error:", err); }
     }
     addToast('Đã xóa tài sản khỏi danh mục', 'info');
   };
 
   const saveInvestmentTransaction = async (txData: Omit<InvestmentTransaction, 'id'> & { id?: string }) => {
-    const id = txData.id || `itx-${Date.now()}`;
+    const id = txData.id || generateUUID();
     const priceVal = Number(txData.price !== undefined ? txData.price : txData.price_per_unit || 0);
     const fullTx: InvestmentTransaction = {
       ...txData,
@@ -742,7 +747,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         const { client } = getSupabaseClient();
         if (client) {
-          await client.from('investment_transactions').upsert({
+          await client.from('investment_transactions').upsert({ id: fullTx.id,
+            
             user_id: user.id,
             asset_id: fullTx.asset_id,
             transaction_type: fullTx.transaction_type,
@@ -753,7 +759,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             note: fullTx.note || fullTx.notes,
           });
         }
-      } catch {}
+      } catch (err) { console.error("Supabase Save Error:", err); }
     }
     addToast('Đã ghi nhận giao dịch đầu tư', 'success');
   };
@@ -767,7 +773,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (client) {
           await client.from('investment_transactions').delete().eq('id', id).eq('user_id', user.id);
         }
-      } catch {}
+      } catch (err) { console.error("Supabase Save Error:", err); }
     }
     addToast('Đã xóa giao dịch đầu tư', 'info');
   };
@@ -854,6 +860,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const { client } = getSupabaseClient();
         if (client) {
           await client.from('user_settings').upsert({
+            
             user_id: user.id,
             theme: updated.theme,
             currency: updated.currency,
@@ -861,7 +868,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             cost_calculation_method: updated.cost_calculation_method,
           });
         }
-      } catch {}
+      } catch (err) { console.error("Supabase Save Error:", err); }
     }
     addToast('Đã lưu cài đặt hệ thống', 'success');
   };

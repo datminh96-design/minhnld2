@@ -35,26 +35,26 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
 
 export const DEFAULT_EXPENSE_CATEGORIES: ExpenseCategory[] = [
   // Income
-  { id: 'cat-inc-1', name: 'Lương', type: 'income', icon: 'Briefcase', color: '#10B981', is_default: true },
-  { id: 'cat-inc-2', name: 'Thưởng', type: 'income', icon: 'Award', color: '#059669', is_default: true },
-  { id: 'cat-inc-3', name: 'Làm thêm', type: 'income', icon: 'Clock', color: '#34D399', is_default: true },
-  { id: 'cat-inc-4', name: 'Kinh doanh', type: 'income', icon: 'TrendingUp', color: '#6EE7B7', is_default: true },
-  { id: 'cat-inc-5', name: 'Đầu tư & Cổ tức', type: 'income', icon: 'PieChart', color: '#14B8A6', is_default: true },
-  { id: 'cat-inc-6', name: 'Thu nhập khác', type: 'income', icon: 'PlusCircle', color: '#0D9488', is_default: true },
+  { id: 'a0000000-0000-4000-8000-000000000101', name: 'Lương', type: 'income', icon: 'Briefcase', color: '#10B981', is_default: true },
+  { id: 'a0000000-0000-4000-8000-000000000102', name: 'Thưởng', type: 'income', icon: 'Award', color: '#059669', is_default: true },
+  { id: 'a0000000-0000-4000-8000-000000000103', name: 'Làm thêm', type: 'income', icon: 'Clock', color: '#34D399', is_default: true },
+  { id: 'a0000000-0000-4000-8000-000000000104', name: 'Kinh doanh', type: 'income', icon: 'TrendingUp', color: '#6EE7B7', is_default: true },
+  { id: 'a0000000-0000-4000-8000-000000000105', name: 'Đầu tư & Cổ tức', type: 'income', icon: 'PieChart', color: '#14B8A6', is_default: true },
+  { id: 'a0000000-0000-4000-8000-000000000106', name: 'Thu nhập khác', type: 'income', icon: 'PlusCircle', color: '#0D9488', is_default: true },
 
   // Expense
-  { id: 'cat-exp-1', name: 'Ăn uống', type: 'expense', icon: 'Utensils', color: '#EF4444', is_default: true },
-  { id: 'cat-exp-2', name: 'Nhà ở & Tiện ích', type: 'expense', icon: 'Home', color: '#F97316', is_default: true },
-  { id: 'cat-exp-3', name: 'Đi lại & Xe cộ', type: 'expense', icon: 'Car', color: '#F59E0B', is_default: true },
-  { id: 'cat-exp-4', name: 'Xăng xe', type: 'expense', icon: 'Fuel', color: '#EAB308', is_default: true },
-  { id: 'cat-exp-5', name: 'Điện nước & Internet', type: 'expense', icon: 'Zap', color: '#84CC16', is_default: true },
-  { id: 'cat-exp-6', name: 'Mua sắm & Thiết bị', type: 'expense', icon: 'ShoppingBag', color: '#06B6D4', is_default: true },
-  { id: 'cat-exp-7', name: 'Giải trí & Du lịch', type: 'expense', icon: 'Film', color: '#6366F1', is_default: true },
-  { id: 'cat-exp-8', name: 'Y tế & Sức khỏe', type: 'expense', icon: 'HeartPulse', color: '#EC4899', is_default: true },
-  { id: 'cat-exp-9', name: 'Gia đình & Hiếu hỷ', type: 'expense', icon: 'Users', color: '#8B5CF6', is_default: true },
-  { id: 'cat-exp-10', name: 'Công việc & Học tập', type: 'expense', icon: 'Laptop', color: '#64748B', is_default: true },
-  { id: 'cat-exp-11', name: 'Tích lũy & Đầu tư', type: 'expense', icon: 'Coins', color: '#0EA5E9', is_default: true },
-  { id: 'cat-exp-12', name: 'Chi tiêu khác', type: 'expense', icon: 'MoreHorizontal', color: '#94A3B8', is_default: true },
+  { id: 'b0000000-0000-4000-8000-000000000201', name: 'Ăn uống', type: 'expense', icon: 'Utensils', color: '#EF4444', is_default: true },
+  { id: 'b0000000-0000-4000-8000-000000000202', name: 'Nhà ở & Tiện ích', type: 'expense', icon: 'Home', color: '#F97316', is_default: true },
+  { id: 'b0000000-0000-4000-8000-000000000203', name: 'Đi lại & Xe cộ', type: 'expense', icon: 'Car', color: '#F59E0B', is_default: true },
+  { id: 'b0000000-0000-4000-8000-000000000204', name: 'Xăng xe', type: 'expense', icon: 'Fuel', color: '#EAB308', is_default: true },
+  { id: 'b0000000-0000-4000-8000-000000000205', name: 'Điện nước & Internet', type: 'expense', icon: 'Zap', color: '#84CC16', is_default: true },
+  { id: 'b0000000-0000-4000-8000-000000000206', name: 'Mua sắm & Thiết bị', type: 'expense', icon: 'ShoppingBag', color: '#06B6D4', is_default: true },
+  { id: 'b0000000-0000-4000-8000-000000000207', name: 'Giải trí & Du lịch', type: 'expense', icon: 'Film', color: '#6366F1', is_default: true },
+  { id: 'b0000000-0000-4000-8000-000000000208', name: 'Y tế & Sức khỏe', type: 'expense', icon: 'HeartPulse', color: '#EC4899', is_default: true },
+  { id: 'b0000000-0000-4000-8000-000000000209', name: 'Gia đình & Hiếu hỷ', type: 'expense', icon: 'Users', color: '#8B5CF6', is_default: true },
+  { id: 'b0000000-0000-4000-8000-000000000210', name: 'Công việc & Học tập', type: 'expense', icon: 'Laptop', color: '#64748B', is_default: true },
+  { id: 'b0000000-0000-4000-8000-000000000211', name: 'Tích lũy & Đầu tư', type: 'expense', icon: 'Coins', color: '#0EA5E9', is_default: true },
+  { id: 'b0000000-0000-4000-8000-000000000212', name: 'Chi tiêu khác', type: 'expense', icon: 'MoreHorizontal', color: '#94A3B8', is_default: true },
 ];
 
 export const getInitialWorkLogs = (): WorkLog[] => {
