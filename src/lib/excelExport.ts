@@ -41,7 +41,7 @@ export function exportWorkLogsToExcel(
   const monthStr = month < 10 ? `0${month}` : `${month}`;
   const fileName = `Bang_Ghi_Gio_Lam_Thang_${monthStr}_${year}.xlsx`;
 
-  const empName = employeeInfo?.name || 'Nguyễn Lê Đạt Minh';
+  const empName = employeeInfo?.name || 'Người dùng';
   const empId = employeeInfo?.id || '42157';
   const empUsername = employeeInfo?.username || 'Minhnd2';
   const headerTitle = `${empName} - ${empId} - ${empUsername}`;

@@ -243,7 +243,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
             <div className="hidden md:block text-left">
               <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 leading-tight line-clamp-1">
-                {profile?.full_name || 'Nguyễn Lê Đạt Minh'}
+                {profile?.full_name || 'Người dùng'}
               </p>
               <p className="text-[10px] text-slate-400 leading-none">
                 {isDemoUser ? 'Chế độ Demo' : 'Supabase User'}
@@ -260,10 +260,10 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-white dark:bg-slate-900 shadow-xl border border-slate-200 dark:border-slate-800 p-2 z-50 animate-in fade-in zoom-in-95 duration-150">
                 <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 mb-2">
                   <p className="text-xs font-bold text-slate-900 dark:text-white">
-                    {profile?.full_name || 'Nguyễn Lê Đạt Minh'}
+                    {profile?.full_name || 'Người dùng'}
                   </p>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                    {profile?.email || 'datminh96@gmail.com'}
+                    {profile?.email || 'guest@example.com'}
                   </p>
                 </div>
 

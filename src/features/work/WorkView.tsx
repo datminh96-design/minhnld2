@@ -355,7 +355,7 @@ export const WorkView: React.FC = () => {
   // Export to Excel handler
   const handleExportExcel = () => {
     exportWorkLogsToExcel(currentMonthLogs, selectedMonth, selectedYear, summary, {
-      name: 'Nguyễn Lê Đạt Minh',
+      name: 'Người dùng',
       id: '42157',
       username: 'Minhnd2',
       standardTargetText: 'Phút chuẩn làm/ngày: 208'
@@ -563,7 +563,7 @@ export const WorkView: React.FC = () => {
           {/* Top Header Row of the Table */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 bg-white dark:bg-slate-900 border-b border-slate-300 dark:border-slate-700">
             <h2 className="text-lg sm:text-xl font-bold text-sky-700 dark:text-sky-400 font-display tracking-tight text-center sm:text-left">
-              Nguyễn Lê Đạt Minh - 42157 - Minhnd2
+              Mã số NV: 42157 - Họ tên NV
             </h2>
             <div className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700">
               Phút chuẩn làm/ngày: <span className="text-amber-600 dark:text-amber-400">208</span>

@@ -58,7 +58,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               // Fallback default profile
               setProfile({
                 id: currentSession.user.id,
-                full_name: currentSession.user.user_metadata?.full_name || 'Nguyễn Lê Đạt Minh',
+                full_name: currentSession.user.user_metadata?.full_name || 'Người dùng',
                 email: currentSession.user.email,
               });
             }
@@ -106,8 +106,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Demo simulated login
       const demoProf: Profile = {
         id: 'demo-user-id',
-        full_name: 'Nguyễn Lê Đạt Minh',
-        email: email || 'datminh96@gmail.com',
+        full_name: 'Khách',
+        email: email || 'guest@example.com',
       };
       setProfile(demoProf);
       localStorage.setItem('demo_user_profile', JSON.stringify(demoProf));
@@ -132,7 +132,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Demo simulated register
       const demoProf: Profile = {
         id: 'demo-user-id',
-        full_name: fullName || 'Nguyễn Lê Đạt Minh',
+        full_name: fullName || 'Khách',
         email,
       };
       setProfile(demoProf);

@@ -20,9 +20,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const { addToast } = useData();
 
   const [tab, setTab] = useState<'login' | 'register' | 'forgot' | 'supabase'>(initialTab);
-  const [email, setEmail] = useState('datminh96@gmail.com');
-  const [password, setPassword] = useState('Datminh@2026');
-  const [fullName, setFullName] = useState('Nguyễn Lê Đạt Minh');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showSupabaseKey, setShowSupabaseKey] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -103,7 +103,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           ? 'Quên Mật Khẩu'
           : 'Kết Nối Supabase Database'
       }
-      subtitle="Hệ thống quản lý Giờ công | Chi tiêu | Đầu tư - Nguyễn Lê Đạt Minh"
+      subtitle="Hệ thống quản lý Giờ công | Chi tiêu | Đầu tư - "
       maxWidth="md"
     >
       {/* Navigation tabs */}
@@ -158,7 +158,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 required
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                placeholder="Nguyễn Lê Đạt Minh"
+                placeholder=""
                 className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>

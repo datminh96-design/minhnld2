@@ -115,7 +115,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
               <div className="min-w-0">
                 <h1 className="text-sm font-bold text-slate-900 dark:text-white font-display tracking-tight leading-tight truncate">
-                  NGUYỄN LÊ ĐẠT MINH
+                  HỆ THỐNG CÁ NHÂN
                 </h1>
                 <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                   <Zap className="w-3 h-3 shrink-0" /> Giờ Công • Chi Tiêu • Đầu Tư

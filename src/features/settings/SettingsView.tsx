@@ -380,7 +380,7 @@ export const SettingsView: React.FC = () => {
       {/* 4. Thông tin ứng dụng */}
       <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 space-y-1">
         <p className="font-bold text-slate-800 dark:text-slate-200 font-display">
-          NGUYỄN LÊ ĐẠT MINH – GIỜ CÔNG | CHI TIÊU | ĐẦU TƯ
+          QUẢN LÝ CÁ NHÂN – GIỜ CÔNG | CHI TIÊU | ĐẦU TƯ
         </p>
         <p>Phiên bản 1.0.0 • Tối ưu hóa triển khai Vercel & Supabase Cloud PostgreSQL • Tự động sao lưu dữ liệu khi thêm, sửa, xóa</p>
       </div>
