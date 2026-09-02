@@ -29,7 +29,7 @@ export const SettingsView: React.FC = () => {
     updateWorkSettings, 
     userSettings, 
     updateUserSettings, 
-    resetToSampleData, 
+    clearAllData,
     addToast,
     syncStatus,
     lastSyncedAt,
@@ -359,10 +359,10 @@ export const SettingsView: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2.5 pt-1">
             <button
               type="button"
-              onClick={resetToSampleData}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/30 text-xs font-semibold"
+              onClick={clearAllData}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-700 dark:text-red-400 border border-red-500/30 text-xs font-semibold"
             >
-              <Sparkles className="w-3.5 h-3.5" /> Nạp Lại Dữ Liệu Mẫu (Seed Data)
+              <Trash2 className="w-3.5 h-3.5" /> Xóa Trắng Dữ Liệu Hiện Tại
             </button>
 
             <button

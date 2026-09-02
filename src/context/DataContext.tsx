@@ -69,7 +69,7 @@ interface DataContextType {
   updateUserSettings: (settings: Partial<UserSettings>) => Promise<void>;
   addToast: (message: string, type?: ToastMessage['type'], title?: string) => void;
   removeToast: (id: string) => void;
-  resetToSampleData: () => void;
+  clearAllData: () => void;
   syncWithSupabase: () => Promise<void>;
   triggerCloudBackup: (silent?: boolean) => Promise<void>;
 }
@@ -879,17 +879,24 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, [userSettings.theme]);
 
-  const resetToSampleData = () => {
+  const clearAllData = () => {
     setWorkSettings(DEFAULT_WORK_SETTINGS);
     setUserSettings(DEFAULT_USER_SETTINGS);
-    setWorkLogs(getInitialWorkLogs());
+    setWorkLogs([]);
     setCategories(DEFAULT_EXPENSE_CATEGORIES);
-    setTransactions(getInitialTransactions());
-    setInvestmentAssets(getInitialInvestmentAssets());
-    setInvestmentTransactions(getInitialInvestmentTransactions());
-    setPortfolioSnapshots(getInitialPortfolioSnapshots());
+    setTransactions([]);
+    setInvestmentAssets([]);
+    setInvestmentTransactions([]);
+    setPortfolioSnapshots([]);
+
+    localStorage.removeItem('app_work_logs');
+    localStorage.removeItem('app_transactions');
+    localStorage.removeItem('app_investment_assets');
+    localStorage.removeItem('app_investment_txs');
+    localStorage.removeItem('app_portfolio_snapshots');
+
     triggerCloudBackup(false);
-    addToast('Đã nạp bộ dữ liệu mẫu tài chính cá nhân thành công!', 'success');
+    addToast('Đã xóa toàn bộ dữ liệu hiện tại thành công!', 'success');
   };
 
   return (
@@ -927,7 +934,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         updateUserSettings,
         addToast,
         removeToast,
-        resetToSampleData,
+        clearAllData,
         syncWithSupabase,
         triggerCloudBackup,
       }}
