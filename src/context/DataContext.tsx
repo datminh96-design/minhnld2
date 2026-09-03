@@ -55,7 +55,7 @@ interface DataContextType {
   addToast: (message: string, type?: ToastMessage['type'], title?: string) => void;
   removeToast: (id: string) => void;
   clearAllData: () => void;
-  syncWithSupabase: () => Promise<void>;
+  syncWithSupabase: (showToast?: boolean) => Promise<void>;
   triggerCloudBackup: (silent?: boolean) => Promise<void>;
 }
 
@@ -103,6 +103,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [loadingData, setLoadingData] = useState<boolean>(false);
+  const loadingDataRef = useRef(loadingData);
+  useEffect(() => {
+    loadingDataRef.current = loadingData;
+  }, [loadingData]);
   const [isRefreshingPrices, setIsRefreshingPrices] = useState<boolean>(false);
   const [syncStatus, setSyncStatus] = useState<CloudSyncStatus>('idle');
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(new Date());
@@ -158,7 +162,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }, 700);
   };
 
-  const syncWithSupabase = async () => {
+  const syncWithSupabase = async (showToast = false) => {
+    if (loadingDataRef.current) return;
     const { client, isConfigured } = getSupabaseClient();
     if (!isConfigured || !client || isDemoUser || !user) return;
     try {
@@ -252,6 +257,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       setSyncStatus('synced');
       setLastSyncedAt(new Date());
+      if (showToast) addToast('Đã đồng bộ dữ liệu mới nhất từ Cloud', 'success');
     } catch (err: any) {
       console.error('Lỗi nghiêm trọng khi đồng bộ:', err);
       addToast(`Lỗi hệ thống đồng bộ: ${err.message}`, 'error');
@@ -263,6 +269,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     if (!isDemoUser && user) syncWithSupabase();
+
+    // Tự động đồng bộ khi quay lại tab (App regains focus)
+    const handleFocus = () => {
+      if (!isDemoUser && user && !loadingDataRef.current) {
+        syncWithSupabase();
+      }
+    };
+    
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
   }, [user, isDemoUser]);
 
   const runUpsert = async (table: string, data: any, successMsg: string) => {

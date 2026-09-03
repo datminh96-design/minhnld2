@@ -43,7 +43,7 @@ export const Header: React.FC<HeaderProps> = ({
     syncStatus, 
     lastSyncedAt, 
     syncMessage, 
-    triggerCloudBackup 
+    syncWithSupabase 
   } = useData();
 
   const [showQuickMenu, setShowQuickMenu] = useState(false);
@@ -103,7 +103,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="relative">
           <button
             type="button"
-            onClick={() => triggerCloudBackup(false)}
+            onClick={() => syncWithSupabase(true)}
             onMouseEnter={() => setShowSyncTooltip(true)}
             onMouseLeave={() => setShowSyncTooltip(false)}
             className={`relative flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl border transition-all duration-300 ${
