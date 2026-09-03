@@ -162,6 +162,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }, 700);
   };
 
+  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const syncWithSupabase = async (showToast = false) => {
     if (loadingDataRef.current) return;
     const { client, isConfigured } = getSupabaseClient();
@@ -173,7 +175,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const { data: wsData, error: wsError } = await client.from('work_settings').select('*').eq('user_id', user.id).maybeSingle();
       if (wsError) {
         console.error('Lỗi tải work_settings:', wsError);
-        addToast(`Lỗi đồng bộ Cài đặt Công việc: ${wsError.message}`, 'error');
       } else if (wsData) {
         setWorkSettings({ ...DEFAULT_WORK_SETTINGS, ...wsData });
       }
@@ -181,15 +182,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const { data: usData, error: usError } = await client.from('user_settings').select('*').eq('user_id', user.id).maybeSingle();
       if (usError) {
         console.error('Lỗi tải user_settings:', usError);
-        addToast(`Lỗi đồng bộ Cài đặt Hệ thống: ${usError.message}`, 'error');
       } else if (usData) {
         setUserSettings({ ...DEFAULT_USER_SETTINGS, ...usData });
       }
 
-      const { data: wlData, error: wlError } = await client.from('work_logs').select('*').eq('user_id', user.id);
+      const { data: wlData, error: wlError } = await client.from('work_logs').select('*').eq('user_id', user.id).order('work_date', { ascending: false });
       if (wlError) {
          console.error('Lỗi tải work_logs:', wlError);
-         addToast(`Lỗi đồng bộ Giờ công: ${wlError.message}`, 'error');
       } else if (wlData) {
         setWorkLogs(wlData.map(l => ({
           ...l, 
@@ -203,7 +202,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const { data: catData, error: catError } = await client.from('expense_categories').select('*').or(`user_id.eq.${user.id},is_default.eq.true`);
       if (catError) {
          console.error('Lỗi tải categories:', catError);
-         addToast(`Lỗi đồng bộ Danh mục: ${catError.message}`, 'error');
       } else if (catData && catData.length > 0) {
         setCategories(catData);
       } else {
@@ -213,51 +211,25 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (insertError) console.error(insertError);
       }
 
-      const { data: txData, error: txError } = await client.from('transactions').select('*').eq('user_id', user.id);
+      const { data: txData, error: txError } = await client.from('transactions').select('*').eq('user_id', user.id).order('transaction_date', { ascending: false });
       if (txError) {
          console.error('Lỗi tải transactions:', txError);
-         addToast(`Lỗi đồng bộ Thu/Chi: ${txError.message}`, 'error');
       } else if (txData) {
          const serverTxs = txData.map(t => ({ ...t, amount: Number(t.amount) || 0 }));
-         try {
-           const saved = localStorage.getItem('app_transactions');
-           if (saved) {
-             const localTxs = JSON.parse(saved) as Transaction[];
-             const serverIds = new Set(serverTxs.map(t => t.id));
-             const unsyncedTxs = localTxs.filter(t => !serverIds.has(t.id) && !t.id.includes('demo'));
-             if (unsyncedTxs.length > 0) {
-               console.log('Rescuing unsynced transactions:', unsyncedTxs.length);
-               let merged = [...serverTxs];
-               for (const tx of unsyncedTxs) {
-                 const { error: upsertErr } = await client.from('transactions').upsert({ ...tx, user_id: user.id });
-                 if (!upsertErr) merged.push(tx);
-               }
-               merged = merged.sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime());
-               setTransactions(merged);
-             } else {
-               setTransactions(serverTxs);
-             }
-           } else {
-             setTransactions(serverTxs);
-           }
-         } catch (e) {
-           console.error('Error merging transactions:', e);
-           setTransactions(serverTxs);
-         }
+         // Supabase is the single source of truth - replace directly to eliminate zombie resurrection
+         setTransactions(serverTxs);
       }
 
       const { data: assetData, error: assetError } = await client.from('investment_assets').select('*').eq('user_id', user.id);
       if (assetError) {
          console.error('Lỗi tải assets:', assetError);
-         addToast(`Lỗi đồng bộ Tài sản Đầu tư: ${assetError.message}`, 'error');
       } else if (assetData) {
          setInvestmentAssets(assetData.map(a => ({ ...a, current_price: Number(a.current_price) || 0 })));
       }
 
-      const { data: itxData, error: itxError } = await client.from('investment_transactions').select('*').eq('user_id', user.id);
+      const { data: itxData, error: itxError } = await client.from('investment_transactions').select('*').eq('user_id', user.id).order('transaction_date', { ascending: false });
       if (itxError) {
          console.error('Lỗi tải investment_transactions:', itxError);
-         addToast(`Lỗi đồng bộ Lịch sử GD Đầu tư: ${itxError.message}`, 'error');
       } else if (itxData) {
          setInvestmentTransactions(itxData.map(t => ({ 
           ...t, 
@@ -267,7 +239,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         })));
       }
 
-      const { data: snapData, error: snapError } = await client.from('portfolio_snapshots').select('*').eq('user_id', user.id);
+      const { data: snapData, error: snapError } = await client.from('portfolio_snapshots').select('*').eq('user_id', user.id).order('snapshot_date', { ascending: true });
       if (snapError) {
          console.error('Lỗi tải snapshots:', snapError);
       } else if (snapData) {
@@ -282,29 +254,81 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       setSyncStatus('synced');
       setLastSyncedAt(new Date());
+      setSyncMessage('Đồng bộ Realtime Supabase hoạt động');
       if (showToast) addToast('Đã đồng bộ dữ liệu mới nhất từ Cloud', 'success');
     } catch (err: any) {
       console.error('Lỗi nghiêm trọng khi đồng bộ:', err);
-      addToast(`Lỗi hệ thống đồng bộ: ${err.message}`, 'error');
       setSyncStatus('error');
     } finally {
       setLoadingData(false);
     }
   };
 
+  // Realtime Multi-Device synchronization hook
   useEffect(() => {
-    if (!isDemoUser && user) syncWithSupabase();
+    if (isDemoUser || !user) return;
 
-    // Tự động đồng bộ khi quay lại tab (App regains focus)
-    const handleFocus = () => {
-      if (!isDemoUser && user && !loadingDataRef.current) {
-        syncWithSupabase();
+    // Initial sync
+    syncWithSupabase();
+
+    const { client, isConfigured } = getSupabaseClient();
+    if (!isConfigured || !client) return;
+
+    // Setup Supabase Realtime channel for instant cross-device updates
+    const channel = client
+      .channel(`realtime-sync-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+        },
+        (payload) => {
+          console.log('[Supabase Realtime] Event received from another device/session:', payload.eventType, payload.table);
+          if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+          syncTimeoutRef.current = setTimeout(() => {
+            syncWithSupabase(false);
+          }, 100);
+        }
+      )
+      .subscribe((status) => {
+        console.log('[Supabase Realtime] Subscription status:', status);
+      });
+
+    // Heartbeat auto-sync every 15s when tab is active
+    const heartbeat = setInterval(() => {
+      if (!document.hidden && !loadingDataRef.current) {
+        syncWithSupabase(false);
+      }
+    }, 15000);
+
+    // Sync when tab regains focus or becomes visible
+    const handleFocusOrVisible = () => {
+      if (!document.hidden && !loadingDataRef.current) {
+        syncWithSupabase(false);
       }
     };
-    
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
-  }, [user, isDemoUser]);
+
+    window.addEventListener('focus', handleFocusOrVisible);
+    document.addEventListener('visibilitychange', handleFocusOrVisible);
+
+    // Sync across tabs in the same browser
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key && e.key.startsWith('app_') && !loadingDataRef.current) {
+        syncWithSupabase(false);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+      clearInterval(heartbeat);
+      window.removeEventListener('focus', handleFocusOrVisible);
+      document.removeEventListener('visibilitychange', handleFocusOrVisible);
+      window.removeEventListener('storage', handleStorage);
+      client.removeChannel(channel);
+    };
+  }, [user?.id, isDemoUser]);
 
   const runUpsert = async (table: string, data: any, successMsg: string) => {
     triggerCloudBackup();
@@ -623,13 +647,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (!isDemoUser && user && !skipCloudSave) {
           const { client } = getSupabaseClient();
           if (client) {
-            Promise.all(updatedAssets.map(a => {
+            Promise.all(updatedAssets.map(async a => {
               if (priceUpdates[a.id] && priceUpdates[a.id].price !== prev.find(p => p.id === a.id)?.current_price) {
-                const { error } = client.from('investment_assets').update({ current_price: a.current_price, price_updated_at: a.price_updated_at }).eq('id', a.id);
-                if (error) console.error(error);
-                return Promise.resolve();
+                const { error } = await client.from('investment_assets').update({ current_price: a.current_price, price_updated_at: a.price_updated_at }).eq('id', a.id);
+                if (error) console.error('Lỗi lưu giá tài sản:', error);
               }
-              return Promise.resolve();
             })).catch(() => {});
           }
         }

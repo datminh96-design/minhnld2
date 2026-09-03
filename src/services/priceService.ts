@@ -285,7 +285,7 @@ class PriceService {
     const targetType: AssetType = preferredType || known?.type || 'crypto';
 
     // 1. If preferred or known is Stock / HOSE
-    if (targetType === 'Cổ phiếu' || targetType === 'stock') {
+    if ((targetType as string) === 'Cổ phiếu' || targetType === 'stock') {
       const stockData = await this.fetchVnStockPrice(cleanSym);
       if (stockData && stockData.price > 0) {
         return {
@@ -302,7 +302,7 @@ class PriceService {
     }
 
     // 2. If preferred or known is Crypto / Binance
-    if (targetType === 'Crypto' || targetType === 'crypto' || !preferredType) {
+    if ((targetType as string) === 'Crypto' || targetType === 'crypto' || !preferredType) {
       try {
         const binanceSymbol = cleanSym === 'XAUT' ? 'PAXGUSDT' : (cleanSym.endsWith('USDT') ? cleanSym : `${cleanSym}USDT`);
         const [priceRes, tickerRes] = await Promise.all([
@@ -388,7 +388,7 @@ class PriceService {
 
     try {
       // 1. Crypto (BTC, ETH, BNB, SOL, DOGE, XRP, etc.) & Gold Token (PAXG, XAUT)
-      const isCryptoType = type === 'Crypto' || type === 'crypto';
+      const isCryptoType = (type as string) === 'Crypto' || type === 'crypto';
       const isKnownCrypto = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'DOGE', 'ADA', 'DOT', 'AVAX', 'NEAR', 'XAUT', 'PAXG', 'SUI', 'PEPE', 'SHIB', 'TON', 'LINK'].includes(symbol);
 
       if (isCryptoType || isKnownCrypto) {
@@ -412,7 +412,7 @@ class PriceService {
       }
 
       // 2. Mutual Fund (Quỹ mở, VEOF, VESAF, DCDS, DCBC, VCBF...)
-      const isFundType = type === 'Quỹ' || type === 'fund' || ['VEOF', 'VESAF', 'DCDS', 'DCBC', 'VIBF', 'SSISCA'].includes(symbol);
+      const isFundType = (type as string) === 'Quỹ' || type === 'fund' || ['VEOF', 'VESAF', 'DCDS', 'DCBC', 'VIBF', 'SSISCA'].includes(symbol);
       if (isFundType) {
         const liveNav = await this.fetchFundNavFromFmarket(symbol);
         if (liveNav && liveNav > 0) {
@@ -439,7 +439,7 @@ class PriceService {
       }
 
       // 3. Vietnam Stock on HOSE / HNX / UPCOM
-      const isStockType = type === 'Cổ phiếu' || type === 'stock';
+      const isStockType = (type as string) === 'Cổ phiếu' || type === 'stock';
       if (isStockType || !isCryptoType) {
         const stockData = await this.fetchVnStockPrice(symbol);
         if (stockData && stockData.price > 0) {
@@ -468,7 +468,8 @@ class PriceService {
       }
 
       // 4. Gold - SJC or Physical Gold
-      if (type === 'Vàng' || type === 'gold' || symbol.includes('SJC') || symbol.includes('GOLD') || symbol.includes('XAU')) {
+      if ((type as string) === 'Vàng' || type === 'gold' || symbol.includes('SJC') || symbol.includes('GOLD') || symbol.includes('XAU')) {
+
         try {
           const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT`, {
             cache: 'no-cache',
@@ -566,7 +567,7 @@ class PriceService {
     }
 
     // Other Crypto (ETH, SOL, BNB...)
-    if (type === 'Crypto' || type === 'crypto') {
+    if ((type as string) === 'Crypto' || type === 'crypto') {
       if (liveUsdtPrice && liveUsdtPrice > 0) {
         return `$${liveUsdtPrice.toLocaleString('en-US', { maximumFractionDigits: 2 })} USDT`;
       }
