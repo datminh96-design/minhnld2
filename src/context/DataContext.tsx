@@ -121,9 +121,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     const interval = setInterval(() => {
       if (investmentAssetsRef.current.length > 0) {
-        refreshMarketPrices(true, true);
+        refreshMarketPrices(true, false);
       }
-    }, 5000);
+    }, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -224,7 +224,39 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (assetError) {
          console.error('Lỗi tải assets:', assetError);
       } else if (assetData) {
-         setInvestmentAssets(assetData.map(a => ({ ...a, current_price: Number(a.current_price) || 0 })));
+         setInvestmentAssets(prev => {
+           const prevMap = new Map<string, InvestmentAsset>(prev.map(p => [p.id, p]));
+           return assetData.map((serverAsset: InvestmentAsset) => {
+             const existing = prevMap.get(serverAsset.id);
+             const serverPrice = Number(serverAsset.current_price) || 0;
+             const existingPrice = Number(existing?.current_price) || 0;
+             
+             let finalPrice = serverPrice;
+             let finalUpdatedAt = serverAsset.price_updated_at;
+
+             if (existingPrice > 0) {
+               if (!serverPrice) {
+                 finalPrice = existingPrice;
+                 finalUpdatedAt = existing?.price_updated_at;
+               } else if (existing?.price_updated_at && serverAsset.price_updated_at) {
+                 const localTime = new Date(existing.price_updated_at).getTime();
+                 const serverTime = new Date(serverAsset.price_updated_at).getTime();
+                 if (localTime >= serverTime) {
+                   finalPrice = existingPrice;
+                   finalUpdatedAt = existing.price_updated_at;
+                 }
+               } else {
+                 finalPrice = existingPrice;
+               }
+             }
+
+             return {
+               ...serverAsset,
+               current_price: finalPrice,
+               price_updated_at: finalUpdatedAt
+             };
+           });
+         });
       }
 
       const { data: itxData, error: itxError } = await client.from('investment_transactions').select('*').eq('user_id', user.id).order('transaction_date', { ascending: false });

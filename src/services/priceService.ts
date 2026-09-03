@@ -425,17 +425,6 @@ class PriceService {
             sourceName: 'Fmarket NAV Live',
           };
         }
-
-        if (symbol === 'VEOF') {
-          return {
-            symbol: asset.asset_symbol,
-            price: 33192,
-            usdtPrice: Math.round((33192 / this.usdtVndRate) * 100) / 100,
-            updatedAt: new Date().toISOString(),
-            source: 'fund_api',
-            sourceName: 'VinaCapital VEOF NAV',
-          };
-        }
       }
 
       // 3. Vietnam Stock on HOSE / HNX / UPCOM
@@ -453,23 +442,10 @@ class PriceService {
             changePercent: stockData.changePercent,
           };
         }
-
-        if (symbol === 'TPB') {
-          return {
-            symbol: asset.asset_symbol,
-            price: 14650,
-            usdtPrice: Math.round((14650 / this.usdtVndRate) * 100) / 100,
-            updatedAt: new Date().toISOString(),
-            source: 'hose_api',
-            sourceName: 'Sàn HOSE (Tiên Phong Bank)',
-            changePercent: -0.34,
-          };
-        }
       }
 
       // 4. Gold - SJC or Physical Gold
       if ((type as string) === 'Vàng' || type === 'gold' || symbol.includes('SJC') || symbol.includes('GOLD') || symbol.includes('XAU')) {
-
         try {
           const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT`, {
             cache: 'no-cache',
@@ -489,29 +465,19 @@ class PriceService {
             };
           }
         } catch {}
-
-        const baseSjc = asset.current_price > 100000000 ? asset.current_price : 145500000;
-        return {
-          symbol: asset.asset_symbol,
-          price: baseSjc,
-          usdtPrice: Math.round(baseSjc / this.usdtVndRate),
-          updatedAt: new Date().toISOString(),
-          source: 'gold_api',
-          sourceName: 'Bảng Giá Vàng SJC 9999',
-        };
       }
     } catch (err) {
       console.warn(`PriceService: could not fetch live price for ${symbol}`, err);
     }
 
-    // Fallback: return current price
+    // Fallback: preserve latest known price from asset
     return {
       symbol: asset.asset_symbol,
-      price: asset.current_price,
-      usdtPrice: Math.round((asset.current_price / this.usdtVndRate) * 100) / 100,
-      updatedAt: new Date().toISOString(),
+      price: asset.current_price || 0,
+      usdtPrice: asset.current_price ? Math.round((asset.current_price / this.usdtVndRate) * 100) / 100 : 0,
+      updatedAt: asset.price_updated_at || new Date().toISOString(),
       source: 'cache',
-      sourceName: 'Bộ nhớ đệm',
+      sourceName: 'Giá hiện tại',
     };
   }
 
