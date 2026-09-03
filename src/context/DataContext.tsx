@@ -218,7 +218,32 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
          console.error('Lỗi tải transactions:', txError);
          addToast(`Lỗi đồng bộ Thu/Chi: ${txError.message}`, 'error');
       } else if (txData) {
-         setTransactions(txData.map(t => ({ ...t, amount: Number(t.amount) || 0 })));
+         const serverTxs = txData.map(t => ({ ...t, amount: Number(t.amount) || 0 }));
+         try {
+           const saved = localStorage.getItem('app_transactions');
+           if (saved) {
+             const localTxs = JSON.parse(saved) as Transaction[];
+             const serverIds = new Set(serverTxs.map(t => t.id));
+             const unsyncedTxs = localTxs.filter(t => !serverIds.has(t.id) && !t.id.includes('demo'));
+             if (unsyncedTxs.length > 0) {
+               console.log('Rescuing unsynced transactions:', unsyncedTxs.length);
+               let merged = [...serverTxs];
+               for (const tx of unsyncedTxs) {
+                 const { error: upsertErr } = await client.from('transactions').upsert({ ...tx, user_id: user.id });
+                 if (!upsertErr) merged.push(tx);
+               }
+               merged = merged.sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime());
+               setTransactions(merged);
+             } else {
+               setTransactions(serverTxs);
+             }
+           } else {
+             setTransactions(serverTxs);
+           }
+         } catch (e) {
+           console.error('Error merging transactions:', e);
+           setTransactions(serverTxs);
+         }
       }
 
       const { data: assetData, error: assetError } = await client.from('investment_assets').select('*').eq('user_id', user.id);
@@ -283,7 +308,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const runUpsert = async (table: string, data: any, successMsg: string) => {
     triggerCloudBackup();
-    if (!isDemoUser && user) {
+    if (!isDemoUser) {
+      if (!user) {
+        addToast('Lỗi: Phiên đăng nhập đã hết hạn. Vui lòng tải lại trang và đăng nhập lại.', 'error');
+        return { success: false, error: new Error('Session expired') };
+      }
       try {
         const { client } = getSupabaseClient();
         if (client) {
@@ -301,7 +330,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const runDelete = async (table: string, id: string, successMsg: string) => {
     triggerCloudBackup();
-    if (!isDemoUser && user) {
+    if (!isDemoUser) {
+      if (!user) {
+        addToast('Lỗi: Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.', 'error');
+        return;
+      }
       try {
         const { client } = getSupabaseClient();
         if (client) {
