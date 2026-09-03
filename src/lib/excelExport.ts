@@ -45,7 +45,7 @@ export function exportWorkLogsToExcel(
   const empId = employeeInfo?.id || '42157';
   const empUsername = employeeInfo?.username || 'Minhnd2';
   const headerTitle = `${empName} - ${empId} - ${empUsername}`;
-  const rightHeader = employeeInfo?.standardTargetText || 'Phút chuẩn làm/ngày: 208';
+  const rightHeader = employeeInfo?.standardTargetText || 'Giờ chuẩn 26 ngày: 208';
 
   // Number of days in selected month
   const daysInMonth = new Date(year, month, 0).getDate();

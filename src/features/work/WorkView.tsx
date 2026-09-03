@@ -305,9 +305,47 @@ export const WorkView: React.FC = () => {
     }));
   }, [currentMonthLogs, workSettings]);
 
+  // Helper: auto-suggest next working day based on existing logs
+  const getNextSuggestedWorkDate = (specificDate?: string): string => {
+    if (specificDate) return specificDate;
+
+    if (currentMonthLogs.length > 0) {
+      // Find highest date logged in current month
+      const loggedDates = currentMonthLogs
+        .map((l) => l.work_date)
+        .filter((d) => d && d.startsWith(monthPrefix))
+        .sort();
+
+      if (loggedDates.length > 0) {
+        const lastDate = loggedDates[loggedDates.length - 1]; // e.g. "2026-09-03"
+        const parts = lastDate.split('-').map(Number);
+        if (parts.length === 3) {
+          const nextDay = parts[2] + 1;
+          if (nextDay <= daysInMonth) {
+            const nextDayStr = nextDay < 10 ? `0${nextDay}` : `${nextDay}`;
+            return `${selectedYear}-${monthStr}-${nextDayStr}`;
+          }
+          return lastDate;
+        }
+      }
+    }
+
+    // If no logs in this month yet, check if today is in this month
+    const now = new Date();
+    const curY = now.getFullYear();
+    const curM = now.getMonth() + 1;
+    if (curY === selectedYear && curM === selectedMonth) {
+      const curD = now.getDate();
+      const dStr = curD < 10 ? `0${curD}` : `${curD}`;
+      return `${selectedYear}-${monthStr}-${dStr}`;
+    }
+
+    return `${selectedYear}-${monthStr}-01`;
+  };
+
   // Open Create Modal with default times
   const handleOpenAddModal = (dateStr?: string) => {
-    const defaultDate = dateStr || `${selectedYear}-${monthStr}-01`;
+    const defaultDate = getNextSuggestedWorkDate(dateStr);
     setEditingLog(null);
     setFormDate(defaultDate);
     setFormCheckIn(workSettings.default_check_in);
@@ -358,7 +396,7 @@ export const WorkView: React.FC = () => {
       name: 'Người dùng',
       id: '42157',
       username: 'Minhnd2',
-      standardTargetText: 'Phút chuẩn làm/ngày: 208'
+      standardTargetText: 'Giờ chuẩn 26 ngày: 208'
     });
     addToast(`Đã xuất file Excel mẫu chuẩn: Bang_Ghi_Gio_Lam_Thang_${monthStr}_${selectedYear}.xlsx`, 'success');
   };
@@ -566,7 +604,7 @@ export const WorkView: React.FC = () => {
               Mã số NV: 42157 - Họ tên NV
             </h2>
             <div className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700">
-              Phút chuẩn làm/ngày: <span className="text-amber-600 dark:text-amber-400">208</span>
+              Giờ chuẩn 26 ngày: <span className="text-amber-600 dark:text-amber-400">208</span>
             </div>
           </div>
 

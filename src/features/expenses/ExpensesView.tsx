@@ -81,6 +81,11 @@ export const ExpensesView: React.FC = () => {
   const [newCatType, setNewCatType] = useState<TransactionType>('expense');
   const [newCatColor, setNewCatColor] = useState('#10B981');
 
+  // Inline Quick Category Creation inside Transaction Modal
+  const [isInlineAddCatOpen, setIsInlineAddCatOpen] = useState(false);
+  const [inlineCatName, setInlineCatName] = useState('');
+  const [inlineCatColor, setInlineCatColor] = useState('#10B981');
+
   // Date Filtering logic
   const filteredTransactions = useMemo(() => {
     // Current simulated date reference: 2026-09-01
@@ -251,7 +256,7 @@ export const ExpensesView: React.FC = () => {
     setIsTxModalOpen(false);
   };
 
-  // Save New Category
+  // Save New Category from main settings
   const handleSaveCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCatName.trim()) return;
@@ -264,6 +269,38 @@ export const ExpensesView: React.FC = () => {
 
     setNewCatName('');
     setIsCatModalOpen(false);
+  };
+
+  // Quick create category directly inside transaction modal
+  const handleQuickCreateCategory = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = inlineCatName.trim();
+    if (!trimmed) {
+      addToast('Vui lòng nhập tên danh mục', 'warning');
+      return;
+    }
+
+    const existing = categories.find(
+      (c) => c.name.toLowerCase() === trimmed.toLowerCase() && c.type === formType
+    );
+    if (existing) {
+      setFormCategoryName(existing.name);
+      setIsInlineAddCatOpen(false);
+      setInlineCatName('');
+      addToast(`Đã chọn danh mục "${existing.name}"`, 'info');
+      return;
+    }
+
+    await saveCategory({
+      name: trimmed,
+      type: formType,
+      color: inlineCatColor || (formType === 'income' ? '#10B981' : '#F59E0B'),
+    });
+
+    setFormCategoryName(trimmed);
+    setInlineCatName('');
+    setIsInlineAddCatOpen(false);
+    addToast(`Đã tạo và chọn danh mục "${trimmed}" thành công!`, 'success');
   };
 
   const availableCategoriesForForm = categories.filter((c) => c.type === formType);
@@ -786,20 +823,65 @@ export const ExpensesView: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Danh mục
-              </label>
-              <select
-                value={formCategoryName}
-                onChange={(e) => setFormCategoryName(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              >
-                {availableCategoriesForForm.map((c) => (
-                  <option key={c.id} value={c.name}>
-                    {c.name}
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Danh mục
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsInlineAddCatOpen(!isInlineAddCatOpen)}
+                  className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 flex items-center gap-0.5 cursor-pointer transition-colors"
+                >
+                  <Plus className="w-3 h-3" /> {isInlineAddCatOpen ? 'Đóng' : 'Thêm mới'}
+                </button>
+              </div>
+
+              {!isInlineAddCatOpen ? (
+                <select
+                  value={formCategoryName}
+                  onChange={(e) => {
+                    if (e.target.value === '__add_new__') {
+                      setIsInlineAddCatOpen(true);
+                    } else {
+                      setFormCategoryName(e.target.value);
+                    }
+                  }}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  {availableCategoriesForForm.map((c) => (
+                    <option key={c.id} value={c.name}>
+                      {c.name}
+                    </option>
+                  ))}
+                  <option value="__add_new__" className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                    ➕ Thêm danh mục mới...
                   </option>
-                ))}
-              </select>
+                </select>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder={`Tên danh mục ${formType === 'income' ? 'thu' : 'chi'}...`}
+                    value={inlineCatName}
+                    onChange={(e) => setInlineCatName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleQuickCreateCategory();
+                      }
+                    }}
+                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-emerald-400 dark:border-emerald-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleQuickCreateCategory()}
+                    className="px-2.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg whitespace-nowrap shadow-xs cursor-pointer"
+                  >
+                    Tạo
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
