@@ -27,7 +27,10 @@ import {
   ArrowDownLeft,
   Coins,
   History,
-  Sparkles
+  Sparkles,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -96,18 +99,62 @@ export const InvestmentsView: React.FC = () => {
   const [bnbPriceUsdt, setBnbPriceUsdt] = useState<number>(580); // 1 BNB = 580 USDT
   const [txNotes, setTxNotes] = useState('');
 
-  // Holdings Filtered
-  const filteredHoldings = useMemo(() => {
-    return calculatedHoldings.filter((h) => {
-      const matchType = assetTypeFilter === 'all' || h.asset.asset_type === assetTypeFilter;
-      const matchSearch =
-        searchTerm === '' ||
-        h.asset.asset_symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        h.asset.asset_name.toLowerCase().includes(searchTerm.toLowerCase());
+  // Holdings Sorting state (Default: Total Invested Descending)
+  const [sortField, setSortField] = useState<'totalInvested' | 'currentValue' | 'totalProfit' | 'symbol' | 'currentQuantity' | 'averageCost' | 'currentPrice'>('totalInvested');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
-      return matchType && matchSearch;
-    });
-  }, [calculatedHoldings, assetTypeFilter, searchTerm]);
+  const handleToggleSort = (field: typeof sortField) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      // For financial values, default to descending (highest first)
+      setSortDirection(field === 'symbol' ? 'asc' : 'desc');
+    }
+  };
+
+  // Holdings Filtered & Sorted
+  const filteredHoldings = useMemo(() => {
+    return calculatedHoldings
+      .filter((h) => {
+        const matchType = assetTypeFilter === 'all' || h.asset.asset_type === assetTypeFilter;
+        const matchSearch =
+          searchTerm === '' ||
+          h.asset.asset_symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          h.asset.asset_name.toLowerCase().includes(searchTerm.toLowerCase());
+
+        return matchType && matchSearch;
+      })
+      .sort((a, b) => {
+        let diff = 0;
+        switch (sortField) {
+          case 'totalInvested':
+            diff = (b.totalInvested || 0) - (a.totalInvested || 0);
+            break;
+          case 'currentValue':
+            diff = (b.currentValue || 0) - (a.currentValue || 0);
+            break;
+          case 'totalProfit':
+            diff = (b.totalProfit || 0) - (a.totalProfit || 0);
+            break;
+          case 'currentQuantity':
+            diff = (b.currentQuantity || 0) - (a.currentQuantity || 0);
+            break;
+          case 'averageCost':
+            diff = (b.averageCost || 0) - (a.averageCost || 0);
+            break;
+          case 'currentPrice':
+            diff = (b.asset.current_price || 0) - (a.asset.current_price || 0);
+            break;
+          case 'symbol':
+            diff = a.asset.asset_symbol.localeCompare(b.asset.asset_symbol);
+            break;
+          default:
+            diff = (b.totalInvested || 0) - (a.totalInvested || 0);
+        }
+        return sortDirection === 'desc' ? diff : -diff;
+      });
+  }, [calculatedHoldings, assetTypeFilter, searchTerm, sortField, sortDirection]);
 
   // Overall Portfolio Stats
   const portfolioSummary = useMemo(() => {
@@ -498,15 +545,109 @@ export const InvestmentsView: React.FC = () => {
               ) : (
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
-                      <th className="py-3 px-4">Tài sản</th>
+                    <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold select-none">
+                      <th className="py-3 px-4">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleSort('symbol')}
+                          className="flex items-center gap-1 hover:text-purple-600 dark:hover:text-purple-400 font-semibold cursor-pointer"
+                        >
+                          <span>Tài sản</span>
+                          {sortField === 'symbol' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-600 dark:text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                          ) : (
+                            <ArrowUpDown className="w-2.5 h-2.5 opacity-40" />
+                          )}
+                        </button>
+                      </th>
                       <th className="py-3 px-3">Loại</th>
-                      <th className="py-3 px-3 text-right">Khối lượng</th>
-                      <th className="py-3 px-3 text-right">Giá vốn (DCA)</th>
-                      <th className="py-3 px-3 text-right">Giá hiện tại</th>
-                      <th className="py-3 px-3 text-right">Tổng vốn</th>
-                      <th className="py-3 px-3 text-right">Giá trị thị trường</th>
-                      <th className="py-3 px-4 text-right">Lợi nhuận / Lỗ</th>
+                      <th className="py-3 px-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleSort('currentQuantity')}
+                          className="flex items-center justify-end gap-1 w-full hover:text-purple-600 dark:hover:text-purple-400 font-semibold cursor-pointer"
+                        >
+                          <span>Khối lượng</span>
+                          {sortField === 'currentQuantity' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-600 dark:text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                          ) : (
+                            <ArrowUpDown className="w-2.5 h-2.5 opacity-40" />
+                          )}
+                        </button>
+                      </th>
+                      <th className="py-3 px-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleSort('averageCost')}
+                          className="flex items-center justify-end gap-1 w-full hover:text-purple-600 dark:hover:text-purple-400 font-semibold cursor-pointer"
+                        >
+                          <span>Giá vốn (DCA)</span>
+                          {sortField === 'averageCost' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-600 dark:text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                          ) : (
+                            <ArrowUpDown className="w-2.5 h-2.5 opacity-40" />
+                          )}
+                        </button>
+                      </th>
+                      <th className="py-3 px-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleSort('currentPrice')}
+                          className="flex items-center justify-end gap-1 w-full hover:text-purple-600 dark:hover:text-purple-400 font-semibold cursor-pointer"
+                        >
+                          <span>Giá hiện tại</span>
+                          {sortField === 'currentPrice' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-600 dark:text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                          ) : (
+                            <ArrowUpDown className="w-2.5 h-2.5 opacity-40" />
+                          )}
+                        </button>
+                      </th>
+                      <th className="py-3 px-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleSort('totalInvested')}
+                          className={`flex items-center justify-end gap-1 w-full font-bold cursor-pointer ${
+                            sortField === 'totalInvested' ? 'text-purple-600 dark:text-purple-400' : 'hover:text-purple-600 dark:hover:text-purple-400'
+                          }`}
+                          title="Sắp xếp theo tổng vốn"
+                        >
+                          <span>Tổng vốn</span>
+                          {sortField === 'totalInvested' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" /> : <ArrowDown className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                          ) : (
+                            <ArrowUpDown className="w-2.5 h-2.5 opacity-40" />
+                          )}
+                        </button>
+                      </th>
+                      <th className="py-3 px-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleSort('currentValue')}
+                          className="flex items-center justify-end gap-1 w-full hover:text-purple-600 dark:hover:text-purple-400 font-semibold cursor-pointer"
+                        >
+                          <span>Giá trị thị trường</span>
+                          {sortField === 'currentValue' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-600 dark:text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                          ) : (
+                            <ArrowUpDown className="w-2.5 h-2.5 opacity-40" />
+                          )}
+                        </button>
+                      </th>
+                      <th className="py-3 px-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleSort('totalProfit')}
+                          className="flex items-center justify-end gap-1 w-full hover:text-purple-600 dark:hover:text-purple-400 font-semibold cursor-pointer"
+                        >
+                          <span>Lợi nhuận / Lỗ</span>
+                          {sortField === 'totalProfit' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-600 dark:text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                          ) : (
+                            <ArrowUpDown className="w-2.5 h-2.5 opacity-40" />
+                          )}
+                        </button>
+                      </th>
                       <th className="py-3 px-3 text-right">Thao tác</th>
                     </tr>
                   </thead>
