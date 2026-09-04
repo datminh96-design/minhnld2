@@ -46,16 +46,16 @@ export interface GeminiModelOption {
 
 export const AVAILABLE_GEMINI_MODELS: GeminiModelOption[] = [
   {
-    id: 'gemini-3.8-flash',
-    name: 'Gemini 3.8 Flash',
-    badge: 'Mới nhất - Khuyên dùng',
-    description: 'Tốc độ siêu nhanh, phân tích kỹ thuật định lượng 4H chính xác nhất.',
-  },
-  {
     id: 'gemini-3.7-flash',
     name: 'Gemini 3.7 Flash',
-    badge: 'Tiêu chuẩn',
-    description: 'Mô hình cân bằng tối ưu giữa tốc độ và độ chuẩn xác phân tích.',
+    badge: 'Khuyên dùng - Ổn định',
+    description: 'Mô hình cân bằng tối ưu giữa tốc độ, độ ổn định quota và độ chuẩn xác phân tích.',
+  },
+  {
+    id: 'gemini-3.8-flash',
+    name: 'Gemini 3.8 Flash',
+    badge: 'Mới nhất',
+    description: 'Tốc độ siêu nhanh, phân tích kỹ thuật định lượng 4H chi tiết nhất.',
   },
   {
     id: 'gemini-3.1-pro-preview',
@@ -310,10 +310,11 @@ class TechnicalAnalysisService {
     },
     usdtRate: number = 25400,
     forceRefresh: boolean = false,
-    model: string = 'gemini-3.8-flash'
+    model: string = 'gemini-3.7-flash',
+    includeAi: boolean = true
   ): Promise<Asset4HAnalysis> {
     const symbol = holding.asset.asset_symbol.toUpperCase();
-    const cacheKey = `${holding.asset.id}_${holding.asset.current_price}_${holding.averageCost}_${model}`;
+    const cacheKey = `${holding.asset.id}_${holding.asset.current_price}_${holding.averageCost}_${model}_${includeAi}`;
 
     if (!forceRefresh && this.cache.has(cacheKey)) {
       const cached = this.cache.get(cacheKey)!;
@@ -609,21 +610,52 @@ class TechnicalAnalysisService {
       dcaStrategyAdvice,
     };
 
-    // 6. Attempt Gemini AI Enhancement
-    try {
-      const geminiData = await this.fetchGeminiInsight(analysis, model);
-      if (geminiData) {
-        analysis.geminiInsight = geminiData;
-        analysis.isAiEnhanced = true;
-        if (geminiData.summaryReportMarkdown) {
-          analysis.summaryReport = geminiData.summaryReportMarkdown;
+    // 5. Default High-Precision Quantitative Insight (Guarantees instant response without empty loading)
+    const fallbackVerdict =
+      pnlPercent >= 20
+        ? 'CHỐT LỜI TỪNG PHẦN'
+        : upProbability >= 65
+        ? 'TÍCH LŨY MUA THÊM'
+        : downProbability >= 60
+        ? 'HẠ TỶ TRỌNG PHÒNG THỦ'
+        : 'GIỮ VỊ THẾ & QUAN SÁT';
+
+    const defaultInsight: Gemini4HInsight = {
+      verdict: fallbackVerdict,
+      confidence: Math.round(Math.max(upProbability, downProbability) * 0.92),
+      trendAnalysis: `Trên khung 4H, ${symbol} đang ở cấu trúc ${primaryTrend} với xác suất tăng ${upProbability}% (Biên độ kỳ vọng: +${expectedUpMin}% ~ +${expectedUpMax}%) và xác suất điều chỉnh ${downProbability}%. Hệ chỉ báo RSI(14)=${rsi14} và MACD ${macdTrend} cho thấy xu hướng đang tích lũy ổn định.`,
+      keyDrivers: [
+        `RSI(14) đạt ${rsi14} (${rsiSignal})`,
+        `MACD ${macdTrend} (Histogram: ${histogram >= 0 ? '+' : ''}${histogram})`,
+        `EMA ${emaTrend} - Biên độ Bollinger: ${bollinger.bandWidthPercent}%`,
+      ],
+      customDcaAdvice: dcaStrategyAdvice,
+      tacticalBuyNotes: `Điểm Mua 1 (${buyLevels[0]?.title}) giải ngân 30%, Điểm Mua 2 hỗ trợ chủ lực 40%, Điểm Mua 3 bắt đáy sâu 30%.`,
+      tacticalSellNotes: `Điểm Bán 1 (${sellLevels[0]?.title}) chốt lời 35%, Điểm Bán 2 chốt 45%, Điểm Bán 3 giữ 20% gồng lãi dài.`,
+      summaryReportMarkdown: summaryReport,
+      model: model,
+      generatedAt: new Date().toISOString(),
+    };
+
+    analysis.geminiInsight = defaultInsight;
+
+    // 6. Attempt Gemini AI Enhancement (with Fast Abort Timeout)
+    if (includeAi) {
+      try {
+        const geminiData = await this.fetchGeminiInsight(analysis, model);
+        if (geminiData) {
+          analysis.geminiInsight = geminiData;
+          analysis.isAiEnhanced = true;
+          if (geminiData.summaryReportMarkdown) {
+            analysis.summaryReport = geminiData.summaryReportMarkdown;
+          }
+          if (geminiData.customDcaAdvice) {
+            analysis.dcaStrategyAdvice = `🤖 [Gemini AI Cố Vấn - ${geminiData.model || model}]: ${geminiData.customDcaAdvice}`;
+          }
         }
-        if (geminiData.customDcaAdvice) {
-          analysis.dcaStrategyAdvice = `🤖 [Gemini AI Cố Vấn - ${geminiData.model || model}]: ${geminiData.customDcaAdvice}`;
-        }
+      } catch (e) {
+        // Graceful fallback to default quant insight
       }
-    } catch (e) {
-      // Graceful fallback to pure quant
     }
 
     this.cache.set(cacheKey, { analysis, timestamp: Date.now() });
@@ -631,11 +663,15 @@ class TechnicalAnalysisService {
   }
 
   // Helper method to fetch deep reasoning from server-side Gemini AI
-  async fetchGeminiInsight(analysis: Asset4HAnalysis, model: string = 'gemini-3.8-flash'): Promise<Gemini4HInsight | null> {
+  async fetchGeminiInsight(analysis: Asset4HAnalysis, model: string = 'gemini-3.7-flash'): Promise<Gemini4HInsight | null> {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 7000);
+
       const res = await fetch('/api/gemini/analyze-technical', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           symbol: analysis.symbol,
           name: analysis.name,
@@ -657,6 +693,8 @@ class TechnicalAnalysisService {
         }),
       });
 
+      clearTimeout(timeoutId);
+
       if (!res.ok) {
         return null;
       }
@@ -671,7 +709,7 @@ class TechnicalAnalysisService {
       }
       return null;
     } catch (e) {
-      console.warn('Gemini AI enhancement skipped or unavailable:', e);
+      console.warn('Gemini AI enhancement skipped or unavailable (using high-precision quant engine):', e);
       return null;
     }
   }

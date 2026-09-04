@@ -62,9 +62,11 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
   const [viewMode, setViewMode] = useState<'single' | 'all'>('single');
   const [aiRefreshingSymbol, setAiRefreshingSymbol] = useState<string | null>(null);
 
-  // Gemini Model Selector State
+  // Gemini Model Selector State (gemini-3.7-flash is recommended for high reliability and quota)
   const [selectedModel, setSelectedModel] = useState<string>(() => {
-    return localStorage.getItem('preferred_gemini_model') || 'gemini-3.8-flash';
+    const saved = localStorage.getItem('preferred_gemini_model');
+    if (saved && saved !== 'gemini-3.8-flash') return saved;
+    return 'gemini-3.7-flash';
   });
   const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
   const [customModelText, setCustomModelText] = useState<string>('');
@@ -89,7 +91,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
     };
   }, [selectedModel]);
 
-  // Load analyses function with model support
+  // Load analyses function with model support & quota preservation
   const runAnalysis = async (forceRefresh: boolean = false, modelToUse: string = selectedModel) => {
     if (!holdings || holdings.length === 0) return;
 
@@ -97,16 +99,21 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
     const results: Record<string, Asset4HAnalysis> = {};
 
     try {
-      for (const h of holdings) {
-        const res = await technicalAnalysisService.analyzeAsset(h, 25400, forceRefresh, modelToUse);
+      const activeSym = selectedSymbol || holdings[0]?.asset.asset_symbol.toUpperCase() || '';
+
+      // 1. Instantly calculate high-precision quant indicators for all holdings (includeAi: false for lightning speed)
+      const quantPromises = holdings.map((h) =>
+        technicalAnalysisService.analyzeAsset(h, 25400, forceRefresh, modelToUse, false)
+      );
+      const analysesList = await Promise.all(quantPromises);
+      for (const res of analysesList) {
         results[res.symbol] = res;
       }
       setAnalyses(results);
 
       // Auto select first holding if not selected
       if (!selectedSymbol || !results[selectedSymbol]) {
-        const defaultSymbol = holdings[0]?.asset.asset_symbol.toUpperCase() || '';
-        setSelectedSymbol(defaultSymbol);
+        setSelectedSymbol(activeSym);
       }
 
       const now = Date.now();
@@ -114,8 +121,19 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
       localStorage.setItem('app_4h_analysis_last_run', now.toString());
       setCycleInfo(get4HCycleInfo(new Date(now)));
 
+      // 2. Enrich active holding with Gemini AI in the background
+      const targetHolding = holdings.find((h) => h.asset.asset_symbol.toUpperCase() === activeSym);
+      if (targetHolding) {
+        technicalAnalysisService
+          .analyzeAsset(targetHolding, 25400, forceRefresh, modelToUse, true)
+          .then((aiRes) => {
+            setAnalyses((prev) => ({ ...prev, [activeSym]: aiRes }));
+          })
+          .catch(() => {});
+      }
+
       if (forceRefresh) {
-        addToast(`Đã cập nhật phân tích kỹ thuật 4H với mô hình ${modelToUse}!`, 'success');
+        addToast(`Đã hoàn tất phân tích kỹ thuật 4H (${modelToUse})!`, 'success');
       }
     } catch (err) {
       console.error('Error running 4H technical analysis:', err);
@@ -154,7 +172,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
 
     setAiRefreshingSymbol(symbol);
     try {
-      const res = await technicalAnalysisService.analyzeAsset(holding, 25400, true, selectedModel);
+      const res = await technicalAnalysisService.analyzeAsset(holding, 25400, true, selectedModel, true);
       setAnalyses((prev) => ({ ...prev, [symbol]: res }));
       addToast(`Đã cập nhật phân tích ${selectedModel} cho mã ${symbol}!`, 'success');
     } catch (e) {
@@ -162,6 +180,25 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
       addToast(`Không thể cập nhật AI cho mã ${symbol}`, 'error');
     } finally {
       setAiRefreshingSymbol(null);
+    }
+  };
+
+  // Helper when user selects a tab - trigger AI fetch if not already enhanced
+  const handleSelectAssetTab = (sym: string) => {
+    setSelectedSymbol(sym);
+    setViewMode('single');
+
+    const item = analyses[sym];
+    if (item && !item.isAiEnhanced && aiRefreshingSymbol !== sym) {
+      const holding = holdings.find((h) => h.asset.asset_symbol.toUpperCase() === sym);
+      if (holding) {
+        technicalAnalysisService
+          .analyzeAsset(holding, 25400, false, selectedModel, true)
+          .then((aiRes) => {
+            setAnalyses((prev) => ({ ...prev, [sym]: aiRes }));
+          })
+          .catch(() => {});
+      }
     }
   };
 
@@ -312,10 +349,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
               <button
                 key={h.asset.id}
                 type="button"
-                onClick={() => {
-                  setSelectedSymbol(sym);
-                  setViewMode('single');
-                }}
+                onClick={() => handleSelectAssetTab(sym)}
                 className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap border ${
                   isSelected
                     ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
@@ -723,11 +757,20 @@ const AssetAnalysisCard: React.FC<{
             </div>
           </div>
         ) : (
-          <div className="p-3 bg-white dark:bg-slate-800/80 rounded-xl border border-purple-100 dark:border-purple-900/30 text-xs text-slate-600 dark:text-slate-300 flex items-center justify-between">
+          <div className="p-4 bg-white dark:bg-slate-800/80 rounded-xl border border-purple-100 dark:border-purple-900/30 text-xs text-slate-600 dark:text-slate-300 flex items-center justify-between">
             <span className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-purple-500" />
-              <span>Đang kết nối mô hình Gemini AI để tải phân tích định lượng chuyên sâu...</span>
+              <Sparkles className="w-4 h-4 text-purple-500 animate-spin" />
+              <span>Đang tính toán phân tích kỹ thuật 4H và tải dữ liệu mô hình {currentModelDisplayName}...</span>
             </span>
+            {onRefreshAi && (
+              <button
+                type="button"
+                onClick={onRefreshAi}
+                className="px-3 py-1 text-xs font-bold text-white bg-purple-600 rounded-lg hover:bg-purple-700 cursor-pointer shadow-xs"
+              >
+                Tải lại ngay
+              </button>
+            )}
           </div>
         )}
       </div>
