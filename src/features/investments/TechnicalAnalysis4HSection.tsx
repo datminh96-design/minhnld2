@@ -80,11 +80,11 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
     });
   }, [holdings]);
 
-  // Gemini Model Selector State (gemini-3.8-flash is recommended for top accuracy)
+  // Gemini Model Selector State (gemini-3.7-flash is recommended for top accuracy)
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     const saved = localStorage.getItem('preferred_gemini_model');
-    if (saved) return saved;
-    return 'gemini-3.8-flash';
+    if (saved && saved !== 'gemini-2.5-flash' && saved !== 'gemini-3.1-flash-lite') return saved;
+    return 'gemini-3.7-flash';
   });
   const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
   const [customModelText, setCustomModelText] = useState<string>('');
