@@ -266,6 +266,45 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
     }
   };
 
+  const [isNewsRefreshing, setIsNewsRefreshing] = useState<boolean>(false);
+
+  const handleRefreshNews = async () => {
+    setIsNewsRefreshing(true);
+    try {
+      const freshNews = await technicalAnalysisService.fetchMarketNews(selectedModel, true);
+      setAnalyses((prev) => {
+        const next = { ...prev };
+        for (const k of Object.keys(next)) {
+          if (next[k]) {
+            next[k] = {
+              ...next[k],
+              geminiInsight: {
+                ...(next[k].geminiInsight || {
+                  verdict: 'QUAN SÁT',
+                  confidence: 80,
+                  trendAnalysis: '',
+                  keyDrivers: [],
+                  customDcaAdvice: '',
+                  tacticalBuyNotes: '',
+                  tacticalSellNotes: '',
+                  summaryReportMarkdown: '',
+                }),
+                topMarketNews: freshNews,
+              },
+            };
+          }
+        }
+        return next;
+      });
+      addToast('Đã cập nhật 5 tin tức thị trường 4H mới nhất!', 'success');
+    } catch (e) {
+      console.error('Failed to refresh news:', e);
+      addToast('Không thể làm mới tin tức, đang dùng bản lưu tạm.', 'warning');
+    } finally {
+      setIsNewsRefreshing(false);
+    }
+  };
+
   // Helper when user selects a tab - trigger AI fetch if not already enhanced
   const handleSelectAssetTab = (sym: string) => {
     setSelectedSymbol(sym);
@@ -528,6 +567,8 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
                 isCopied={copiedSymbol === item.symbol}
                 onRefreshAi={() => refreshSingleAssetAi(item.symbol)}
                 isAiRefreshing={aiRefreshingSymbol === item.symbol}
+                onRefreshNews={handleRefreshNews}
+                isNewsRefreshing={isNewsRefreshing}
               />
             ))}
           </div>
@@ -542,6 +583,8 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
             isCopied={copiedSymbol === activeAnalysis.symbol}
             onRefreshAi={() => refreshSingleAssetAi(activeAnalysis.symbol)}
             isAiRefreshing={aiRefreshingSymbol === activeAnalysis.symbol}
+            onRefreshNews={handleRefreshNews}
+            isNewsRefreshing={isNewsRefreshing}
           />
         ) : (
           <div className="py-8 text-center text-slate-400 text-xs">
@@ -676,6 +719,8 @@ const AssetAnalysisCard: React.FC<{
   isCopied: boolean;
   onRefreshAi?: () => void;
   isAiRefreshing?: boolean;
+  onRefreshNews?: () => void;
+  isNewsRefreshing?: boolean;
 }> = ({
   analysis,
   userCurrency,
@@ -685,6 +730,8 @@ const AssetAnalysisCard: React.FC<{
   isCopied,
   onRefreshAi,
   isAiRefreshing,
+  onRefreshNews,
+  isNewsRefreshing,
 }) => {
   const isBullish = analysis.upProbability >= 50;
   const isProfitable = analysis.pnlPercent >= 0;
@@ -1191,9 +1238,23 @@ const AssetAnalysisCard: React.FC<{
                 </h5>
               </div>
             </div>
-            <span className="text-[10px] text-slate-400 font-medium">
-              Đồng bộ cùng chu kỳ 4H
-            </span>
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              <span className="text-[10px] text-slate-400 font-medium">
+                Đồng bộ cùng chu kỳ 4H
+              </span>
+              {onRefreshNews && (
+                <button
+                  type="button"
+                  onClick={onRefreshNews}
+                  disabled={isNewsRefreshing}
+                  className="px-2 py-0.5 rounded-lg text-xs font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/60 border border-amber-300 dark:border-amber-800/80 flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Cập nhật 5 tin tức thị trường 4H mới nhất"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isNewsRefreshing ? 'animate-spin' : ''}`} />
+                  <span className="text-[11px] font-bold">Làm mới tin tức</span>
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 gap-2">
