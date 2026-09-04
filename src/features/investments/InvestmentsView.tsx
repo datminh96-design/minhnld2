@@ -11,6 +11,7 @@ import { Modal } from '../../components/ui/Modal';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { priceService, KNOWN_ASSET_NAMES } from '../../services/priceService';
 import { AddAssetQuickSection } from './AddAssetQuickSection';
+import { TechnicalAnalysis4HSection } from './TechnicalAnalysis4HSection';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -788,6 +789,13 @@ export const InvestmentsView: React.FC = () => {
               )}
             </div>
           </div>
+
+          {/* 4H Technical Analysis & AI Quantitative Forecast Section */}
+          <TechnicalAnalysis4HSection
+            holdings={calculatedHoldings}
+            userCurrency={userSettings.currency}
+            addToast={addToast}
+          />
 
           {/* Quick Add Asset Section directly under Holdings */}
           {showQuickAdd && (
