@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   technicalAnalysisService, 
   Asset4HAnalysis, 
@@ -79,6 +79,20 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
     return saved ? parseInt(saved, 10) : Date.now();
   });
 
+  // Track last executed cycle timestamp to avoid multiple triggers in the same cycle
+  const lastAnalyzedCycleRef = useRef<number>(0);
+
+  // Holdings Signature to prevent unnecessary re-runs on raw array reference changes
+  const holdingsSignature = useMemo(() => {
+    if (!holdings || holdings.length === 0) return '';
+    return holdings
+      .map(
+        (h) =>
+          `${h.asset.id}_${h.asset.asset_symbol}_${h.asset.current_price}_${h.currentQuantity}_${h.averageCost}`
+      )
+      .join('|');
+  }, [holdings]);
+
   // Active Model Display Object
   const activeModelOption = useMemo(() => {
     const found = AVAILABLE_GEMINI_MODELS.find((m) => m.id === selectedModel);
@@ -117,9 +131,11 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
       }
 
       const now = Date.now();
+      const currentCycle = get4HCycleInfo(new Date(now));
+      lastAnalyzedCycleRef.current = currentCycle.currentCycleTimestamp;
       setLastUpdatedTimestamp(now);
       localStorage.setItem('app_4h_analysis_last_run', now.toString());
-      setCycleInfo(get4HCycleInfo(new Date(now)));
+      setCycleInfo(currentCycle);
 
       // 2. Enrich active holding with Gemini AI in the background
       const targetHolding = holdings.find((h) => h.asset.asset_symbol.toUpperCase() === activeSym);
@@ -202,7 +218,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
     }
   };
 
-  // Calculate live countdown to the next 4H cycle and auto-run when cycle expires
+  // Calculate live countdown to the next 4H cycle and auto-run strictly according to the 4H schedule roadmap
   useEffect(() => {
     const updateCountdown = () => {
       const now = Date.now();
@@ -218,10 +234,14 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
         `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
       );
 
-      // If 4 hours (14,400,000 ms) passed since last run, auto-run
-      const fourHoursMs = 4 * 60 * 60 * 1000;
-      if (now - lastUpdatedTimestamp >= fourHoursMs && !isLoading) {
-        console.log('[4H Auto Runner] 4 hours elapsed. Running automatic 4H cycle analysis...');
+      // Auto-run only when the 4H cycle slot shifts to the new scheduled roadmap window
+      if (
+        lastAnalyzedCycleRef.current !== 0 &&
+        currentCycle.currentCycleTimestamp > lastAnalyzedCycleRef.current &&
+        !isLoading
+      ) {
+        lastAnalyzedCycleRef.current = currentCycle.currentCycleTimestamp;
+        console.log('[4H Roadmap Auto Runner] Triggering scheduled 4H cycle analysis for slot:', currentCycle.cycleStartHour);
         runAnalysis(true);
       }
     };
@@ -229,11 +249,15 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
-  }, [lastUpdatedTimestamp, isLoading]);
+  }, [isLoading]);
 
+  // Run initial analysis or when holdings actual content updates
   useEffect(() => {
+    if (!holdingsSignature) return;
+    const currentCycle = get4HCycleInfo(new Date());
+    lastAnalyzedCycleRef.current = currentCycle.currentCycleTimestamp;
     runAnalysis(false);
-  }, [holdings]);
+  }, [holdingsSignature]);
 
   const activeAnalysis = selectedSymbol ? analyses[selectedSymbol] : null;
 
@@ -281,7 +305,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
                 </h3>
                 
                 {/* Explicit 4H Update Time Badge */}
-                <div className="px-3 py-1 rounded-full text-xs font-bold bg-purple-600 text-white shadow-xs flex items-center gap-1.5 animate-pulse">
+                <div className="px-3 py-1 rounded-full text-xs font-bold bg-purple-600 text-white shadow-xs flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5" />
                   <span>Thời gian cập nhật: {cycleInfo.cycleStartHour}</span>
                 </div>
@@ -317,7 +341,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
             <button
               type="button"
               onClick={() => setShowModelPicker(true)}
-              className="px-3 py-2 rounded-xl text-xs font-bold text-purple-700 dark:text-purple-200 bg-purple-100/90 dark:bg-purple-950/80 hover:bg-purple-200 dark:hover:bg-purple-900/90 border border-purple-300 dark:border-purple-700/80 flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+              className="px-3 py-2 rounded-xl text-xs font-bold text-purple-700 dark:text-purple-200 bg-purple-100/90 dark:bg-purple-950/80 hover:bg-purple-200 dark:hover:bg-purple-900/90 border border-purple-300 dark:border-purple-700/80 flex items-center gap-1.5 transition-all shadow-xs cursor-pointer select-none whitespace-nowrap"
               title="Đổi mô hình Gemini AI (3.8 Flash, 3.7 Flash, Pro...)"
             >
               <Cpu className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
@@ -329,10 +353,11 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
               type="button"
               onClick={() => runAnalysis(true)}
               disabled={isLoading}
-              className="px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-50 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+              className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-80 transition-all flex items-center gap-2 shadow-xs cursor-pointer select-none whitespace-nowrap"
+              title="Làm mới ngay phân tích kỹ thuật 4H"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-              <span>{isLoading ? 'Đang phân tích...' : 'Làm mới ngay'}</span>
+              <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isLoading ? 'animate-spin' : ''}`} />
+              <span>Làm mới ngay</span>
             </button>
           </div>
         </div>
@@ -701,10 +726,11 @@ const AssetAnalysisCard: React.FC<{
                 type="button"
                 onClick={onRefreshAi}
                 disabled={isAiRefreshing}
-                className="px-2.5 py-1 rounded-lg text-xs font-semibold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/80 hover:bg-purple-200 dark:hover:bg-purple-900 border border-purple-300 dark:border-purple-800 flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/80 hover:bg-purple-200 dark:hover:bg-purple-900 border border-purple-300 dark:border-purple-800 flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-80 select-none whitespace-nowrap"
+                title="Cập nhật lại phân tích AI cho tài sản này"
               >
-                <RefreshCw className={`w-3 h-3 ${isAiRefreshing ? 'animate-spin' : ''}`} />
-                <span>{isAiRefreshing ? 'AI đang phân tích...' : 'Cập nhật AI'}</span>
+                <RefreshCw className={`w-3 h-3 shrink-0 ${isAiRefreshing ? 'animate-spin' : ''}`} />
+                <span>Cập nhật AI</span>
               </button>
             )}
           </div>
