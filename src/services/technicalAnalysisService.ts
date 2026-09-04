@@ -37,6 +37,53 @@ export interface TradeLevel {
   type: 'buy' | 'sell';
 }
 
+export interface GeminiModelOption {
+  id: string;
+  name: string;
+  badge: string;
+  description: string;
+}
+
+export const AVAILABLE_GEMINI_MODELS: GeminiModelOption[] = [
+  {
+    id: 'gemini-3.8-flash',
+    name: 'Gemini 3.8 Flash',
+    badge: 'Mới nhất - Khuyên dùng',
+    description: 'Tốc độ siêu nhanh, phân tích kỹ thuật định lượng 4H chính xác nhất.',
+  },
+  {
+    id: 'gemini-3.7-flash',
+    name: 'Gemini 3.7 Flash',
+    badge: 'Tiêu chuẩn',
+    description: 'Mô hình cân bằng tối ưu giữa tốc độ và độ chuẩn xác phân tích.',
+  },
+  {
+    id: 'gemini-3.1-pro-preview',
+    name: 'Gemini 3.1 Pro',
+    badge: 'Lý luận chuyên sâu (Pro)',
+    description: 'Lập luận toán học, đọc vị cấu trúc nến và hành vi dòng tiền đa khung.',
+  },
+  {
+    id: 'gemini-3.1-flash-lite',
+    name: 'Gemini 3.1 Flash Lite',
+    badge: 'Siêu nhẹ',
+    description: 'Phản hồi tức thì, tiết kiệm tài nguyên và băng thông.',
+  },
+];
+
+export interface Gemini4HInsight {
+  verdict: string;
+  confidence: number;
+  trendAnalysis: string;
+  keyDrivers: string[];
+  customDcaAdvice: string;
+  tacticalBuyNotes: string;
+  tacticalSellNotes: string;
+  summaryReportMarkdown: string;
+  model?: string;
+  generatedAt?: string;
+}
+
 export interface Asset4HAnalysis {
   symbol: string;
   name: string;
@@ -74,6 +121,10 @@ export interface Asset4HAnalysis {
   // Detailed text summary
   summaryReport: string;
   dcaStrategyAdvice: string;
+
+  // Gemini AI Supercharged Data
+  geminiInsight?: Gemini4HInsight;
+  isAiEnhanced?: boolean;
 }
 
 export interface Candle4H {
@@ -258,10 +309,11 @@ class TechnicalAnalysisService {
       currentValue: number;
     },
     usdtRate: number = 25400,
-    forceRefresh: boolean = false
+    forceRefresh: boolean = false,
+    model: string = 'gemini-3.8-flash'
   ): Promise<Asset4HAnalysis> {
     const symbol = holding.asset.asset_symbol.toUpperCase();
-    const cacheKey = `${holding.asset.id}_${holding.asset.current_price}_${holding.averageCost}`;
+    const cacheKey = `${holding.asset.id}_${holding.asset.current_price}_${holding.averageCost}_${model}`;
 
     if (!forceRefresh && this.cache.has(cacheKey)) {
       const cached = this.cache.get(cacheKey)!;
@@ -557,8 +609,71 @@ class TechnicalAnalysisService {
       dcaStrategyAdvice,
     };
 
+    // 6. Attempt Gemini AI Enhancement
+    try {
+      const geminiData = await this.fetchGeminiInsight(analysis, model);
+      if (geminiData) {
+        analysis.geminiInsight = geminiData;
+        analysis.isAiEnhanced = true;
+        if (geminiData.summaryReportMarkdown) {
+          analysis.summaryReport = geminiData.summaryReportMarkdown;
+        }
+        if (geminiData.customDcaAdvice) {
+          analysis.dcaStrategyAdvice = `🤖 [Gemini AI Cố Vấn - ${geminiData.model || model}]: ${geminiData.customDcaAdvice}`;
+        }
+      }
+    } catch (e) {
+      // Graceful fallback to pure quant
+    }
+
     this.cache.set(cacheKey, { analysis, timestamp: Date.now() });
     return analysis;
+  }
+
+  // Helper method to fetch deep reasoning from server-side Gemini AI
+  async fetchGeminiInsight(analysis: Asset4HAnalysis, model: string = 'gemini-3.8-flash'): Promise<Gemini4HInsight | null> {
+    try {
+      const res = await fetch('/api/gemini/analyze-technical', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol: analysis.symbol,
+          name: analysis.name,
+          assetType: analysis.assetType,
+          currentPrice: analysis.currentPrice,
+          currentPriceUsdt: analysis.currentPriceUsdt,
+          averageCost: analysis.averageCost,
+          averageCostUsdt: analysis.averageCostUsdt,
+          pnlPercent: analysis.pnlPercent,
+          currentQuantity: analysis.currentQuantity,
+          totalInvested: analysis.totalInvested,
+          indicators: analysis.indicators,
+          upProbability: analysis.upProbability,
+          downProbability: analysis.downProbability,
+          primaryTrend: analysis.primaryTrend,
+          buyLevels: analysis.buyLevels,
+          sellLevels: analysis.sellLevels,
+          model,
+        }),
+      });
+
+      if (!res.ok) {
+        return null;
+      }
+
+      const json = await res.json();
+      if (json.success && json.data) {
+        return {
+          ...json.data,
+          model: json.model || model,
+          generatedAt: json.timestamp || new Date().toISOString(),
+        };
+      }
+      return null;
+    } catch (e) {
+      console.warn('Gemini AI enhancement skipped or unavailable:', e);
+      return null;
+    }
   }
 }
 
