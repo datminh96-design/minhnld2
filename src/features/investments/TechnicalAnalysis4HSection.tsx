@@ -94,13 +94,13 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
     parseInt(localStorage.getItem('app_4h_last_analyzed_cycle') || '0', 10)
   );
 
-  // Holdings Signature to prevent unnecessary re-runs on raw array reference changes
+  // Holdings Signature to prevent unnecessary re-runs on raw micro price updates
   const holdingsSignature = useMemo(() => {
     if (!sortedHoldings || sortedHoldings.length === 0) return '';
     return sortedHoldings
       .map(
         (h) =>
-          `${h.asset.id}_${h.asset.asset_symbol}_${h.asset.current_price}_${h.currentQuantity}_${h.averageCost}_${h.totalInvested}`
+          `${h.asset.id}_${h.asset.asset_symbol}_${h.currentQuantity}_${h.averageCost}_${h.totalInvested}`
       )
       .join('|');
   }, [sortedHoldings]);
@@ -121,7 +121,9 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
   const runAnalysis = async (forceRefresh: boolean = false, modelToUse: string = selectedModel) => {
     if (!sortedHoldings || sortedHoldings.length === 0) return;
 
-    setIsLoading(true);
+    if (forceRefresh || Object.keys(analyses).length === 0) {
+      setIsLoading(true);
+    }
     const results: Record<string, Asset4HAnalysis> = {};
 
     try {
@@ -135,7 +137,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
       for (const res of analysesList) {
         results[res.symbol] = res;
       }
-      setAnalyses(results);
+      setAnalyses((prev) => ({ ...prev, ...results }));
 
       // Auto select highest capital holding if not selected
       if (!selectedSymbol || !results[selectedSymbol]) {
@@ -174,7 +176,9 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
       }
     } catch (err) {
       console.error('Error running 4H technical analysis:', err);
-      addToast('Không thể cập nhật phân tích kỹ thuật', 'error');
+      if (forceRefresh) {
+        addToast('Không thể cập nhật phân tích kỹ thuật', 'error');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -250,7 +254,13 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
     const updateCountdown = () => {
       const now = Date.now();
       const currentCycle = get4HCycleInfo(new Date());
-      setCycleInfo(currentCycle);
+
+      setCycleInfo((prev) => {
+        if (prev.currentCycleTimestamp !== currentCycle.currentCycleTimestamp) {
+          return currentCycle;
+        }
+        return prev;
+      });
 
       const diff = Math.max(0, currentCycle.nextCycleTimestamp - now);
       const hours = Math.floor(diff / (1000 * 60 * 60));
@@ -625,16 +635,16 @@ const AssetAnalysisCard: React.FC<{
     <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 p-4 sm:p-6 space-y-6">
       {/* 1. Header & Position Quick Summary Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
-        <div>
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <h4 className="text-lg font-bold text-slate-900 dark:text-white font-display">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2.5 flex-wrap min-h-[28px]">
+            <h4 className="text-lg font-bold text-slate-900 dark:text-white font-display tracking-tight">
               {analysis.symbol}
             </h4>
-            <span className="text-xs text-slate-500 dark:text-slate-400">
+            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
               {analysis.name}
             </span>
             <span
-              className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+              className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider whitespace-nowrap inline-flex items-center ${
                 analysis.primaryTrend === 'TĂNG MẠNH'
                   ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
                   : analysis.primaryTrend === 'TĂNG TÍCH LŨY'
@@ -651,37 +661,37 @@ const AssetAnalysisCard: React.FC<{
             <button
               type="button"
               onClick={onOpenModelPicker}
-              className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-gradient-to-r from-purple-600 to-indigo-600 text-white flex items-center gap-1 shadow-xs hover:opacity-90 transition-all cursor-pointer"
+              className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-gradient-to-r from-purple-600 to-indigo-600 text-white inline-flex items-center gap-1 shadow-xs hover:opacity-90 transition-all cursor-pointer whitespace-nowrap"
               title="Nhấn để đổi mô hình Gemini AI"
             >
-              <Sparkles className="w-3 h-3 text-amber-300" />
-              <span>{currentModelDisplayName}</span>
-              <ChevronDown className="w-3 h-3 opacity-70" />
+              <Sparkles className="w-3 h-3 text-amber-300 shrink-0" />
+              <span className="tabular-nums">{currentModelDisplayName}</span>
+              <ChevronDown className="w-3 h-3 opacity-70 shrink-0" />
             </button>
           </div>
 
-          <div className="flex items-center gap-2.5 mt-1.5 flex-wrap text-xs text-slate-500 dark:text-slate-400">
-            <span className="font-semibold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/50 px-2 py-0.5 rounded-md border border-purple-200 dark:border-purple-800">
-              Thời gian cập nhật: <strong>{analysis.cycleStartHour}</strong>
+          <div className="flex items-center gap-2.5 mt-2 flex-wrap text-xs text-slate-500 dark:text-slate-400 tabular-nums font-mono">
+            <span className="font-semibold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/50 px-2 py-0.5 rounded-md border border-purple-200 dark:border-purple-800 whitespace-nowrap font-sans">
+              Thời gian cập nhật: <strong className="font-mono">{analysis.cycleStartHour}</strong>
             </span>
-            <span>•</span>
-            <span>Chi tiết: {analysis.analyzedAt}</span>
-            <span>•</span>
-            <span className="text-indigo-600 dark:text-indigo-400 font-medium">
-              Chu kỳ 4H kế tiếp: <strong>{analysis.nextCycleAt}</strong>
+            <span className="font-sans text-slate-400">•</span>
+            <span className="whitespace-nowrap font-sans">Chi tiết: <strong className="font-mono font-normal">{analysis.analyzedAt}</strong></span>
+            <span className="font-sans text-slate-400">•</span>
+            <span className="text-indigo-600 dark:text-indigo-400 font-medium whitespace-nowrap font-sans">
+              Chu kỳ 4H kế tiếp: <strong className="font-mono">{analysis.nextCycleAt}</strong>
             </span>
           </div>
         </div>
 
         {/* User Holding Metrics Box */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-4 bg-white dark:bg-slate-800/90 p-2.5 sm:p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
+        <div className="grid grid-cols-3 gap-2 sm:gap-4 bg-white dark:bg-slate-800/90 p-2.5 sm:p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shrink-0">
           <div>
             <span className="text-[10px] text-slate-400 block font-medium">Giá vốn DCA (KDA)</span>
-            <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
+            <span className="font-bold text-slate-800 dark:text-slate-200 font-mono tabular-nums">
               {formatCurrency(analysis.averageCost, userCurrency)}
             </span>
             {analysis.averageCostUsdt && (
-              <span className="text-[10px] text-slate-400 block">
+              <span className="text-[10px] text-slate-400 block font-mono tabular-nums">
                 ≈ ${analysis.averageCostUsdt.toLocaleString()}
               </span>
             )}
@@ -689,12 +699,12 @@ const AssetAnalysisCard: React.FC<{
 
           <div>
             <span className="text-[10px] text-slate-400 block font-medium">Giá hiện tại (Live)</span>
-            <span className="font-bold text-slate-900 dark:text-white font-mono flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="font-bold text-slate-900 dark:text-white font-mono tabular-nums flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
               {formatCurrency(analysis.currentPrice, userCurrency)}
             </span>
             {analysis.currentPriceUsdt && (
-              <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 block">
+              <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 block font-mono tabular-nums">
                 ≈ ${analysis.currentPriceUsdt.toLocaleString()}
               </span>
             )}
@@ -703,14 +713,14 @@ const AssetAnalysisCard: React.FC<{
           <div>
             <span className="text-[10px] text-slate-400 block font-medium">Lợi nhuận hiện tại</span>
             <span
-              className={`font-bold font-mono ${
+              className={`font-bold font-mono tabular-nums ${
                 isProfitable ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600'
               }`}
             >
               {isProfitable ? '+' : ''}
               {formatPercent(analysis.pnlPercent)}
             </span>
-            <span className="text-[10px] text-slate-400 block">
+            <span className="text-[10px] text-slate-400 block font-mono tabular-nums">
               KL: {analysis.currentQuantity.toLocaleString('vi-VN', { maximumFractionDigits: 4 })}
             </span>
           </div>
