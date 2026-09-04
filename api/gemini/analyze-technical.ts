@@ -1,8 +1,40 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
 
 let geminiClient: GoogleGenAI | null = null;
 const geminiAnalysisCache = new Map<string, { data: any; model: string; timestamp: number }>();
 const CACHE_TTL_MS = 15 * 60 * 1000;
+
+const modelCooldowns = new Map<string, number>();
+
+function isModelInCooldown(model: string): boolean {
+  const expiresAt = modelCooldowns.get(model);
+  if (!expiresAt) return false;
+  if (Date.now() > expiresAt) {
+    modelCooldowns.delete(model);
+    return false;
+  }
+  return true;
+}
+
+function setModelCooldown(model: string, durationMs: number = 60000) {
+  modelCooldowns.set(model, Date.now() + durationMs);
+}
+
+function getCandidateModels(preferredModel?: string): string[] {
+  const validModels = [
+    preferredModel,
+    'gemini-3.1-flash-lite',
+    'gemini-2.5-pro',
+    'gemini-3.1-pro',
+    'gemini-3.8-flash',
+    'gemini-flash-latest',
+    'gemini-3.7-flash',
+    'gemini-2.5-flash',
+  ].filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
+
+  const available = validModels.filter((m) => !isModelInCooldown(m));
+  return available.slice(0, 3);
+}
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -55,7 +87,7 @@ export default async function handler(req: any, res: any) {
     model,
   } = req.body || {};
 
-  const chosenModel = model || 'gemini-3.8-flash';
+  const chosenModel = model || 'gemini-3.1-flash-lite';
   const cacheKey = `${symbol}_${chosenModel}`;
 
   // 1. Check in-memory cache
@@ -202,21 +234,17 @@ Hãy đưa ra nhận định chuyên sâu và xuất kết quả theo định d�
 9. "summaryReportMarkdown": Toàn văn bản báo cáo phân tích 4H tổng hợp hoàn chỉnh, súc tích, chuyên nghiệp bằng tiếng Việt.
 `;
 
-  const candidateModels = [
-    chosenModel,
-    'gemini-3.8-flash',
-    'gemini-3.1-flash-lite',
-    'gemini-3.7-flash',
-    'gemini-flash-latest',
-  ].filter((m, i, arr) => !!m && arr.indexOf(m) === i);
+  const candidateModels = getCandidateModels(chosenModel);
 
   for (const modelAttempt of candidateModels) {
     try {
+      const thinkingLevel = modelAttempt.includes('lite') ? ThinkingLevel.MINIMAL : ThinkingLevel.LOW;
       const generatePromise = ai.models.generateContent({
         model: modelAttempt,
         contents: prompt,
         config: {
           temperature: 0.2,
+          thinkingConfig: { thinkingLevel },
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
@@ -270,7 +298,7 @@ Hãy đưa ra nhận định chuyên sâu và xuất kết quả theo định d�
       });
 
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Gemini API timeout')), 14000)
+        setTimeout(() => reject(new Error('timeout')), 8000)
       );
 
       const response = (await Promise.race([generatePromise, timeoutPromise])) as any;
@@ -291,7 +319,12 @@ Hãy đưa ra nhận định chuyên sâu và xuất kết quả theo định d�
         timestamp: new Date().toISOString(),
       });
     } catch (err: any) {
-      console.warn(`[Vercel Serverless] Model ${modelAttempt} attempt error:`, err?.message || err);
+      const errStr = String(err?.message || err || '');
+      if (errStr.includes('429') || errStr.includes('RESOURCE_EXHAUSTED')) {
+        setModelCooldown(modelAttempt, 3 * 60 * 1000);
+      } else if (errStr.includes('503') || errStr.includes('UNAVAILABLE')) {
+        setModelCooldown(modelAttempt, 30 * 1000);
+      }
     }
   }
 
