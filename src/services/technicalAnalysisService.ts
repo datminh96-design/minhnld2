@@ -46,28 +46,28 @@ export interface GeminiModelOption {
 
 export const AVAILABLE_GEMINI_MODELS: GeminiModelOption[] = [
   {
-    id: 'gemini-3.7-flash',
-    name: 'Gemini 3.7 Flash',
-    badge: 'Khuyên dùng - Ổn định',
-    description: 'Mô hình cân bằng tối ưu giữa tốc độ, độ ổn định quota và độ chuẩn xác phân tích.',
-  },
-  {
     id: 'gemini-3.8-flash',
     name: 'Gemini 3.8 Flash',
-    badge: 'Mới nhất',
-    description: 'Tốc độ siêu nhanh, phân tích kỹ thuật định lượng 4H chi tiết nhất.',
-  },
-  {
-    id: 'gemini-3.1-pro-preview',
-    name: 'Gemini 3.1 Pro',
-    badge: 'Lý luận chuyên sâu (Pro)',
-    description: 'Lập luận toán học, đọc vị cấu trúc nến và hành vi dòng tiền đa khung.',
+    badge: 'Khuyên dùng - Chuẩn xác',
+    description: 'Mô hình phân tích kỹ thuật định lượng và cố vấn vị thế KDA toàn diện.',
   },
   {
     id: 'gemini-3.1-flash-lite',
     name: 'Gemini 3.1 Flash Lite',
-    badge: 'Siêu nhẹ',
-    description: 'Phản hồi tức thì, tiết kiệm tài nguyên và băng thông.',
+    badge: 'Siêu nhẹ & Nhanh',
+    description: 'Phản hồi cực nhanh, tối ưu độ trễ và tiết kiệm quota.',
+  },
+  {
+    id: 'gemini-flash-latest',
+    name: 'Gemini Flash Latest',
+    badge: 'Bản Flash Mới Nhất',
+    description: 'Bản phát hành flash cập nhật liên tục cho phân tích thị trường.',
+  },
+  {
+    id: 'gemini-3.7-flash',
+    name: 'Gemini 3.7 Flash',
+    badge: 'Ổn định',
+    description: 'Mô hình phân tích ổn định, độ tin cậy cao.',
   },
 ];
 
@@ -663,10 +663,10 @@ class TechnicalAnalysisService {
   }
 
   // Helper method to fetch deep reasoning from server-side Gemini AI
-  async fetchGeminiInsight(analysis: Asset4HAnalysis, model: string = 'gemini-3.7-flash'): Promise<Gemini4HInsight | null> {
+  async fetchGeminiInsight(analysis: Asset4HAnalysis, model: string = 'gemini-3.8-flash'): Promise<Gemini4HInsight | null> {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 7000);
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
 
       const res = await fetch('/api/gemini/analyze-technical', {
         method: 'POST',

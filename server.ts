@@ -155,16 +155,17 @@ Hãy đưa ra nhận định chuyên sâu và xuất kết quả theo định d�
 8. "summaryReportMarkdown": Toàn văn bản báo cáo phân tích 4H tổng hợp hoàn chỉnh, súc tích, chuyên nghiệp bằng tiếng Việt.
 `;
 
-    // Candidate models to attempt if chosen model is rate limited
     const candidateModels = [
       chosenModel,
-      'gemini-3.7-flash',
+      'gemini-3.8-flash',
       'gemini-3.1-flash-lite',
+      'gemini-3.7-flash',
       'gemini-flash-latest',
-    ].filter((m, i, arr) => arr.indexOf(m) === i);
+    ].filter((m, i, arr) => !!m && arr.indexOf(m) === i);
 
     for (const modelAttempt of candidateModels) {
       try {
+        console.log(`[Gemini 4H Analysis] Calling model ${modelAttempt} for ${symbol}...`);
         const generatePromise = ai.models.generateContent({
           model: modelAttempt,
           contents: prompt,
@@ -223,9 +224,9 @@ Hãy đưa ra nhận định chuyên sâu và xuất kết quả theo định d�
           },
         });
 
-        // 6 second timeout
+        // 14 second timeout per model
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Gemini API timeout sau 6 giây')), 6000)
+          setTimeout(() => reject(new Error('Gemini API timeout sau 14 giây')), 14000)
         );
 
         const response = (await Promise.race([generatePromise, timeoutPromise])) as any;
@@ -250,17 +251,8 @@ Hãy đưa ra nhận định chuyên sâu và xuất kết quả theo định d�
           timestamp: new Date().toISOString(),
         });
       } catch (err: any) {
-        const isQuotaErr =
-          err?.status === 429 ||
-          err?.status === 'RESOURCE_EXHAUSTED' ||
-          err?.message?.includes('429') ||
-          err?.message?.includes('quota') ||
-          err?.message?.includes('RESOURCE_EXHAUSTED');
-
-        if (isQuotaErr) {
-          console.warn(`[Gemini Notice] Model ${modelAttempt} rate-limited. Trying fallback candidate...`);
-        }
-        // Continue loop to try next model or drop to quant engine
+        console.warn(`[Gemini Notice] Model ${modelAttempt} attempt failed:`, err?.message || err);
+        // Continue loop to try next candidate model
       }
     }
 
@@ -275,26 +267,71 @@ Hãy đưa ra nhận định chuyên sâu và xuất kết quả theo định d�
     });
   });
 
-  // Proxy routes for stock & fund APIs if needed
-  app.get('/api/vps-stock/*', async (req, res) => {
+  // Proxy routes for stock & fund APIs (supports GET, POST, with custom headers & timeouts)
+  app.all('/api/vps-stock/*', async (req, res) => {
     try {
       const targetPath = req.url.replace(/^\/api\/vps-stock/, '');
-      const response = await fetch(`https://bgapidatafeed.vps.com.vn${targetPath}`);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 6000);
+
+      const response = await fetch(`https://bgapidatafeed.vps.com.vn${targetPath}`, {
+        method: req.method,
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          Accept: 'application/json, text/plain, */*',
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        return res.json([]);
+      }
+
       const data = await response.json();
       res.json(data);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.json([]);
     }
   });
 
-  app.get('/api/fmarket/*', async (req, res) => {
+  app.all('/api/fmarket/*', async (req, res) => {
     try {
       const targetPath = req.url.replace(/^\/api\/fmarket/, '');
-      const response = await fetch(`https://api.fmarket.vn${targetPath}`);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 6000);
+
+      const headers: Record<string, string> = {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Accept: 'application/json, text/plain, */*',
+        Referer: 'https://fmarket.vn/',
+        Origin: 'https://fmarket.vn',
+      };
+
+      const fetchOptions: RequestInit = {
+        method: req.method,
+        headers,
+        signal: controller.signal,
+      };
+
+      if (req.method === 'POST' || req.method === 'PUT') {
+        headers['Content-Type'] = 'application/json';
+        fetchOptions.body = JSON.stringify(req.body || {});
+      }
+
+      const response = await fetch(`https://api.fmarket.vn${targetPath}`, fetchOptions);
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        return res.json({ success: false, data: { rows: [] } });
+      }
+
       const data = await response.json();
       res.json(data);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.json({ success: false, data: { rows: [] } });
     }
   });
 

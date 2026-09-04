@@ -172,42 +172,35 @@ class PriceService {
     const cleanSym = symbol.toUpperCase().trim();
     const now = Date.now();
 
-    if (now - lastFundCacheFetch > 30000 || !fundNavCache[cleanSym]) {
-      const endpoints = [
-        '/api/fmarket/res/products/filter',
-        'https://api.fmarket.vn/res/products/filter',
-      ];
+    // Throttle queries to once per 60 seconds
+    if (now - lastFundCacheFetch > 60000) {
+      lastFundCacheFetch = now;
+      try {
+        const res = await fetch('/api/fmarket/res/products/filter', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            types: ['NEW_FUND', 'TRADING_FUND'],
+            page: 1,
+            pageSize: 100,
+          }),
+        });
 
-      for (const ep of endpoints) {
-        try {
-          const res = await fetch(ep, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              types: ['NEW_FUND', 'TRADING_FUND'],
-              page: 1,
-              pageSize: 100,
-            }),
-          });
-
-          if (res.ok) {
-            const data = await res.json();
-            if (data?.data?.rows && Array.isArray(data.data.rows)) {
-              data.data.rows.forEach((row: any) => {
-                const code = (row.shortName || row.code || '').toUpperCase();
-                if (code && typeof row.nav === 'number') {
-                  fundNavCache[code] = row.nav;
-                }
-              });
-              lastFundCacheFetch = now;
-              break;
-            }
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.data?.rows && Array.isArray(data.data.rows)) {
+            data.data.rows.forEach((row: any) => {
+              const code = (row.shortName || row.code || '').toUpperCase();
+              if (code && typeof row.nav === 'number') {
+                fundNavCache[code] = row.nav;
+              }
+            });
           }
-        } catch {
-          // Fall through
         }
+      } catch {
+        // Fall back to stored NAV cache
       }
     }
 

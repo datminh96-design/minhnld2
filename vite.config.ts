@@ -75,18 +75,6 @@ export default defineConfig(() => {
     server: {
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
-      proxy: {
-        '/api/vps-stock': {
-          target: 'https://bgapidatafeed.vps.com.vn',
-          changeOrigin: true,
-          rewrite: (p: string) => p.replace(/^\/api\/vps-stock/, ''),
-        },
-        '/api/fmarket': {
-          target: 'https://api.fmarket.vn',
-          changeOrigin: true,
-          rewrite: (p: string) => p.replace(/^\/api\/fmarket/, ''),
-        },
-      },
     },
   };
 });

@@ -62,11 +62,21 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
   const [viewMode, setViewMode] = useState<'single' | 'all'>('single');
   const [aiRefreshingSymbol, setAiRefreshingSymbol] = useState<string | null>(null);
 
-  // Gemini Model Selector State (gemini-3.7-flash is recommended for high reliability and quota)
+  // Sort holdings by highest capital (total invested / current market value) descending from left to right
+  const sortedHoldings = useMemo(() => {
+    if (!holdings || holdings.length === 0) return [];
+    return [...holdings].sort((a, b) => {
+      const capA = a.totalInvested || a.currentValue || (a.currentQuantity * (a.asset.current_price || 0)) || 0;
+      const capB = b.totalInvested || b.currentValue || (b.currentQuantity * (b.asset.current_price || 0)) || 0;
+      return capB - capA;
+    });
+  }, [holdings]);
+
+  // Gemini Model Selector State (gemini-3.8-flash is recommended for top accuracy)
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     const saved = localStorage.getItem('preferred_gemini_model');
-    if (saved && saved !== 'gemini-3.8-flash') return saved;
-    return 'gemini-3.7-flash';
+    if (saved) return saved;
+    return 'gemini-3.8-flash';
   });
   const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
   const [customModelText, setCustomModelText] = useState<string>('');
@@ -79,19 +89,21 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
     return saved ? parseInt(saved, 10) : Date.now();
   });
 
-  // Track last executed cycle timestamp to avoid multiple triggers in the same cycle
-  const lastAnalyzedCycleRef = useRef<number>(0);
+  // Track last executed cycle timestamp from localStorage to prevent duplicate AI triggers in the same cycle
+  const lastAnalyzedCycleRef = useRef<number>(
+    parseInt(localStorage.getItem('app_4h_last_analyzed_cycle') || '0', 10)
+  );
 
   // Holdings Signature to prevent unnecessary re-runs on raw array reference changes
   const holdingsSignature = useMemo(() => {
-    if (!holdings || holdings.length === 0) return '';
-    return holdings
+    if (!sortedHoldings || sortedHoldings.length === 0) return '';
+    return sortedHoldings
       .map(
         (h) =>
-          `${h.asset.id}_${h.asset.asset_symbol}_${h.asset.current_price}_${h.currentQuantity}_${h.averageCost}`
+          `${h.asset.id}_${h.asset.asset_symbol}_${h.asset.current_price}_${h.currentQuantity}_${h.averageCost}_${h.totalInvested}`
       )
       .join('|');
-  }, [holdings]);
+  }, [sortedHoldings]);
 
   // Active Model Display Object
   const activeModelOption = useMemo(() => {
@@ -107,16 +119,16 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
 
   // Load analyses function with model support & quota preservation
   const runAnalysis = async (forceRefresh: boolean = false, modelToUse: string = selectedModel) => {
-    if (!holdings || holdings.length === 0) return;
+    if (!sortedHoldings || sortedHoldings.length === 0) return;
 
     setIsLoading(true);
     const results: Record<string, Asset4HAnalysis> = {};
 
     try {
-      const activeSym = selectedSymbol || holdings[0]?.asset.asset_symbol.toUpperCase() || '';
+      const activeSym = selectedSymbol || sortedHoldings[0]?.asset.asset_symbol.toUpperCase() || '';
 
-      // 1. Instantly calculate high-precision quant indicators for all holdings (includeAi: false for lightning speed)
-      const quantPromises = holdings.map((h) =>
+      // 1. Instantly calculate high-precision quant indicators for all holdings (includeAi: false for lightning speed & 0 token cost)
+      const quantPromises = sortedHoldings.map((h) =>
         technicalAnalysisService.analyzeAsset(h, 25400, forceRefresh, modelToUse, false)
       );
       const analysesList = await Promise.all(quantPromises);
@@ -125,7 +137,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
       }
       setAnalyses(results);
 
-      // Auto select first holding if not selected
+      // Auto select highest capital holding if not selected
       if (!selectedSymbol || !results[selectedSymbol]) {
         setSelectedSymbol(activeSym);
       }
@@ -133,19 +145,28 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
       const now = Date.now();
       const currentCycle = get4HCycleInfo(new Date(now));
       lastAnalyzedCycleRef.current = currentCycle.currentCycleTimestamp;
+      localStorage.setItem('app_4h_last_analyzed_cycle', currentCycle.currentCycleTimestamp.toString());
       setLastUpdatedTimestamp(now);
       localStorage.setItem('app_4h_analysis_last_run', now.toString());
       setCycleInfo(currentCycle);
 
-      // 2. Enrich active holding with Gemini AI in the background
-      const targetHolding = holdings.find((h) => h.asset.asset_symbol.toUpperCase() === activeSym);
+      // 2. Enrich the active/selected holding with Gemini AI in the background
+      const targetHolding = sortedHoldings.find((h) => h.asset.asset_symbol.toUpperCase() === activeSym);
       if (targetHolding) {
+        setAiRefreshingSymbol(activeSym);
         technicalAnalysisService
           .analyzeAsset(targetHolding, 25400, forceRefresh, modelToUse, true)
           .then((aiRes) => {
-            setAnalyses((prev) => ({ ...prev, [activeSym]: aiRes }));
+            if (aiRes) {
+              setAnalyses((prev) => ({ ...prev, [activeSym]: aiRes }));
+            }
           })
-          .catch(() => {});
+          .catch((err) => {
+            console.warn('Gemini AI enrichment notice:', err);
+          })
+          .finally(() => {
+            setAiRefreshingSymbol(null);
+          });
       }
 
       if (forceRefresh) {
@@ -171,7 +192,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
     e.preventDefault();
     const trimmed = customModelText.trim();
     if (!trimmed) {
-      addToast('Vui lòng nhập tên mô hình hợp lệ (ví dụ: gemini-3.7-flash)', 'warning');
+      addToast('Vui lòng nhập tên mô hình hợp lệ (ví dụ: gemini-3.8-flash)', 'warning');
       return;
     }
     setSelectedModel(trimmed);
@@ -183,14 +204,14 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
   };
 
   const refreshSingleAssetAi = async (symbol: string) => {
-    const holding = holdings.find((h) => h.asset.asset_symbol.toUpperCase() === symbol.toUpperCase());
+    const holding = sortedHoldings.find((h) => h.asset.asset_symbol.toUpperCase() === symbol.toUpperCase());
     if (!holding) return;
 
     setAiRefreshingSymbol(symbol);
     try {
       const res = await technicalAnalysisService.analyzeAsset(holding, 25400, true, selectedModel, true);
       setAnalyses((prev) => ({ ...prev, [symbol]: res }));
-      addToast(`Đã cập nhật phân tích ${selectedModel} cho mã ${symbol}!`, 'success');
+      addToast(`Đã hoàn tất cố vấn Gemini AI cho mã ${symbol}!`, 'success');
     } catch (e) {
       console.error('Failed to refresh AI analysis:', e);
       addToast(`Không thể cập nhật AI cho mã ${symbol}`, 'error');
@@ -205,15 +226,21 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
     setViewMode('single');
 
     const item = analyses[sym];
-    if (item && !item.isAiEnhanced && aiRefreshingSymbol !== sym) {
-      const holding = holdings.find((h) => h.asset.asset_symbol.toUpperCase() === sym);
+    if ((!item || !item.isAiEnhanced) && aiRefreshingSymbol !== sym) {
+      const holding = sortedHoldings.find((h) => h.asset.asset_symbol.toUpperCase() === sym);
       if (holding) {
+        setAiRefreshingSymbol(sym);
         technicalAnalysisService
           .analyzeAsset(holding, 25400, false, selectedModel, true)
           .then((aiRes) => {
-            setAnalyses((prev) => ({ ...prev, [sym]: aiRes }));
+            if (aiRes) {
+              setAnalyses((prev) => ({ ...prev, [sym]: aiRes }));
+            }
           })
-          .catch(() => {});
+          .catch(() => {})
+          .finally(() => {
+            setAiRefreshingSymbol(null);
+          });
       }
     }
   };
@@ -234,13 +261,14 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
         `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
       );
 
-      // Auto-run only when the 4H cycle slot shifts to the new scheduled roadmap window
+      // Auto-run strictly when the 4H cycle slot shifts to a new scheduled roadmap window
       if (
         lastAnalyzedCycleRef.current !== 0 &&
         currentCycle.currentCycleTimestamp > lastAnalyzedCycleRef.current &&
         !isLoading
       ) {
         lastAnalyzedCycleRef.current = currentCycle.currentCycleTimestamp;
+        localStorage.setItem('app_4h_last_analyzed_cycle', currentCycle.currentCycleTimestamp.toString());
         console.log('[4H Roadmap Auto Runner] Triggering scheduled 4H cycle analysis for slot:', currentCycle.cycleStartHour);
         runAnalysis(true);
       }
@@ -255,11 +283,21 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
   useEffect(() => {
     if (!holdingsSignature) return;
     const currentCycle = get4HCycleInfo(new Date());
-    lastAnalyzedCycleRef.current = currentCycle.currentCycleTimestamp;
+    const savedCycle = parseInt(localStorage.getItem('app_4h_last_analyzed_cycle') || '0', 10);
+    if (savedCycle === currentCycle.currentCycleTimestamp) {
+      lastAnalyzedCycleRef.current = currentCycle.currentCycleTimestamp;
+    }
     runAnalysis(false);
   }, [holdingsSignature]);
 
   const activeAnalysis = selectedSymbol ? analyses[selectedSymbol] : null;
+
+  // Sorted list of analyses matching sortedHoldings
+  const sortedAnalysesList = useMemo(() => {
+    return sortedHoldings
+      .map((h) => analyses[h.asset.asset_symbol.toUpperCase()])
+      .filter((a): a is Asset4HAnalysis => Boolean(a));
+  }, [sortedHoldings, analyses]);
 
   // Copy full report
   const handleCopyReport = (analysis: Asset4HAnalysis) => {
@@ -299,38 +337,32 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
               <Activity className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2.5 flex-wrap">
                 <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white font-display">
                   Phân Tích Kỹ Thuật & Dự Báo 4H (AI & Quant)
                 </h3>
-                
-                {/* Explicit 4H Update Time Badge */}
-                <div className="px-3 py-1 rounded-full text-xs font-bold bg-purple-600 text-white shadow-xs flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>Thời gian cập nhật: {cycleInfo.cycleStartHour}</span>
-                </div>
-
-                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
-                  <Timer className="w-3 h-3" /> Tự động 4 giờ/lần
-                </span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                   RSI • MACD • EMA • Bollinger
                 </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
+                  <Timer className="w-3 h-3" /> Tự động 4H/lần
+                </span>
               </div>
 
-              {/* Status bar showing exact cycle timings */}
-              <div className="flex items-center gap-3 flex-wrap mt-2 text-xs text-slate-600 dark:text-slate-300 font-medium">
-                <span className="flex items-center gap-1 text-purple-700 dark:text-purple-300 font-bold bg-purple-50 dark:bg-purple-950/60 px-2 py-0.5 rounded-lg border border-purple-200 dark:border-purple-800">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                  Cập nhật lúc: {cycleInfo.cycleStartHour} (Chi tiết: {cycleInfo.analyzedTimeShort})
+              {/* Single Consolidated 4H Cycle Status Line */}
+              <div className="flex items-center gap-2.5 flex-wrap mt-2 text-xs text-slate-600 dark:text-slate-300 font-medium">
+                <span className="flex items-center gap-1 text-purple-700 dark:text-purple-300 font-bold bg-purple-50 dark:bg-purple-950/60 px-2.5 py-0.5 rounded-lg border border-purple-200 dark:border-purple-800">
+                  <Clock className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                  Cập nhật: <span className="text-purple-900 dark:text-purple-100 font-bold">{cycleInfo.cycleStartHour}</span>
+                  <span className="text-slate-500 dark:text-slate-400 font-normal">({cycleInfo.analyzedTimeShort})</span>
                 </span>
                 <span>•</span>
                 <span className="text-slate-500 dark:text-slate-400">
-                  Chu kỳ 4H tiếp theo: <strong className="text-indigo-600 dark:text-indigo-400">{cycleInfo.nextCycleAt}</strong>
+                  Chu kỳ 4H kế tiếp: <strong className="text-indigo-600 dark:text-indigo-400 font-bold">{cycleInfo.nextCycleAt}</strong>
                 </span>
                 <span>•</span>
                 <span className="text-amber-600 dark:text-amber-400 font-mono font-bold flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5" /> Tự động chạy lại sau: {countdownText}
+                  <Timer className="w-3.5 h-3.5 shrink-0" /> Tự động chạy lại sau: {countdownText}
                 </span>
               </div>
             </div>
@@ -362,9 +394,9 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Asset Quick Switch Pills */}
+        {/* Asset Quick Switch Pills - Sorted by Highest Capital from Left */}
         <div className="flex items-center gap-2 mt-5 overflow-x-auto pb-1 scrollbar-none">
-          {holdings.map((h) => {
+          {sortedHoldings.map((h) => {
             const sym = h.asset.asset_symbol.toUpperCase();
             const analysis = analyses[sym];
             const isSelected = selectedSymbol === sym && viewMode === 'single';
@@ -421,9 +453,9 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
             <p className="text-sm font-medium">Đang tính toán các chỉ báo RSI, MACD, EMA và mô hình nến 4H...</p>
           </div>
         ) : viewMode === 'all' ? (
-          /* Render all assets in a compact card grid */
+          /* Render all assets in a compact card grid sorted by highest capital */
           <div className="space-y-6">
-            {(Object.values(analyses) as Asset4HAnalysis[]).map((item) => (
+            {sortedAnalysesList.map((item) => (
               <AssetAnalysisCard
                 key={item.symbol}
                 analysis={item}
@@ -1068,7 +1100,11 @@ const AssetAnalysisCard: React.FC<{
         </div>
 
         <div className="p-3.5 rounded-xl bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900/40 text-xs text-purple-900 dark:text-purple-200 leading-relaxed font-medium">
-          {analysis.dcaStrategyAdvice}
+          {analysis.geminiInsight?.customDcaAdvice
+            ? (analysis.geminiInsight.customDcaAdvice.startsWith('🤖')
+                ? analysis.geminiInsight.customDcaAdvice
+                : `🤖 [Gemini AI Cố Vấn - ${analysis.geminiInsight.model || currentModelDisplayName}]: ${analysis.geminiInsight.customDcaAdvice}`)
+            : analysis.dcaStrategyAdvice}
         </div>
       </div>
     </div>
