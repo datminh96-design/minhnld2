@@ -5,7 +5,9 @@ import {
   TradeLevel,
   get4HCycleInfo,
   AVAILABLE_GEMINI_MODELS,
-  GeminiModelOption
+  GeminiModelOption,
+  MarketTopMoversReport,
+  AssetMoverItem
 } from '../../services/technicalAnalysisService';
 import { formatCurrency, formatPercent } from '../../lib/utils';
 import { 
@@ -34,8 +36,14 @@ import {
   ChevronDown,
   Cpu,
   Sliders,
-  X
+  X,
+  Newspaper,
+  Flame,
+  Globe,
+  Coins,
+  Building2
 } from 'lucide-react';
+import { MarketTopMoversView } from './MarketTopMoversView';
 
 interface Props {
   holdings: Array<{
@@ -80,6 +88,10 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
   });
   const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
   const [customModelText, setCustomModelText] = useState<string>('');
+  
+  // Top 5 Gainers & Losers (Crypto & VN Stocks) for 4H cycle
+  const [moversReport, setMoversReport] = useState<MarketTopMoversReport | null>(null);
+  const [isMoversLoading, setIsMoversLoading] = useState<boolean>(false);
   
   // 4H Timer & Cycle Tracking
   const [cycleInfo, setCycleInfo] = useState(() => get4HCycleInfo());
@@ -171,6 +183,22 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
           });
       }
 
+      // 3. Auto-sync top 5 gainers & losers for Crypto and VN Stocks for current 4H cycle
+      setIsMoversLoading(true);
+      technicalAnalysisService
+        .getMarketTopMovers(modelToUse, forceRefresh)
+        .then((mReport) => {
+          if (mReport) {
+            setMoversReport(mReport);
+          }
+        })
+        .catch((mErr) => {
+          console.warn('Market movers auto-sync notice:', mErr);
+        })
+        .finally(() => {
+          setIsMoversLoading(false);
+        });
+
       if (forceRefresh) {
         addToast(`Đã hoàn tất phân tích kỹ thuật 4H (${modelToUse})!`, 'success');
       }
@@ -221,6 +249,20 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
       addToast(`Không thể cập nhật AI cho mã ${symbol}`, 'error');
     } finally {
       setAiRefreshingSymbol(null);
+    }
+  };
+
+  const handleRefreshMoversOnly = async () => {
+    setIsMoversLoading(true);
+    try {
+      const res = await technicalAnalysisService.getMarketTopMovers(selectedModel, true);
+      setMoversReport(res);
+      addToast('Đã cập nhật Top 5 tăng / giảm thị trường (Crypto & VN Stocks)!', 'success');
+    } catch (err) {
+      console.error('Failed to refresh market movers:', err);
+      addToast('Không thể cập nhật danh sách biến động thị trường', 'error');
+    } finally {
+      setIsMoversLoading(false);
     }
   };
 
@@ -311,6 +353,17 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
 
   // Copy full report
   const handleCopyReport = (analysis: Asset4HAnalysis) => {
+    let newsSectionText = '';
+    if (analysis.geminiInsight?.topMarketNews && analysis.geminiInsight.topMarketNews.length > 0) {
+      newsSectionText = `\n\n📰 5 TIN TỨC QUAN TRỌNG MỚI NHẤT TÁC ĐỘNG TỚI GIÁ (CRYPTO & CK VN):\n` +
+        analysis.geminiInsight.topMarketNews
+          .map(
+            (n, idx) =>
+              `${idx + 1}. ${n.title} (Nguồn: ${n.source || 'Tổng hợp'})\n   • Tác động tới: ${n.impactedAssets?.join(', ')} [${n.impactType}]\n   • Đánh giá: ${n.impactSummary}`
+          )
+          .join('\n');
+    }
+
     const fullText = `${analysis.summaryReport}\n\n3 ĐIỂM MUA TỐT NHẤT:\n${analysis.buyLevels
       .map(
         (b) =>
@@ -325,11 +378,11 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
             s.priceUsdt ? `$${s.priceUsdt.toLocaleString()} (~${s.priceVnd.toLocaleString('vi-VN')} đ)` : `${s.priceVnd.toLocaleString('vi-VN')} đ`
           } (+${s.expectedPercentFromCurrent}%) - Tỷ trọng: ${s.allocationPercent}%\n  Lý do: ${s.technicalReason}`
       )
-      .join('\n')}\n\n${analysis.dcaStrategyAdvice}`;
+      .join('\n')}\n\n${analysis.dcaStrategyAdvice}${newsSectionText}`;
 
     navigator.clipboard.writeText(fullText);
     setCopiedSymbol(analysis.symbol);
-    addToast(`Đã sao chép báo cáo phân tích 4H mã ${analysis.symbol}!`, 'success');
+    addToast(`Đã sao chép báo cáo phân tích 4H & 5 tin tức thị trường mã ${analysis.symbol}!`, 'success');
     setTimeout(() => setCopiedSymbol(null), 2500);
   };
 
@@ -340,39 +393,38 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
   return (
     <div className="mt-8 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-md overflow-hidden transition-all">
       {/* Top Header Banner */}
-      <div className="p-5 sm:p-6 bg-gradient-to-r from-purple-900/10 via-indigo-900/10 to-slate-900/10 dark:from-purple-950/40 dark:via-indigo-950/30 dark:to-slate-900/50 border-b border-slate-200 dark:border-slate-800">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="p-4 sm:p-5 bg-gradient-to-r from-purple-900/10 via-indigo-900/10 to-slate-900/10 dark:from-purple-950/40 dark:via-indigo-950/30 dark:to-slate-900/50 border-b border-slate-200 dark:border-slate-800">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5">
           <div className="flex items-start sm:items-center gap-3">
             <div className="p-2.5 rounded-2xl bg-purple-600 text-white shadow-md shadow-purple-600/20 shrink-0">
               <Activity className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2.5 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white font-display">
                   Phân Tích Kỹ Thuật & Dự Báo 4H (AI & Quant)
                 </h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
+                  <Globe className="w-3 h-3" /> Chu kỳ 4H Quốc Tế (UTC)
+                </span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                   RSI • MACD • EMA • Bollinger
-                </span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
-                  <Timer className="w-3 h-3" /> Tự động 4H/lần
                 </span>
               </div>
 
               {/* Single Consolidated 4H Cycle Status Line */}
-              <div className="flex items-center gap-2.5 flex-wrap mt-2 text-xs text-slate-600 dark:text-slate-300 font-medium">
-                <span className="flex items-center gap-1 text-purple-700 dark:text-purple-300 font-bold bg-purple-50 dark:bg-purple-950/60 px-2.5 py-0.5 rounded-lg border border-purple-200 dark:border-purple-800">
+              <div className="flex items-center gap-2 flex-wrap mt-1.5 text-xs text-slate-600 dark:text-slate-300 font-medium">
+                <span className="flex items-center gap-1 text-purple-700 dark:text-purple-300 font-bold bg-purple-50 dark:bg-purple-950/60 px-2 py-0.5 rounded-lg border border-purple-200 dark:border-purple-800">
                   <Clock className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
                   Cập nhật: <span className="text-purple-900 dark:text-purple-100 font-bold">{cycleInfo.cycleStartHour}</span>
-                  <span className="text-slate-500 dark:text-slate-400 font-normal">({cycleInfo.analyzedTimeShort})</span>
                 </span>
                 <span>•</span>
                 <span className="text-slate-500 dark:text-slate-400">
-                  Chu kỳ 4H kế tiếp: <strong className="text-indigo-600 dark:text-indigo-400 font-bold">{cycleInfo.nextCycleAt}</strong>
+                  Kế tiếp: <strong className="text-indigo-600 dark:text-indigo-400 font-bold">{cycleInfo.nextCycleAt}</strong>
                 </span>
                 <span>•</span>
                 <span className="text-amber-600 dark:text-amber-400 font-mono font-bold flex items-center gap-1">
-                  <Timer className="w-3.5 h-3.5 shrink-0" /> Tự động chạy lại sau: {countdownText}
+                  <Timer className="w-3.5 h-3.5 shrink-0" /> Đóng nến sau: {countdownText}
                 </span>
               </div>
             </div>
@@ -383,8 +435,8 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
             <button
               type="button"
               onClick={() => setShowModelPicker(true)}
-              className="px-3 py-2 rounded-xl text-xs font-bold text-purple-700 dark:text-purple-200 bg-purple-100/90 dark:bg-purple-950/80 hover:bg-purple-200 dark:hover:bg-purple-900/90 border border-purple-300 dark:border-purple-700/80 flex items-center gap-1.5 transition-all shadow-xs cursor-pointer select-none whitespace-nowrap"
-              title="Đổi mô hình Gemini AI (3.8 Flash, 3.7 Flash, Pro...)"
+              className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-purple-700 dark:text-purple-200 bg-purple-100/90 dark:bg-purple-950/80 hover:bg-purple-200 dark:hover:bg-purple-900/90 border border-purple-300 dark:border-purple-700/80 flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer select-none whitespace-nowrap"
+              title="Đổi mô hình Gemini AI"
             >
               <Cpu className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
               <span>Mô hình: <strong className="text-purple-900 dark:text-purple-100">{activeModelOption.name}</strong></span>
@@ -395,17 +447,17 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
               type="button"
               onClick={() => runAnalysis(true)}
               disabled={isLoading}
-              className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-80 transition-all flex items-center gap-2 shadow-xs cursor-pointer select-none whitespace-nowrap"
+              className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-80 transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer select-none whitespace-nowrap"
               title="Làm mới ngay phân tích kỹ thuật 4H"
             >
               <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isLoading ? 'animate-spin' : ''}`} />
-              <span>Làm mới ngay</span>
+              <span>Làm mới</span>
             </button>
           </div>
         </div>
 
         {/* Asset Quick Switch Pills - Sorted by Highest Capital from Left */}
-        <div className="flex items-center gap-2 mt-5 overflow-x-auto pb-1 scrollbar-none">
+        <div className="flex items-center gap-1.5 mt-4 overflow-x-auto pb-1 scrollbar-none">
           {sortedHoldings.map((h) => {
             const sym = h.asset.asset_symbol.toUpperCase();
             const analysis = analyses[sym];
@@ -417,7 +469,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
                 key={h.asset.id}
                 type="button"
                 onClick={() => handleSelectAssetTab(sym)}
-                className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap border ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap border ${
                   isSelected
                     ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
                     : 'bg-white dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-purple-300 dark:hover:border-purple-600'
@@ -434,7 +486,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
                         : 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300'
                     }`}
                   >
-                    {isBullish ? `↗ ${analysis.upProbability}% Tăng` : `↘ ${analysis.downProbability}% Giảm`}
+                    {isBullish ? `↗ ${analysis.upProbability}%` : `↘ ${analysis.downProbability}%`}
                   </span>
                 )}
               </button>
@@ -444,19 +496,19 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => setViewMode(viewMode === 'all' ? 'single' : 'all')}
-            className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer whitespace-nowrap ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer whitespace-nowrap ${
               viewMode === 'all'
-                ? 'bg-purple-600 text-white border-purple-600'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200'
             }`}
           >
-            {viewMode === 'all' ? 'Đóng toàn bộ' : 'Xem toàn bộ danh mục'}
+            {viewMode === 'all' ? 'Đóng toàn bộ' : 'Xem toàn bộ'}
           </button>
         </div>
       </div>
 
       {/* Main Analysis Display Content */}
-      <div className="p-5 sm:p-6 space-y-6">
+      <div className="p-4 sm:p-5 space-y-5">
         {isLoading && Object.keys(analyses).length === 0 ? (
           <div className="py-12 text-center text-slate-500 dark:text-slate-400">
             <RefreshCw className="w-8 h-8 animate-spin mx-auto text-purple-600 mb-3" />
@@ -496,6 +548,14 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
             Vui lòng chọn một tài sản để xem chi tiết phân tích 4H.
           </div>
         )}
+
+        {/* Top 5 Gainers & Top 5 Losers Section (Crypto & VN Stocks) - Synchronized with 4H Cycle */}
+        <MarketTopMoversView
+          moversReport={moversReport}
+          isLoading={isMoversLoading}
+          onRefresh={handleRefreshMoversOnly}
+          activeModel={selectedModel}
+        />
       </div>
 
       {/* Model Selection Modal */}
@@ -632,19 +692,19 @@ const AssetAnalysisCard: React.FC<{
   const currentModelDisplayName = analysis.geminiInsight?.model || activeModelOption.name;
 
   return (
-    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 p-4 sm:p-6 space-y-6">
+    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 sm:p-5 space-y-4 shadow-2xs">
       {/* 1. Header & Position Quick Summary Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3.5 border-b border-slate-200 dark:border-slate-800">
         <div className="min-w-0">
-          <div className="flex items-center gap-2.5 flex-wrap min-h-[28px]">
-            <h4 className="text-lg font-bold text-slate-900 dark:text-white font-display tracking-tight">
+          <div className="flex items-center gap-2 flex-wrap min-h-[26px]">
+            <h4 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white font-display tracking-tight">
               {analysis.symbol}
             </h4>
             <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
               {analysis.name}
             </span>
             <span
-              className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider whitespace-nowrap inline-flex items-center ${
+              className={`px-2 py-0.2 rounded-full text-[11px] font-bold uppercase tracking-wider whitespace-nowrap inline-flex items-center ${
                 analysis.primaryTrend === 'TĂNG MẠNH'
                   ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
                   : analysis.primaryTrend === 'TĂNG TÍCH LŨY'
@@ -661,33 +721,31 @@ const AssetAnalysisCard: React.FC<{
             <button
               type="button"
               onClick={onOpenModelPicker}
-              className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-gradient-to-r from-purple-600 to-indigo-600 text-white inline-flex items-center gap-1 shadow-xs hover:opacity-90 transition-all cursor-pointer whitespace-nowrap"
+              className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-gradient-to-r from-purple-600 to-indigo-600 text-white inline-flex items-center gap-1 shadow-2xs hover:opacity-90 transition-all cursor-pointer whitespace-nowrap"
               title="Nhấn để đổi mô hình Gemini AI"
             >
-              <Sparkles className="w-3 h-3 text-amber-300 shrink-0" />
+              <Sparkles className="w-2.5 h-2.5 text-amber-300 shrink-0" />
               <span className="tabular-nums">{currentModelDisplayName}</span>
-              <ChevronDown className="w-3 h-3 opacity-70 shrink-0" />
+              <ChevronDown className="w-2.5 h-2.5 opacity-70 shrink-0" />
             </button>
           </div>
 
-          <div className="flex items-center gap-2.5 mt-2 flex-wrap text-xs text-slate-500 dark:text-slate-400 tabular-nums font-mono">
-            <span className="font-semibold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/50 px-2 py-0.5 rounded-md border border-purple-200 dark:border-purple-800 whitespace-nowrap font-sans">
-              Thời gian cập nhật: <strong className="font-mono">{analysis.cycleStartHour}</strong>
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+            <span className="font-semibold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/50 px-2 py-0.2 rounded border border-purple-200 dark:border-purple-800 whitespace-nowrap text-[11px]">
+              Cập nhật: <strong className="font-mono">{analysis.cycleStartHour}</strong>
             </span>
-            <span className="font-sans text-slate-400">•</span>
-            <span className="whitespace-nowrap font-sans">Chi tiết: <strong className="font-mono font-normal">{analysis.analyzedAt}</strong></span>
-            <span className="font-sans text-slate-400">•</span>
-            <span className="text-indigo-600 dark:text-indigo-400 font-medium whitespace-nowrap font-sans">
-              Chu kỳ 4H kế tiếp: <strong className="font-mono">{analysis.nextCycleAt}</strong>
+            <span className="text-slate-400">•</span>
+            <span className="text-indigo-600 dark:text-indigo-400 font-medium whitespace-nowrap text-[11px]">
+              Kế tiếp: <strong className="font-mono">{analysis.nextCycleAt}</strong>
             </span>
           </div>
         </div>
 
         {/* User Holding Metrics Box */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-4 bg-white dark:bg-slate-800/90 p-2.5 sm:p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shrink-0">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3 bg-slate-50 dark:bg-slate-800/90 p-2 sm:p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shrink-0">
           <div>
             <span className="text-[10px] text-slate-400 block font-medium">Giá vốn DCA (KDA)</span>
-            <span className="font-bold text-slate-800 dark:text-slate-200 font-mono tabular-nums">
+            <span className="font-bold text-slate-800 dark:text-slate-200 font-mono tabular-nums text-xs">
               {formatCurrency(analysis.averageCost, userCurrency)}
             </span>
             {analysis.averageCostUsdt && (
@@ -699,7 +757,7 @@ const AssetAnalysisCard: React.FC<{
 
           <div>
             <span className="text-[10px] text-slate-400 block font-medium">Giá hiện tại (Live)</span>
-            <span className="font-bold text-slate-900 dark:text-white font-mono tabular-nums flex items-center gap-1">
+            <span className="font-bold text-slate-900 dark:text-white font-mono tabular-nums text-xs flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
               {formatCurrency(analysis.currentPrice, userCurrency)}
             </span>
@@ -711,16 +769,16 @@ const AssetAnalysisCard: React.FC<{
           </div>
 
           <div>
-            <span className="text-[10px] text-slate-400 block font-medium">Lợi nhuận hiện tại</span>
+            <span className="text-[10px] text-slate-400 block font-medium">Lợi nhuận vị thế</span>
             <span
-              className={`font-bold font-mono tabular-nums ${
+              className={`font-bold font-mono tabular-nums text-xs ${
                 isProfitable ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600'
               }`}
             >
               {isProfitable ? '+' : ''}
               {formatPercent(analysis.pnlPercent)}
             </span>
-            <span className="text-[10px] text-slate-400 block font-mono tabular-nums">
+            <span className="text-[10px] text-slate-400 block font-mono tabular-nums truncate max-w-[100px]">
               KL: {analysis.currentQuantity.toLocaleString('vi-VN', { maximumFractionDigits: 4 })}
             </span>
           </div>
@@ -728,11 +786,11 @@ const AssetAnalysisCard: React.FC<{
       </div>
 
       {/* 2. Gemini AI Deep Intelligence Card */}
-      <div className="rounded-2xl bg-gradient-to-br from-purple-900/10 via-indigo-900/5 to-slate-900/10 dark:from-purple-950/50 dark:via-indigo-950/40 dark:to-slate-900/60 border border-purple-200 dark:border-purple-800/80 p-4 sm:p-5 space-y-4 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-purple-100 dark:border-purple-900/50">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white shadow-xs">
-              <Bot className="w-4 h-4" />
+      <div className="rounded-2xl bg-gradient-to-br from-purple-900/10 via-indigo-900/5 to-slate-900/10 dark:from-purple-950/50 dark:via-indigo-950/40 dark:to-slate-900/60 border border-purple-200 dark:border-purple-800/80 p-3.5 sm:p-4 space-y-3 shadow-2xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-purple-100 dark:border-purple-900/50">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white shadow-2xs">
+              <Bot className="w-3.5 h-3.5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -742,7 +800,7 @@ const AssetAnalysisCard: React.FC<{
                 <button
                   type="button"
                   onClick={onOpenModelPicker}
-                  className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800 transition-all cursor-pointer flex items-center gap-1 border border-purple-200 dark:border-purple-700/60"
+                  className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800 transition-all cursor-pointer flex items-center gap-1 border border-purple-200 dark:border-purple-700/60"
                   title="Nhấn để đổi mô hình Gemini AI"
                 >
                   <Cpu className="w-2.5 h-2.5" />
@@ -750,17 +808,14 @@ const AssetAnalysisCard: React.FC<{
                   <ChevronDown className="w-2.5 h-2.5 opacity-60" />
                 </button>
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Phân tích định lượng chuyên sâu, kết hợp RSI/MACD/EMA & chiến lược vị thế KDA
-              </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 self-start sm:self-auto">
             {analysis.geminiInsight && (
-              <div className="px-3 py-1 rounded-xl bg-white dark:bg-slate-800 border border-purple-200 dark:border-purple-800 text-xs font-bold text-purple-700 dark:text-purple-300 flex items-center gap-1.5 shadow-xs">
-                <BrainCircuit className="w-3.5 h-3.5 text-indigo-500" />
-                <span>Độ tin cậy AI: {analysis.geminiInsight.confidence}%</span>
+              <div className="px-2.5 py-0.5 rounded-lg bg-white dark:bg-slate-800 border border-purple-200 dark:border-purple-800 text-[11px] font-bold text-purple-700 dark:text-purple-300 flex items-center gap-1 shadow-2xs">
+                <BrainCircuit className="w-3 h-3 text-indigo-500" />
+                <span>Độ tin cậy: {analysis.geminiInsight.confidence}%</span>
               </div>
             )}
             {onRefreshAi && (
@@ -768,7 +823,7 @@ const AssetAnalysisCard: React.FC<{
                 type="button"
                 onClick={onRefreshAi}
                 disabled={isAiRefreshing}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/80 hover:bg-purple-200 dark:hover:bg-purple-900 border border-purple-300 dark:border-purple-800 flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-80 select-none whitespace-nowrap"
+                className="px-2.5 py-1 rounded-lg text-xs font-semibold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/80 hover:bg-purple-200 dark:hover:bg-purple-900 border border-purple-300 dark:border-purple-800 flex items-center gap-1 transition-all cursor-pointer disabled:opacity-80 select-none whitespace-nowrap"
                 title="Cập nhật lại phân tích AI cho tài sản này"
               >
                 <RefreshCw className={`w-3 h-3 shrink-0 ${isAiRefreshing ? 'animate-spin' : ''}`} />
@@ -780,21 +835,22 @@ const AssetAnalysisCard: React.FC<{
 
         {/* AI Verdict & 3 Key Drivers */}
         {analysis.geminiInsight ? (
-          <div className="space-y-3.5">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white dark:bg-slate-800/90 p-3.5 rounded-xl border border-purple-100 dark:border-purple-900/40">
-              <div className="flex items-center gap-2.5">
+          <div className="space-y-3">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 bg-white dark:bg-slate-800/90 p-2.5 sm:p-3 rounded-xl border border-purple-100 dark:border-purple-900/40">
+              <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Khuyến nghị AI:</span>
-                <span className="px-3 py-1 rounded-lg text-xs font-extrabold bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-xs">
+                <span className="px-2.5 py-0.5 rounded-lg text-xs font-extrabold bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-2xs">
                   {analysis.geminiInsight.verdict}
                 </span>
               </div>
+
               <div className="flex items-center gap-1.5 flex-wrap">
                 {analysis.geminiInsight.keyDrivers?.map((driver, idx) => (
                   <span
                     key={idx}
-                    className="px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-purple-50 dark:bg-purple-950/60 text-purple-800 dark:text-purple-200 border border-purple-200/80 dark:border-purple-800/60 flex items-center gap-1"
+                    className="px-2 py-0.2 rounded-md text-[10px] font-semibold bg-purple-50 dark:bg-purple-950/60 text-purple-800 dark:text-purple-200 border border-purple-200/80 dark:border-purple-800/60 flex items-center gap-1"
                   >
-                    <Zap className="w-3 h-3 text-amber-500 shrink-0" />
+                    <Zap className="w-2.5 h-2.5 text-amber-500 shrink-0" />
                     <span>{driver}</span>
                   </span>
                 ))}
@@ -802,30 +858,30 @@ const AssetAnalysisCard: React.FC<{
             </div>
 
             {/* AI Technical Breakdown & Custom DCA Guidance */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-              <div className="p-3.5 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700/80 space-y-1.5">
-                <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs">
+              <div className="p-3 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700/80 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white text-xs">
                   <Compass className="w-3.5 h-3.5 text-purple-600" />
                   <span>Nhận định Kỹ Thuật 4H (Hỗ trợ & Kháng cự):</span>
                 </div>
-                <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
+                <p className="text-slate-600 dark:text-slate-300 leading-relaxed text-[11px]">
                   {analysis.geminiInsight.trendAnalysis}
                 </p>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700/80 space-y-1.5">
-                <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white">
+              <div className="p-3 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700/80 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white text-xs">
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Cố vấn Vị thế & DCA Theo Giá Vốn (KDA):</span>
                 </div>
-                <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
+                <p className="text-slate-600 dark:text-slate-300 leading-relaxed text-[11px]">
                   {analysis.geminiInsight.customDcaAdvice}
                 </p>
               </div>
             </div>
           </div>
         ) : (
-          <div className="p-4 bg-white dark:bg-slate-800/80 rounded-xl border border-purple-100 dark:border-purple-900/30 text-xs text-slate-600 dark:text-slate-300 flex items-center justify-between">
+          <div className="p-3 bg-white dark:bg-slate-800/80 rounded-xl border border-purple-100 dark:border-purple-900/30 text-xs text-slate-600 dark:text-slate-300 flex items-center justify-between">
             <span className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-purple-500 animate-spin" />
               <span>Đang tính toán phân tích kỹ thuật 4H và tải dữ liệu mô hình {currentModelDisplayName}...</span>
@@ -834,7 +890,7 @@ const AssetAnalysisCard: React.FC<{
               <button
                 type="button"
                 onClick={onRefreshAi}
-                className="px-3 py-1 text-xs font-bold text-white bg-purple-600 rounded-lg hover:bg-purple-700 cursor-pointer shadow-xs"
+                className="px-2.5 py-1 text-xs font-bold text-white bg-purple-600 rounded-lg hover:bg-purple-700 cursor-pointer shadow-xs"
               >
                 Tải lại ngay
               </button>
@@ -844,15 +900,15 @@ const AssetAnalysisCard: React.FC<{
       </div>
 
       {/* 3. Forecast Probabilities & Expected Range Gauge */}
-      <div className="rounded-2xl bg-white dark:bg-slate-800 p-4 sm:p-5 border border-slate-200 dark:border-slate-700 space-y-3">
+      <div className="rounded-2xl bg-white dark:bg-slate-800 p-3.5 sm:p-4 border border-slate-200 dark:border-slate-700 space-y-2.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+            <Sparkles className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
             <span className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
               Xác Suất Xu Hướng & Biên Độ Dự Phóng (Khung 4H)
             </span>
           </div>
-          <span className="text-[11px] text-slate-400 font-medium">
+          <span className="text-[10px] text-slate-400 font-medium">
             Mô hình lượng hóa kỹ thuật
           </span>
         </div>
@@ -860,17 +916,17 @@ const AssetAnalysisCard: React.FC<{
         {/* Visual Probability Bar */}
         <div className="space-y-1.5">
           <div className="flex justify-between text-xs font-bold">
-            <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+            <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1 text-[11px]">
               <TrendingUp className="w-3.5 h-3.5" /> Xác suất TĂNG: {analysis.upProbability}% (Kỳ vọng: +{analysis.expectedUpRange.min}% ~ +{analysis.expectedUpRange.max}%)
             </span>
-            <span className="text-rose-600 dark:text-rose-400 flex items-center gap-1">
+            <span className="text-rose-600 dark:text-rose-400 flex items-center gap-1 text-[11px]">
               <TrendingDown className="w-3.5 h-3.5" /> Xác suất GIẢM: {analysis.downProbability}% (Rủi ro: -{analysis.expectedDownRange.min}% ~ -{analysis.expectedDownRange.max}%)
             </span>
           </div>
 
-          <div className="w-full h-3.5 bg-rose-100 dark:bg-rose-950/60 rounded-full overflow-hidden flex p-0.5 border border-slate-200 dark:border-slate-700">
+          <div className="w-full h-3 bg-rose-100 dark:bg-rose-950/60 rounded-full overflow-hidden flex p-0.5 border border-slate-200 dark:border-slate-700">
             <div
-              className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-700 shadow-xs"
+              className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-700 shadow-2xs"
               style={{ width: `${analysis.upProbability}%` }}
             />
           </div>
@@ -878,13 +934,13 @@ const AssetAnalysisCard: React.FC<{
       </div>
 
       {/* 3. 3 Best Buy Points & 3 Best Sell Points Columns */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
         {/* BUY COLUMN */}
-        <div className="rounded-2xl bg-white dark:bg-slate-800 p-4 sm:p-5 border border-emerald-200 dark:border-emerald-900/50 space-y-3.5 shadow-xs">
+        <div className="rounded-2xl bg-white dark:bg-slate-800 p-3.5 sm:p-4 border border-emerald-200 dark:border-emerald-900/50 space-y-2.5 shadow-2xs">
           <div className="flex items-center justify-between pb-2 border-b border-emerald-100 dark:border-emerald-950/80">
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-xs">
-                <Target className="w-3.5 h-3.5" />
+              <div className="w-5 h-5 rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-xs">
+                <Target className="w-3 h-3" />
               </div>
               <h5 className="text-xs sm:text-sm font-bold text-emerald-800 dark:text-emerald-300 uppercase tracking-wider">
                 3 Điểm Mua Tốt Nhất (Entry Zones)
@@ -895,34 +951,34 @@ const AssetAnalysisCard: React.FC<{
             </span>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2">
             {analysis.buyLevels.map((lvl) => (
               <div
                 key={lvl.levelNumber}
-                className="p-3 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 text-xs space-y-1.5"
+                className="p-2.5 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 text-xs space-y-1"
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                  <span className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5 text-xs">
                     <span className="w-4 h-4 rounded-full bg-emerald-600 text-white text-[10px] flex items-center justify-center font-bold">
                       {lvl.levelNumber}
                     </span>
                     {lvl.title}
                   </span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300">
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300">
                     Tỷ trọng: {lvl.allocationPercent}%
                   </span>
                 </div>
 
-                <div className="flex items-baseline justify-between pt-1">
-                  <div className="font-mono text-sm font-bold text-emerald-700 dark:text-emerald-400">
+                <div className="flex items-baseline justify-between pt-0.5">
+                  <div className="font-mono text-xs sm:text-sm font-bold text-emerald-700 dark:text-emerald-400">
                     {formatCurrency(lvl.priceVnd, userCurrency)}
                     {lvl.priceUsdt && (
-                      <span className="text-xs text-slate-500 dark:text-slate-400 ml-1.5 font-normal">
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 ml-1.5 font-normal">
                         (${lvl.priceUsdt.toLocaleString()})
                       </span>
                     )}
                   </div>
-                  <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                  <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
                     {lvl.expectedPercentFromCurrent > 0 ? '+' : ''}
                     {lvl.expectedPercentFromCurrent}% so với giá hiện tại
                   </span>
@@ -937,11 +993,11 @@ const AssetAnalysisCard: React.FC<{
         </div>
 
         {/* SELL COLUMN */}
-        <div className="rounded-2xl bg-white dark:bg-slate-800 p-4 sm:p-5 border border-purple-200 dark:border-purple-900/50 space-y-3.5 shadow-xs">
+        <div className="rounded-2xl bg-white dark:bg-slate-800 p-3.5 sm:p-4 border border-purple-200 dark:border-purple-900/50 space-y-2.5 shadow-2xs">
           <div className="flex items-center justify-between pb-2 border-b border-purple-100 dark:border-purple-950/80">
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-lg bg-purple-100 dark:bg-purple-950 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold text-xs">
-                <ShieldCheck className="w-3.5 h-3.5" />
+              <div className="w-5 h-5 rounded-lg bg-purple-100 dark:bg-purple-950 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold text-xs">
+                <ShieldCheck className="w-3 h-3" />
               </div>
               <h5 className="text-xs sm:text-sm font-bold text-purple-800 dark:text-purple-300 uppercase tracking-wider">
                 3 Điểm Bán Tốt Nhất (Take Profit)
@@ -952,34 +1008,34 @@ const AssetAnalysisCard: React.FC<{
             </span>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2">
             {analysis.sellLevels.map((lvl) => (
               <div
                 key={lvl.levelNumber}
-                className="p-3 rounded-xl bg-purple-50/50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/30 text-xs space-y-1.5"
+                className="p-2.5 rounded-xl bg-purple-50/50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/30 text-xs space-y-1"
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                  <span className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5 text-xs">
                     <span className="w-4 h-4 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">
                       {lvl.levelNumber}
                     </span>
                     {lvl.title}
                   </span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300">
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300">
                     Chốt: {lvl.allocationPercent}%
                   </span>
                 </div>
 
-                <div className="flex items-baseline justify-between pt-1">
-                  <div className="font-mono text-sm font-bold text-purple-700 dark:text-purple-400">
+                <div className="flex items-baseline justify-between pt-0.5">
+                  <div className="font-mono text-xs sm:text-sm font-bold text-purple-700 dark:text-purple-400">
                     {formatCurrency(lvl.priceVnd, userCurrency)}
                     {lvl.priceUsdt && (
-                      <span className="text-xs text-slate-500 dark:text-slate-400 ml-1.5 font-normal">
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 ml-1.5 font-normal">
                         (${lvl.priceUsdt.toLocaleString()})
                       </span>
                     )}
                   </div>
-                  <span className="text-[11px] font-semibold text-purple-600 dark:text-purple-400">
+                  <span className="text-[10px] font-semibold text-purple-600 dark:text-purple-400">
                     +{lvl.expectedPercentFromCurrent}% so với giá hiện tại
                   </span>
                 </div>
@@ -994,23 +1050,23 @@ const AssetAnalysisCard: React.FC<{
       </div>
 
       {/* 4. Technical Indicators Matrix Breakdown */}
-      <div className="rounded-2xl bg-white dark:bg-slate-800 p-4 sm:p-5 border border-slate-200 dark:border-slate-700 space-y-3">
+      <div className="rounded-2xl bg-white dark:bg-slate-800 p-3.5 sm:p-4 border border-slate-200 dark:border-slate-700 space-y-2.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <BarChart2 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+            <BarChart2 className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
             <span className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-              Bảng Chi Tiết Các Chỉ Báo Kỹ Thuật (Khung 4H)
+              Bảng Chỉ Báo Kỹ Thuật Định Lượng (Khung 4H)
             </span>
           </div>
           <span className="text-[10px] text-slate-400">Dữ liệu nến 4 giờ</span>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
           {/* RSI */}
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+          <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
             <span className="text-[10px] text-slate-400 block font-medium">RSI (14)</span>
-            <div className="flex items-center justify-between mt-1">
-              <span className="font-bold text-sm text-slate-900 dark:text-white font-mono">
+            <div className="flex items-center justify-between mt-0.5">
+              <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white font-mono">
                 {analysis.indicators.rsi14}
               </span>
               <span
@@ -1028,15 +1084,15 @@ const AssetAnalysisCard: React.FC<{
               </span>
             </div>
             <span className="text-[10px] text-slate-400 block mt-0.5">
-              {analysis.indicators.rsi14 > 70 ? 'Cảnh báo vùng quá mua' : analysis.indicators.rsi14 < 30 ? 'Vùng quá bán phục hồi' : 'Động lượng cân bằng'}
+              {analysis.indicators.rsi14 > 70 ? 'Cảnh báo quá mua' : analysis.indicators.rsi14 < 30 ? 'Quá bán phục hồi' : 'Động lượng cân bằng'}
             </span>
           </div>
 
           {/* MACD */}
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+          <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
             <span className="text-[10px] text-slate-400 block font-medium">MACD (12, 26, 9)</span>
-            <div className="flex items-center justify-between mt-1">
-              <span className="font-bold text-sm text-slate-900 dark:text-white font-mono">
+            <div className="flex items-center justify-between mt-0.5">
+              <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white font-mono">
                 Histo: {analysis.indicators.macd.histogram}
               </span>
             </div>
@@ -1052,21 +1108,21 @@ const AssetAnalysisCard: React.FC<{
           </div>
 
           {/* EMA */}
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+          <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
             <span className="text-[10px] text-slate-400 block font-medium">Hệ EMA (20, 50, 200)</span>
-            <div className="mt-1 font-bold text-xs text-slate-900 dark:text-white">
+            <div className="mt-0.5 font-bold text-xs text-slate-900 dark:text-white">
               {analysis.indicators.ema.trend}
             </div>
             <span className="text-[10px] text-slate-400 block mt-0.5">
-              Cấu trúc sóng trung hạn
+              Cấu trúc xu hướng
             </span>
           </div>
 
           {/* Bollinger Bands */}
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+          <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
             <span className="text-[10px] text-slate-400 block font-medium">Bollinger Bands (20, 2)</span>
-            <div className="mt-1 font-bold text-xs text-slate-900 dark:text-white">
-              Biên độ: {analysis.indicators.bollinger.bandWidthPercent}%
+            <div className="mt-0.5 font-bold text-xs text-slate-900 dark:text-white">
+              Biên: {analysis.indicators.bollinger.bandWidthPercent}%
             </div>
             <span className="text-[10px] text-slate-400 block mt-0.5">
               {analysis.indicators.bollinger.bandWidthPercent < 8 ? 'Thắt nút cổ chai (Squeeze)' : 'Đang mở rộng dải sóng'}
@@ -1076,40 +1132,40 @@ const AssetAnalysisCard: React.FC<{
       </div>
 
       {/* 5. Comprehensive Text Summary & Strategy Guidance */}
-      <div className="rounded-2xl bg-white dark:bg-slate-800 p-4 sm:p-5 border border-slate-200 dark:border-slate-700 space-y-3">
+      <div className="rounded-2xl bg-white dark:bg-slate-800 p-3.5 sm:p-4 border border-slate-200 dark:border-slate-700 space-y-2.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Info className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+            <Info className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
             <span className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-              Văn Bản Báo Cáo Phân Tích & Chiến Lược Vị Thế Cá Nhân Hóa
+              Báo Cáo Phân Tích & Chiến Lược Vị Thế Cá Nhân Hóa
             </span>
           </div>
 
           <button
             type="button"
             onClick={onCopyReport}
-            className="px-2.5 py-1 rounded-lg text-xs font-semibold text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/50 flex items-center gap-1 transition-colors cursor-pointer"
+            className="px-2 py-0.5 rounded-lg text-xs font-semibold text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/50 flex items-center gap-1 transition-colors cursor-pointer"
           >
             {isCopied ? (
               <>
                 <Check className="w-3.5 h-3.5 text-emerald-500" />
-                <span className="text-emerald-500">Đã sao chép</span>
+                <span className="text-emerald-500 text-xs">Đã sao chép</span>
               </>
             ) : (
               <>
                 <Copy className="w-3.5 h-3.5" />
-                <span>Sao chép văn bản</span>
+                <span className="text-xs">Sao chép</span>
               </>
             )}
           </button>
         </div>
 
         {/* Formatted Text Box */}
-        <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-sans whitespace-pre-line">
+        <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed font-sans whitespace-pre-line">
           {analysis.summaryReport}
         </div>
 
-        <div className="p-3.5 rounded-xl bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900/40 text-xs text-purple-900 dark:text-purple-200 leading-relaxed font-medium">
+        <div className="p-3 rounded-xl bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900/40 text-[11px] text-purple-900 dark:text-purple-200 leading-relaxed font-medium">
           {analysis.geminiInsight?.customDcaAdvice
             ? (analysis.geminiInsight.customDcaAdvice.startsWith('🤖')
                 ? analysis.geminiInsight.customDcaAdvice
@@ -1117,6 +1173,104 @@ const AssetAnalysisCard: React.FC<{
             : analysis.dcaStrategyAdvice}
         </div>
       </div>
+
+      {/* 6. Top 5 Key Market News Affecting Crypto & Vietnam Stocks */}
+      {analysis.geminiInsight?.topMarketNews && analysis.geminiInsight.topMarketNews.length > 0 && (
+        <div className="rounded-2xl bg-white dark:bg-slate-800 p-3.5 sm:p-4 border border-amber-200/80 dark:border-amber-900/50 space-y-3 shadow-2xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 pb-2 border-b border-amber-100 dark:border-amber-950/80">
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-5 rounded-lg bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400 flex items-center justify-center font-bold text-xs shrink-0">
+                <Newspaper className="w-3 h-3" />
+              </div>
+              <div>
+                <h5 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2 flex-wrap">
+                  <span>5 Tin Tức Quan Trọng Tác Động Tới Giá & Dòng Tiền</span>
+                  <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/80 px-2 py-0.2 rounded-full border border-amber-200 dark:border-amber-800">
+                    Crypto & Cổ Phiếu VN
+                  </span>
+                </h5>
+              </div>
+            </div>
+            <span className="text-[10px] text-slate-400 font-medium">
+              Đồng bộ cùng chu kỳ 4H
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2">
+            {analysis.geminiInsight.topMarketNews.map((news, idx) => {
+              const isBullish = news.impactType === 'BULLISH';
+              const isBearish = news.impactType === 'BEARISH';
+              const isVolatile = news.impactType === 'VOLATILE';
+
+              const badgeBg = isBullish
+                ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                : isBearish
+                ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800'
+                : isVolatile
+                ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700';
+
+              const badgeLabel = isBullish
+                ? '🟢 Tích Cực (Tăng)'
+                : isBearish
+                ? '🔴 Áp Lực Giảm'
+                : isVolatile
+                ? '⚡ Biến Động Mạnh'
+                : '🟡 Trung Lập';
+
+              return (
+                <div
+                  key={idx}
+                  className="p-2.5 sm:p-3 rounded-xl bg-slate-50/90 dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/90 text-xs space-y-1.5 hover:border-amber-300 dark:hover:border-amber-800/80 transition-all"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-1">
+                    <div className="flex items-start gap-2">
+                      <span className="w-4 h-4 rounded bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[10px] font-bold flex items-center justify-center shrink-0 border border-amber-500/20 mt-0.5">
+                        {idx + 1}
+                      </span>
+                      <span className="font-bold text-slate-900 dark:text-white leading-snug text-xs">
+                        {news.title}
+                      </span>
+                    </div>
+
+                    {news.source && (
+                      <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap self-end sm:self-auto bg-slate-100 dark:bg-slate-800 px-1.5 py-0.2 rounded border border-slate-200 dark:border-slate-700">
+                        {news.source}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Impact Target & Direction Row */}
+                  <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                      Mã chịu tác động:
+                    </span>
+                    {news.impactedAssets?.map((assetCode, aIdx) => (
+                      <span
+                        key={aIdx}
+                        className="px-1.5 py-0.2 rounded text-[10px] font-bold font-mono bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                      >
+                        {assetCode}
+                      </span>
+                    ))}
+
+                    <span
+                      className={`px-1.5 py-0.2 rounded-full text-[9px] font-bold border sm:ml-auto ${badgeBg}`}
+                    >
+                      {badgeLabel}
+                    </span>
+                  </div>
+
+                  {/* News Impact Analysis */}
+                  <div className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed bg-white dark:bg-slate-800/90 p-2 rounded-lg border border-slate-200/80 dark:border-slate-800">
+                    💡 <strong>Tác động giá & dòng tiền:</strong> {news.impactSummary}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

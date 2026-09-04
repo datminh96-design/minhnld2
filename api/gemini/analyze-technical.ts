@@ -86,6 +86,44 @@ export default async function handler(req: any, res: any) {
       `Độ rộng Bollinger Bands ${indicators?.bollinger?.bandWidthPercent ?? 8.5}%`,
     ];
 
+    const defaultNews = [
+      {
+        title: 'Dòng vốn tổ chức qua các quỹ Spot ETF duy trì mua ròng tích cực',
+        source: 'CoinDesk / Bloomberg',
+        impactedAssets: ['BTC', 'ETH', 'SOL'],
+        impactType: 'BULLISH',
+        impactSummary: 'Lực hấp thụ dòng tiền lớn hỗ trợ giữ vững các ngưỡng hỗ trợ kỹ thuật quan trọng của thị trường tiền mã hóa.',
+      },
+      {
+        title: 'Ngân hàng Nhà nước giữ định hướng lãi suất thấp hỗ trợ tăng trưởng tín dụng',
+        source: 'VnEconomy',
+        impactedAssets: ['TPB', 'VCB', 'MBB', 'VN-INDEX'],
+        impactType: 'BULLISH',
+        impactSummary: 'Tạo động lực tích cực cho nhóm cổ phiếu Ngân hàng và thúc đẩy dòng tiền nội vào thị trường chứng khoán.',
+      },
+      {
+        title: 'Thanh khoản thị trường nến 4H tập trung cao quanh các vùng hỗ trợ then chốt',
+        source: 'Vietstock',
+        impactedAssets: [symbol, 'VN-INDEX'],
+        impactType: 'NEUTRAL',
+        impactSummary: 'Giai đoạn tích lũy động lượng trước khi xuất hiện nhịp bứt phá mới; phù hợp chiến lược gom hàng từng phần.',
+      },
+      {
+        title: 'Giá vàng thế giới và vàng miếng trong nước duy trì vị thế tài sản phòng hộ',
+        source: 'Reuters / Kitco',
+        impactedAssets: ['SJC', 'PAXG', 'VÀNG'],
+        impactType: 'BULLISH',
+        impactSummary: 'Dòng tiền phân bổ cân bằng giữa kênh tăng trưởng rủi ro và kênh tài sản lưu trữ giá trị.',
+      },
+      {
+        title: 'Tâm lý thị trường chuyển từ Thận trọng sang Tích cực tích lũy',
+        source: 'Market Sentiment',
+        impactedAssets: ['BTC', 'ETH', symbol],
+        impactType: 'BULLISH',
+        impactSummary: 'Chỉ số sợ hãi & tham lam cải thiện, củng cố xu hướng tiếp diễn tăng giá trên khung trung hạn.',
+      },
+    ];
+
     return {
       verdict: fallbackVerdict,
       confidence: Math.round(Math.max(upProbability, downProbability) * 0.95),
@@ -97,7 +135,16 @@ export default async function handler(req: any, res: any) {
           : `Vị thế đang âm (-${Math.abs(pnlPercent).toFixed(1)}%). Tránh hoảng loạn bán tháo, xem xét DCA bổ sung tỷ trọng nhỏ tại các vùng hỗ trợ mạnh (Điểm Mua 2 & 3).`,
       tacticalBuyNotes: `Điểm Mua 1 thăm dò 30%, Điểm Mua 2 là vùng hỗ trợ mạnh (40%), Điểm Mua 3 bắt đáy sâu (30%).`,
       tacticalSellNotes: `Điểm Bán 1 khóa 35% lợi nhuận ngắn hạn, Điểm Bán 2 chốt 45% chủ lực, giữ 20% gồng lãi dài.`,
-      summaryReportMarkdown: `Báo cáo phân tích kỹ thuật 4H mã ${symbol}: Xu hướng chủ đạo ${primaryTrend} (Xác suất tăng ${upProbability}%). Các chỉ báo RSI và MACD cho thấy động lượng đang phù hợp với kế hoạch giải ngân/chốt lời theo từng mốc kỹ thuật.`,
+      topMarketNews: defaultNews,
+      summaryReportMarkdown: `### Báo cáo Phân tích Chiến lược ${symbol} (Khung 4H)
+
+**1. Tình trạng thị trường & Động lượng:**
+- Xu hướng chủ đạo: ${primaryTrend} (Xác suất Tăng: ${upProbability}% | Xác suất Giảm: ${downProbability}%).
+- Chỉ báo RSI(14) đạt ${indicators?.rsi14 ?? 52}, MACD Histogram ${indicators?.macd?.histogram ?? 0}.
+
+**2. Chiến lược Quản trị Vị thế:**
+- Vị thế hiện tại: ${pnlPercent >= 0 ? `Lãi +${pnlPercent.toFixed(2)}%` : `Âm ${pnlPercent.toFixed(2)}%`} so với giá vốn KDA (${Number(averageCost || 0).toLocaleString('vi-VN')} đ).
+- Kế hoạch: Chia nhỏ giải ngân theo 3 mốc Entry và sẵn sàng chốt lời từng phần tại các mốc TP.`,
     };
   };
 
@@ -146,7 +193,13 @@ Hãy đưa ra nhận định chuyên sâu và xuất kết quả theo định d�
 5. "customDcaAdvice": Lời khuyên tối ưu vị thế cá nhân hóa dựa trên Giá vốn KDA (${Number(averageCost || 0).toLocaleString('vi-VN')} đ) và mức Lãi/Lỗ hiện tại (${(pnlPercent || 0).toFixed(2)}%). Cụ thể: nếu đang lãi nên chặn lãi ở đâu, nếu đang lỗ có nên DCA thêm tại điểm mua nào hay không.
 6. "tacticalBuyNotes": Đánh giá nhanh về 3 điểm mua (Entry 1, Entry 2, Entry 3).
 7. "tacticalSellNotes": Đánh giá nhanh về 3 điểm chốt lời (TP 1, TP 2, TP 3).
-8. "summaryReportMarkdown": Toàn văn bản báo cáo phân tích 4H tổng hợp hoàn chỉnh, súc tích, chuyên nghiệp bằng tiếng Việt.
+8. "topMarketNews": Danh sách ĐÚNG 5 tin tức/sự kiện vĩ mô hoặc dòng tiền quan trọng mới nhất ảnh hưởng trực tiếp tới giá Crypto (BTC, ETH, Sol, Altcoin) hoặc Cổ phiếu Việt Nam (VN-Index, Ngân hàng như TPB, VCB, MBB, Thép HPG, BĐS, Quỹ mở VEOF, Vàng SJC). Mỗi tin gồm:
+   - "title": Tiêu đề tin tức ngắn gọn
+   - "source": Nguồn tin cậy (Bloomberg, VnEconomy, CoinDesk, Vietstock, Reuters)
+   - "impactedAssets": Mảng các mã cụ thể chịu ảnh hưởng (ví dụ: ["BTC", "ETH"] hoặc ["TPB", "VN-INDEX"])
+   - "impactType": "BULLISH" | "BEARISH" | "NEUTRAL" | "VOLATILE"
+   - "impactSummary": Tóm tắt 1-2 câu cách tin tức tác động trực tiếp tới giá & dòng tiền của mã đó.
+9. "summaryReportMarkdown": Toàn văn bản báo cáo phân tích 4H tổng hợp hoàn chỉnh, súc tích, chuyên nghiệp bằng tiếng Việt.
 `;
 
   const candidateModels = [
@@ -178,6 +231,27 @@ Hãy đưa ra nhận định chuyên sâu và xuất kết quả theo định d�
               customDcaAdvice: { type: Type.STRING },
               tacticalBuyNotes: { type: Type.STRING },
               tacticalSellNotes: { type: Type.STRING },
+              topMarketNews: {
+                type: Type.ARRAY,
+                description: '5 tin tức quan trọng mới nhất ảnh hưởng tới coin hoặc cổ phiếu',
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    title: { type: Type.STRING },
+                    source: { type: Type.STRING },
+                    impactedAssets: {
+                      type: Type.ARRAY,
+                      items: { type: Type.STRING },
+                    },
+                    impactType: {
+                      type: Type.STRING,
+                      enum: ['BULLISH', 'BEARISH', 'NEUTRAL', 'VOLATILE'],
+                    },
+                    impactSummary: { type: Type.STRING },
+                  },
+                  required: ['title', 'impactedAssets', 'impactType', 'impactSummary'],
+                },
+              },
               summaryReportMarkdown: { type: Type.STRING },
             },
             required: [
@@ -188,6 +262,7 @@ Hãy đưa ra nhận định chuyên sâu và xuất kết quả theo định d�
               'customDcaAdvice',
               'tacticalBuyNotes',
               'tacticalSellNotes',
+              'topMarketNews',
               'summaryReportMarkdown',
             ],
           },

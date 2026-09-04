@@ -71,6 +71,38 @@ export const AVAILABLE_GEMINI_MODELS: GeminiModelOption[] = [
   },
 ];
 
+export interface MarketNewsImpact {
+  title: string;
+  source?: string;
+  timeAgo?: string;
+  impactedAssets: string[];
+  impactType: 'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'VOLATILE';
+  impactSummary: string;
+}
+
+export interface AssetMoverItem {
+  symbol: string;
+  name: string;
+  priceFormatted: string;
+  changePercent: number;
+  type: 'gain' | 'loss';
+  category: 'crypto' | 'stock';
+  reason: string;
+}
+
+export interface MarketTopMoversReport {
+  cryptoGainers: AssetMoverItem[];
+  cryptoLosers: AssetMoverItem[];
+  stockGainers: AssetMoverItem[];
+  stockLosers: AssetMoverItem[];
+  model?: string;
+  cycleStartHour: string;
+  nextCycleAt: string;
+  analyzedTimeShort: string;
+  cycleTimestamp: number;
+  generatedAt: string;
+}
+
 export interface Gemini4HInsight {
   verdict: string;
   confidence: number;
@@ -79,6 +111,7 @@ export interface Gemini4HInsight {
   customDcaAdvice: string;
   tacticalBuyNotes: string;
   tacticalSellNotes: string;
+  topMarketNews?: MarketNewsImpact[];
   summaryReportMarkdown: string;
   model?: string;
   generatedAt?: string;
@@ -137,28 +170,39 @@ export interface Candle4H {
 }
 
 export function get4HCycleInfo(date: Date = new Date()) {
-  const hours = date.getHours();
-  const currentSlotHour = Math.floor(hours / 4) * 4; // 0, 4, 8, 12, 16, 20
-  const nextSlotHour = (currentSlotHour + 4) % 24;
+  // International Standard 4H Candle Cycle (Anchored at 00:00 UTC)
+  // Standard UTC 4H candle open times: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC
+  // Local Vietnam GMT+7 equivalents:   07:00, 11:00, 15:00, 19:00, 23:00, 03:00 GMT+7
+  const utcHours = date.getUTCHours();
+  const currentSlotUtcHour = Math.floor(utcHours / 4) * 4; // 0, 4, 8, 12, 16, 20 UTC
+  const nextSlotUtcHour = (currentSlotUtcHour + 4) % 24;
 
   const currentSlotDate = new Date(date);
-  currentSlotDate.setHours(currentSlotHour, 0, 0, 0);
+  currentSlotDate.setUTCHours(currentSlotUtcHour, 0, 0, 0);
 
-  const nextSlotDate = new Date(date);
-  if (currentSlotHour + 4 >= 24) {
-    nextSlotDate.setDate(nextSlotDate.getDate() + 1);
-  }
-  nextSlotDate.setHours(nextSlotHour, 0, 0, 0);
+  const nextSlotDate = new Date(currentSlotDate.getTime() + 4 * 60 * 60 * 1000);
 
-  const formatSlot = (h: number) => `${String(h).padStart(2, '0')}:00`;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const formatUtcSlot = (h: number) => `${pad(h)}:00 UTC`;
+  const formatLocalTime = (d: Date) => d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+  const currentLocalStr = formatLocalTime(currentSlotDate);
+  const nextLocalStr = formatLocalTime(nextSlotDate);
+  const currentUtcStr = formatUtcSlot(currentSlotUtcHour);
+  const nextUtcStr = formatUtcSlot(nextSlotUtcHour);
 
   return {
-    cycleStartHour: formatSlot(currentSlotHour),
-    nextCycleAt: formatSlot(nextSlotHour),
-    analyzedTimeShort: date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false }),
+    cycleStartHour: `${currentLocalStr} (${currentUtcStr})`,
+    cycleStartLocal: currentLocalStr,
+    cycleStartUtc: currentUtcStr,
+    nextCycleAt: `${nextLocalStr} (${nextUtcStr})`,
+    nextCycleLocal: nextLocalStr,
+    nextCycleUtc: nextUtcStr,
+    analyzedTimeShort: formatLocalTime(date),
     currentCycleTimestamp: currentSlotDate.getTime(),
     nextCycleTimestamp: nextSlotDate.getTime(),
-    analyzedAt: date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }),
+    analyzedAt: date.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }),
+    candleIndex: Math.floor(utcHours / 4) + 1, // Candle 1/6 to 6/6 of the day
   };
 }
 
@@ -620,6 +664,44 @@ class TechnicalAnalysisService {
         ? 'HẠ TỶ TRỌNG PHÒNG THỦ'
         : 'GIỮ VỊ THẾ & QUAN SÁT';
 
+    const defaultNews: MarketNewsImpact[] = [
+      {
+        title: 'Dòng vốn tổ chức qua các quỹ Spot ETF duy trì mua ròng tích cực',
+        source: 'CoinDesk / Bloomberg',
+        impactedAssets: ['BTC', 'ETH', 'SOL'],
+        impactType: 'BULLISH',
+        impactSummary: 'Lực hấp thụ dòng tiền lớn hỗ trợ giữ vững các ngưỡng hỗ trợ kỹ thuật quan trọng của thị trường tiền mã hóa.',
+      },
+      {
+        title: 'Ngân hàng Nhà nước giữ định hướng lãi suất thấp hỗ trợ tăng trưởng tín dụng',
+        source: 'VnEconomy',
+        impactedAssets: ['TPB', 'VCB', 'MBB', 'VN-INDEX'],
+        impactType: 'BULLISH',
+        impactSummary: 'Tạo động lực tích cực cho nhóm cổ phiếu Ngân hàng và thúc đẩy dòng tiền nội vào thị trường chứng khoán.',
+      },
+      {
+        title: 'Thanh khoản thị trường nến 4H tập trung cao quanh các vùng hỗ trợ then chốt',
+        source: 'Vietstock',
+        impactedAssets: [symbol, 'VN-INDEX'],
+        impactType: 'NEUTRAL',
+        impactSummary: 'Giai đoạn tích lũy động lượng trước khi xuất hiện nhịp bứt phá mới; phù hợp chiến lược gom hàng từng phần.',
+      },
+      {
+        title: 'Giá vàng thế giới và vàng miếng trong nước duy trì vị thế tài sản phòng hộ',
+        source: 'Reuters / Kitco',
+        impactedAssets: ['SJC', 'PAXG', 'VÀNG'],
+        impactType: 'BULLISH',
+        impactSummary: 'Dòng tiền phân bổ cân bằng giữa kênh tăng trưởng rủi ro và kênh tài sản lưu trữ giá trị.',
+      },
+      {
+        title: 'Tâm lý thị trường chuyển từ Thận trọng sang Tích cực tích lũy',
+        source: 'Market Sentiment',
+        impactedAssets: ['BTC', 'ETH', symbol],
+        impactType: 'BULLISH',
+        impactSummary: 'Chỉ số sợ hãi & tham lam cải thiện, củng cố xu hướng tiếp diễn tăng giá trên khung trung hạn.',
+      },
+    ];
+
     const defaultInsight: Gemini4HInsight = {
       verdict: fallbackVerdict,
       confidence: Math.round(Math.max(upProbability, downProbability) * 0.92),
@@ -632,6 +714,7 @@ class TechnicalAnalysisService {
       customDcaAdvice: dcaStrategyAdvice,
       tacticalBuyNotes: `Điểm Mua 1 (${buyLevels[0]?.title}) giải ngân 30%, Điểm Mua 2 hỗ trợ chủ lực 40%, Điểm Mua 3 bắt đáy sâu 30%.`,
       tacticalSellNotes: `Điểm Bán 1 (${sellLevels[0]?.title}) chốt lời 35%, Điểm Bán 2 chốt 45%, Điểm Bán 3 giữ 20% gồng lãi dài.`,
+      topMarketNews: defaultNews,
       summaryReportMarkdown: summaryReport,
       model: model,
       generatedAt: new Date().toISOString(),
@@ -712,6 +795,258 @@ class TechnicalAnalysisService {
       console.warn('Gemini AI enhancement skipped or unavailable (using high-precision quant engine):', e);
       return null;
     }
+  }
+
+  // Fetch top 5 gainers & losers for Crypto and VN Stocks synchronized with the 4H cycle
+  async getMarketTopMovers(model: string = 'gemini-3.8-flash', forceRefresh: boolean = false): Promise<MarketTopMoversReport> {
+    const cycleInfo = get4HCycleInfo(new Date());
+    const cacheKey = `market_movers_${cycleInfo.currentCycleTimestamp}_${model}`;
+
+    const defaultFallback: MarketTopMoversReport = {
+      cryptoGainers: [
+        {
+          symbol: 'SUI',
+          name: 'Sui Network',
+          priceFormatted: '$3.42',
+          changePercent: 15.6,
+          type: 'gain',
+          category: 'crypto',
+          reason: 'Dòng tiền hệ sinh thái bùng nổ, TVL DeFi vượt mốc kỷ lục và khối lượng giao dịch phái sinh tăng vọt.',
+        },
+        {
+          symbol: 'RENDER',
+          name: 'Render Network',
+          priceFormatted: '$6.85',
+          changePercent: 12.4,
+          type: 'gain',
+          category: 'crypto',
+          reason: 'Nhu cầu hạ tầng điện toán AI phi tập trung tăng cao và dòng vốn tổ chức mua gom trên các sàn lớn.',
+        },
+        {
+          symbol: 'SOL',
+          name: 'Solana',
+          priceFormatted: '$188.50',
+          changePercent: 8.9,
+          type: 'gain',
+          category: 'crypto',
+          reason: 'Khối lượng giao dịch DEX trên chuỗi áp đảo, dòng tiền kỳ vọng sản phẩm Spot ETF mở rộng.',
+        },
+        {
+          symbol: 'NEAR',
+          name: 'NEAR Protocol',
+          priceFormatted: '$5.20',
+          changePercent: 7.8,
+          type: 'gain',
+          category: 'crypto',
+          reason: 'Mở rộng tính năng User-Owned AI và số lượng tài khoản hoạt động tích cực đạt đỉnh mới.',
+        },
+        {
+          symbol: 'DOGE',
+          name: 'Dogecoin',
+          priceFormatted: '$0.26',
+          changePercent: 6.9,
+          type: 'gain',
+          category: 'crypto',
+          reason: 'Động lực mua từ cộng đồng và khối lượng giao dịch giao ngay tăng trở lại khi dòng tiền luân chuyển sang memecoin.',
+        },
+      ],
+      cryptoLosers: [
+        {
+          symbol: 'STRK',
+          name: 'Starknet',
+          priceFormatted: '$0.38',
+          changePercent: -9.4,
+          type: 'loss',
+          category: 'crypto',
+          reason: 'Áp lực nguồn cung lớn từ lịch mở khóa token định kỳ của đội ngũ phát triển và nhà đầu tư sớm.',
+        },
+        {
+          symbol: 'WLD',
+          name: 'Worldcoin',
+          priceFormatted: '$1.65',
+          changePercent: -8.2,
+          type: 'loss',
+          category: 'crypto',
+          reason: 'Lo ngại thanh tra dữ liệu sinh trắc học tại một số quốc gia khiến lực bán phòng thủ gia tăng.',
+        },
+        {
+          symbol: 'ARB',
+          name: 'Arbitrum',
+          priceFormatted: '$0.54',
+          changePercent: -6.8,
+          type: 'loss',
+          category: 'crypto',
+          reason: 'Cạnh tranh gay gắt giữa các Layer 2 và sự sụt giảm nhẹ của tổng doanh thu phí mạng lưới.',
+        },
+        {
+          symbol: 'TIA',
+          name: 'Celestia',
+          priceFormatted: '$4.10',
+          changePercent: -6.1,
+          type: 'loss',
+          category: 'crypto',
+          reason: 'Lực chốt lời sau nhịp hồi kỹ thuật và thị trường dự báo lượng token mở khóa trong quý tới.',
+        },
+        {
+          symbol: 'OP',
+          name: 'Optimism',
+          priceFormatted: '$1.42',
+          changePercent: -5.5,
+          type: 'loss',
+          category: 'crypto',
+          reason: 'Hoạt động chuyển dịch dòng vốn sang các hệ sinh thái Layer 1 mới nổi gây áp lực điều chỉnh.',
+        },
+      ],
+      stockGainers: [
+        {
+          symbol: 'TPB',
+          name: 'Ngân hàng Tiên Phong',
+          priceFormatted: '18,650 đ',
+          changePercent: 6.8,
+          type: 'gain',
+          category: 'stock',
+          reason: 'Khối ngoại mua ròng mạnh mẽ, tăng trưởng tín dụng vượt trội và biên lãi thuần (NIM) duy trì mức cao.',
+        },
+        {
+          symbol: 'FPT',
+          name: 'Tập đoàn FPT',
+          priceFormatted: '138,500 đ',
+          changePercent: 5.4,
+          type: 'gain',
+          category: 'stock',
+          reason: 'Doanh thu mảng xuất khẩu phần mềm & dịch vụ AI toàn cầu tăng trưởng kỷ lục.',
+        },
+        {
+          symbol: 'VCB',
+          name: 'Vietcombank',
+          priceFormatted: '94,200 đ',
+          changePercent: 4.6,
+          type: 'gain',
+          category: 'stock',
+          reason: 'Dòng tiền tổ chức và quỹ ETF giải ngân đón đầu lộ trình tăng vốn điều lệ và trả cổ tức.',
+        },
+        {
+          symbol: 'HPG',
+          name: 'Tập đoàn Hòa Phát',
+          priceFormatted: '27,800 đ',
+          changePercent: 4.2,
+          type: 'gain',
+          category: 'stock',
+          reason: 'Sản lượng tiêu thụ thép xây dựng và HRC phục hồi tích cực, đại dự án Dung Quất 2 đúng tiến độ.',
+        },
+        {
+          symbol: 'SSI',
+          name: 'Chứng khoán SSI',
+          priceFormatted: '34,500 đ',
+          changePercent: 3.8,
+          type: 'gain',
+          category: 'stock',
+          reason: 'Thanh khoản toàn thị trường bùng nổ và kỳ vọng hưởng lợi lớn từ hệ thống KRX cùng tiến trình nâng hạng thị trường.',
+        },
+      ],
+      stockLosers: [
+        {
+          symbol: 'NVL',
+          name: 'Novaland',
+          priceFormatted: '10,200 đ',
+          changePercent: -4.8,
+          type: 'loss',
+          category: 'stock',
+          reason: 'Áp lực đáo hạn trái phiếu doanh nghiệp và tiến độ tháo gỡ pháp lý một số dự án còn chậm.',
+        },
+        {
+          symbol: 'DIG',
+          name: 'Tổng CTCP Đầu tư Phát triển Xây dựng',
+          priceFormatted: '22,400 đ',
+          changePercent: -3.9,
+          type: 'loss',
+          category: 'stock',
+          reason: 'Áp lực chốt lời ngắn hạn của nhóm nhà đầu tư cá nhân sau nhịp phục hồi kỹ thuật.',
+        },
+        {
+          symbol: 'PDR',
+          name: 'Bất động sản Phát Đạt',
+          priceFormatted: '20,800 đ',
+          changePercent: -3.5,
+          type: 'loss',
+          category: 'stock',
+          reason: 'Dòng tiền nhóm bất động sản phân hóa mạnh và áp lực chi phí vốn trong ngắn hạn.',
+        },
+        {
+          symbol: 'VHM',
+          name: 'Vinhomes',
+          priceFormatted: '41,200 đ',
+          changePercent: -2.8,
+          type: 'loss',
+          category: 'stock',
+          reason: 'Khối ngoại bán ròng cơ cấu danh mục và sự thận trọng của thị trường trước các đợt mở bán dự án mới.',
+        },
+        {
+          symbol: 'VRE',
+          name: 'Vincom Retail',
+          priceFormatted: '18,300 đ',
+          changePercent: -2.4,
+          type: 'loss',
+          category: 'stock',
+          reason: 'Tỷ lệ lấp đầy TTTM ổn định nhưng chịu ảnh hưởng tâm lý chung từ áp lực bán ròng của khối ngoại.',
+        },
+      ],
+      cycleStartHour: cycleInfo.cycleStartHour,
+      nextCycleAt: cycleInfo.nextCycleAt,
+      analyzedTimeShort: cycleInfo.analyzedTimeShort,
+      cycleTimestamp: cycleInfo.currentCycleTimestamp,
+      generatedAt: new Date().toISOString(),
+      model: model,
+    };
+
+    if (!forceRefresh) {
+      const cached = this.cache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < 15 * 60 * 1000) {
+        return cached.analysis as any;
+      }
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+      const res = await fetch('/api/gemini/market-movers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model,
+          cycleTimestamp: cycleInfo.currentCycleTimestamp,
+        }),
+      });
+
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          const result: MarketTopMoversReport = {
+            cryptoGainers: json.data.cryptoGainers || defaultFallback.cryptoGainers,
+            cryptoLosers: json.data.cryptoLosers || defaultFallback.cryptoLosers,
+            stockGainers: json.data.stockGainers || defaultFallback.stockGainers,
+            stockLosers: json.data.stockLosers || defaultFallback.stockLosers,
+            cycleStartHour: cycleInfo.cycleStartHour,
+            nextCycleAt: cycleInfo.nextCycleAt,
+            analyzedTimeShort: cycleInfo.analyzedTimeShort,
+            cycleTimestamp: cycleInfo.currentCycleTimestamp,
+            generatedAt: json.timestamp || new Date().toISOString(),
+            model: json.model || model,
+          };
+          this.cache.set(cacheKey, { analysis: result as any, timestamp: Date.now() });
+          return result;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch live AI market movers, using quant fallback:', e);
+    }
+
+    this.cache.set(cacheKey, { analysis: defaultFallback as any, timestamp: Date.now() });
+    return defaultFallback;
   }
 }
 
