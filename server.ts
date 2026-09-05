@@ -2,6 +2,23 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
+import * as Sentry from '@sentry/node';
+
+const SERVER_SENTRY_DSN =
+  process.env.SENTRY_DSN ||
+  'https://ba550d0228ea7f7619f8caa0c1cea902@o4512033736753152.ingest.us.sentry.io/4512033751171072';
+
+if (SERVER_SENTRY_DSN) {
+  try {
+    Sentry.init({
+      dsn: SERVER_SENTRY_DSN,
+      tracesSampleRate: 1.0,
+      environment: process.env.NODE_ENV || 'development',
+    });
+  } catch (e) {
+    console.warn('[Sentry Server] Initialization error:', e);
+  }
+}
 
 let geminiClient: GoogleGenAI | null = null;
 
@@ -1113,6 +1130,14 @@ Hãy cung cấp ĐÚNG 5 TIN TỨC / SỰ KIỆN QUAN TRỌNG MỚI NHẤT trong
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
+  }
+
+  if (SERVER_SENTRY_DSN) {
+    try {
+      Sentry.setupExpressErrorHandler(app);
+    } catch (e) {
+      // Ignored if not available in current environment
+    }
   }
 
   app.listen(PORT, '0.0.0.0', () => {
