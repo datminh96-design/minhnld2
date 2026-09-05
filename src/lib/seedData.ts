@@ -12,9 +12,9 @@ import {
 
 export const DEFAULT_PROFILE: Profile = {
   id: 'demo-user-id',
-  full_name: 'Người dùng Demo',
+  full_name: 'Nguyễn Lê Đạt Minh',
   avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-  email: 'guest@example.com',
+  email: 'datminh96@gmail.com',
 };
 
 export const DEFAULT_WORK_SETTINGS: WorkSettings = {
