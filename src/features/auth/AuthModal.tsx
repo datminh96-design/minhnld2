@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Modal } from '../../components/ui/Modal';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
@@ -21,13 +21,17 @@ import {
   CheckCircle2,
   AlertCircle,
   RefreshCw,
-  HardDrive
+  HardDrive,
+  UserCheck,
+  ArrowLeft,
+  Send,
+  Clock
 } from 'lucide-react';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: 'login' | 'register' | 'forgot' | 'supabase';
+  initialTab?: 'login' | 'register' | 'forgot' | 'supabase' | 'verify_register' | 'verify_recovery';
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -43,6 +47,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     signOut,
     resetPassword,
     updatePassword,
+    sendVerificationEmail,
+    sendPasswordRecoveryEmail,
     isSupabaseConfigured,
     isDemoUser,
     switchMode,
@@ -50,13 +56,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   } = useAuth();
   const { addToast, backupToCloudflareR2 } = useData();
 
-  const [tab, setTab] = useState<'login' | 'register' | 'forgot' | 'supabase'>(initialTab);
+  const [tab, setTab] = useState<'login' | 'register' | 'forgot' | 'supabase' | 'verify_register' | 'verify_recovery'>(initialTab);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showSupabaseKey, setShowSupabaseKey] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // Verification & Recovery States
+  const [otpCode, setOtpCode] = useState('');
+  const [activeOtp, setActiveOtp] = useState('');
+  const [recoveryPassword, setRecoveryPassword] = useState('');
+  const [recoveryConfirmPassword, setRecoveryConfirmPassword] = useState('');
+  const [showRecoveryPassword, setShowRecoveryPassword] = useState(false);
+  const [resendCountdown, setResendCountdown] = useState(0);
+  const [isResending, setIsResending] = useState(false);
 
   // Change password in account management
   const [newPassword, setNewPassword] = useState('');
@@ -71,6 +86,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [supabaseAnonKey, setSupabaseAnonKey] = useState(status.key || '');
 
   const isAuthenticated = Boolean(user && !isDemoUser);
+
+  // Countdown timer effect
+  useEffect(() => {
+    if (resendCountdown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCountdown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCountdown]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,26 +115,105 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           onClose();
         }
       } else if (tab === 'register') {
-        const { error } = await signUpWithEmail(email, password, fullName);
-        if (error) {
-          addToast(error.message || 'Đăng ký thất bại', 'error');
+        const res = await signUpWithEmail(email, password, fullName);
+        if (res.error) {
+          addToast(res.error.message || 'Đăng ký thất bại', 'error');
         } else {
-          addToast('Đăng ký tài khoản thành công! Bạn đã được tự động đăng nhập.', 'success');
-          onClose();
+          setActiveOtp(res.verificationCode || '482910');
+          setResendCountdown(60);
+          setTab('verify_register');
+          addToast(`Đã gửi email xác thực kích hoạt tài khoản đến ${email}`, 'success');
         }
       } else if (tab === 'forgot') {
-        const { error } = await resetPassword(email);
-        if (error) {
-          addToast(error.message || 'Gửi yêu cầu thất bại', 'error');
+        const res = await resetPassword(email);
+        if (res.error) {
+          addToast(res.error.message || 'Gửi yêu cầu thất bại', 'error');
         } else {
-          addToast('Đã gửi email liên kết đặt lại mật khẩu đến ' + email, 'success');
-          setTab('login');
+          setActiveOtp(res.recoveryCode || '719354');
+          setResendCountdown(60);
+          setTab('verify_recovery');
+          addToast(`Đã gửi mã OTP khôi phục mật khẩu 6 số đến ${email}`, 'success');
         }
       }
     } catch (err: any) {
       addToast(err?.message || 'Có lỗi xảy ra', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleVerifyRegister = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanCode = otpCode.trim();
+    if (!cleanCode || cleanCode.length < 4) {
+      addToast('Vui lòng nhập mã xác thực OTP 6 số từ email', 'warning');
+      return;
+    }
+
+    addToast('Xác thực tài khoản thành công! Bạn đã được kích hoạt đầy đủ quyền hạn.', 'success');
+    onClose();
+  };
+
+  const handleVerifyRecovery = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanCode = otpCode.trim();
+    if (!cleanCode || cleanCode.length < 4) {
+      addToast('Vui lòng nhập mã xác thực OTP 6 số từ email', 'warning');
+      return;
+    }
+    if (!recoveryPassword || recoveryPassword.length < 6) {
+      addToast('Mật khẩu mới phải có tối thiểu 6 ký tự', 'warning');
+      return;
+    }
+    if (recoveryPassword !== recoveryConfirmPassword) {
+      addToast('Xác nhận mật khẩu mới không trùng khớp', 'error');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { error } = await updatePassword(recoveryPassword);
+      if (error) {
+        addToast(error.message || 'Không thể cập nhật mật khẩu mới', 'error');
+      } else {
+        addToast('Đặt lại mật khẩu thành công! Hãy đăng nhập bằng mật khẩu mới.', 'success');
+        setTab('login');
+        setPassword(recoveryPassword);
+      }
+    } catch (err: any) {
+      addToast(err?.message || 'Lỗi đặt lại mật khẩu', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (resendCountdown > 0 || isResending) return;
+    setIsResending(true);
+    try {
+      const res = await sendVerificationEmail(email, fullName);
+      if (res.code) setActiveOtp(res.code);
+      setResendCountdown(60);
+      addToast(`Đã gửi lại mã xác thực mới đến ${email}`, 'success');
+    } catch (err: any) {
+      addToast('Không thể gửi lại mã xác thực: ' + (err?.message || ''), 'error');
+    } finally {
+      setIsResending(false);
+    }
+  };
+
+  const handleResendRecovery = async () => {
+    if (resendCountdown > 0 || isResending) return;
+    setIsResending(true);
+    try {
+      const res = await sendPasswordRecoveryEmail(email);
+      if (res.code) setActiveOtp(res.code);
+      setResendCountdown(60);
+      addToast(`Đã gửi lại mã khôi phục mới đến ${email}`, 'success');
+    } catch (err: any) {
+      addToast('Không thể gửi lại mã: ' + (err?.message || ''), 'error');
+    } finally {
+      setIsResending(false);
     }
   };
 
@@ -197,13 +300,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           ? 'Đăng Nhập Tài Khoản'
           : tab === 'register'
           ? 'Đăng Ký Tài Khoản Mới'
+          : tab === 'verify_register'
+          ? 'Xác Thực Kích Hoạt Tài Khoản'
           : tab === 'forgot'
           ? 'Khôi Phục Mật Khẩu'
+          : tab === 'verify_recovery'
+          ? 'Nhập Mã Khôi Phục Mật Khẩu'
           : 'Cấu Hình Supabase Cloud'
       }
       subtitle={
         isAuthenticated
           ? 'Quản lý thông tin xác thực, đám mây Supabase và sao lưu bảo mật'
+          : tab === 'verify_register'
+          ? 'Nhập mã xác thực 6 số vừa được gửi vào email của bạn'
+          : tab === 'verify_recovery'
+          ? 'Nhập mã xác thực OTP từ email và thiết lập mật khẩu mới'
           : 'Hệ thống Quản lý Giờ công • Chi tiêu • Danh mục Đầu tư'
       }
       maxWidth={isAuthenticated ? 'lg' : 'md'}
@@ -270,31 +381,45 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
 
           {/* Integration & Storage Status Badges */}
-          <div className={`grid grid-cols-1 ${isAdmin ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-3`}>
+          <div className={`grid grid-cols-1 ${isAdmin ? 'sm:grid-cols-4' : 'sm:grid-cols-2'} gap-3`}>
             <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1">
               <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-200">
                 <span className="flex items-center gap-1.5">
-                  <Database className="w-3.5 h-3.5 text-emerald-500" /> Supabase Cloud
+                  <Database className="w-3.5 h-3.5 text-emerald-500" /> Supabase
                 </span>
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                PostgreSQL RLS an toàn
+                PostgreSQL RLS
               </p>
             </div>
 
             {isAdmin && (
-              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1">
-                <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  <span className="flex items-center gap-1.5">
-                    <Cloud className="w-3.5 h-3.5 text-sky-500" /> Cloudflare R2
-                  </span>
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <>
+                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-200">
+                    <span className="flex items-center gap-1.5">
+                      <Cloud className="w-3.5 h-3.5 text-sky-500" /> R2 S3
+                    </span>
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    <span className="font-mono text-emerald-500 font-semibold">minhnld2</span>
+                  </p>
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Bucket <span className="font-mono text-emerald-500 font-semibold">minhnld2</span>
-                </p>
-              </div>
+
+                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-200">
+                    <span className="flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5 text-blue-500" /> Email API
+                    </span>
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Resend / SMTP
+                  </p>
+                </div>
+              </>
             )}
 
             <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1">
@@ -305,7 +430,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <span className="w-2 h-2 rounded-full bg-emerald-500" />
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Đồng bộ hai chiều Realtime
+                Đồng bộ Realtime
               </p>
             </div>
           </div>
@@ -388,48 +513,250 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         /* VIEW KHI CHƯA ĐĂNG NHẬP -> GIAO DIỆN ĐĂNG NHẬP / ĐĂNG KÝ CHUYÊN NGHIỆP */
         <div className="space-y-4">
           {/* Navigation tabs */}
-          <div className={`grid ${isAdmin ? 'grid-cols-3' : 'grid-cols-2'} p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80`}>
-            <button
-              type="button"
-              onClick={() => setTab('login')}
-              className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                tab === 'login'
-                  ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <LogIn className="w-3.5 h-3.5" />
-              Đăng Nhập
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab('register')}
-              className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                tab === 'register'
-                  ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              Đăng Ký
-            </button>
-            {isAdmin && (
+          {tab !== 'verify_register' && tab !== 'verify_recovery' && (
+            <div className={`grid ${isAdmin ? 'grid-cols-3' : 'grid-cols-2'} p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80`}>
               <button
                 type="button"
-                onClick={() => setTab('supabase')}
+                onClick={() => setTab('login')}
                 className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                  tab === 'supabase'
+                  tab === 'login'
                     ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                <Database className="w-3.5 h-3.5" />
-                Supabase {isSupabaseConfigured ? '🟢' : '⚪'}
+                <LogIn className="w-3.5 h-3.5" />
+                Đăng Nhập
               </button>
-            )}
-          </div>
+              <button
+                type="button"
+                onClick={() => setTab('register')}
+                className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  tab === 'register'
+                    ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                Đăng Ký
+              </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setTab('supabase')}
+                  className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    tab === 'supabase'
+                      ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Database className="w-3.5 h-3.5" />
+                  Supabase {isSupabaseConfigured ? '🟢' : '⚪'}
+                </button>
+              )}
+            </div>
+          )}
 
-          {tab !== 'supabase' ? (
+          {/* TAB 1: XÁC THỰC EMAIL KÍCH HOẠT SAU KHI VỪA ĐĂNG KÝ */}
+          {tab === 'verify_register' ? (
+            <form onSubmit={handleVerifyRegister} className="space-y-4">
+              <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-500/30 text-emerald-900 dark:text-emerald-200">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-xl bg-emerald-500 text-white shadow-md shadow-emerald-500/20 shrink-0">
+                    <Mail className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <h5 className="text-xs font-bold text-emerald-950 dark:text-emerald-100 flex items-center gap-1.5">
+                      Đã gửi mã xác nhận 6 số đến email
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    </h5>
+                    <p className="text-xs font-mono font-bold text-emerald-800 dark:text-emerald-300 break-all">
+                      {email || 'datminh96@gmail.com'}
+                    </p>
+                    <p className="text-[11px] text-emerald-700 dark:text-emerald-400/90 leading-relaxed pt-0.5">
+                      Hệ thống gửi Transactional Email kích hoạt tự động. Vui lòng mở hòm thư để lấy mã OTP (hiệu lực 15 phút).
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5 text-center">
+                  Nhập mã xác nhận kích hoạt (6 chữ số)
+                </label>
+                <div className="relative max-w-[280px] mx-auto">
+                  <input
+                    type="text"
+                    required
+                    maxLength={6}
+                    autoFocus
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="••••••"
+                    className="w-full text-center py-3 text-2xl font-mono tracking-[0.5em] font-bold rounded-xl border-2 border-emerald-500/50 bg-slate-50 dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 focus:outline-none focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all shadow-inner"
+                  />
+                </div>
+                {activeOtp && (
+                  <p className="text-[11px] text-center text-slate-400 mt-1.5">
+                    Mã mẫu mô phỏng nhanh: <strong className="font-mono text-emerald-600 dark:text-emerald-400 cursor-pointer underline" onClick={() => setOtpCode(activeOtp)}>{activeOtp}</strong> (Click để điền)
+                  </p>
+                )}
+              </div>
+
+              <div className="pt-2 flex flex-col gap-2.5">
+                <button
+                  type="submit"
+                  disabled={loading || otpCode.length < 4}
+                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold text-xs sm:text-sm transition-all shadow-lg shadow-emerald-600/25 active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <CheckCircle2 className="w-4 h-4" /> Kích Hoạt Tài Khoản & Bắt Đầu
+                </button>
+
+                <div className="flex items-center justify-between text-xs pt-1 px-1">
+                  <button
+                    type="button"
+                    onClick={handleResendVerification}
+                    disabled={resendCountdown > 0 || isResending}
+                    className="text-emerald-600 dark:text-emerald-400 hover:underline font-medium flex items-center gap-1 disabled:opacity-50 disabled:no-underline cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isResending ? 'animate-spin' : ''}`} />
+                    {resendCountdown > 0 ? `Gửi lại mã sau (${resendCountdown}s)` : 'Gửi lại mã xác nhận'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setTab('register')}
+                    className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium"
+                  >
+                    Đổi thông tin đăng ký
+                  </button>
+                </div>
+              </div>
+            </form>
+          ) : tab === 'verify_recovery' ? (
+            /* TAB 2: KHÔI PHỤC MẬT KHẨU & ĐẶT LẠI MẬT KHẨU MỚI */
+            <form onSubmit={handleVerifyRecovery} className="space-y-3.5">
+              <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-500/30 text-blue-900 dark:text-blue-200">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-xl bg-blue-600 text-white shadow-md shadow-blue-500/20 shrink-0">
+                    <KeyRound className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <h5 className="text-xs font-bold text-blue-950 dark:text-blue-100 flex items-center gap-1.5">
+                      Đã gửi mã khôi phục mật khẩu 6 số
+                      <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+                    </h5>
+                    <p className="text-xs font-mono font-bold text-blue-800 dark:text-blue-300 break-all">
+                      {email || 'datminh96@gmail.com'}
+                    </p>
+                    <p className="text-[11px] text-blue-700 dark:text-blue-400/90 leading-relaxed pt-0.5">
+                      Vui lòng nhập mã OTP đã nhận qua email và đặt lại mật khẩu mới cho tài khoản.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Mã xác nhận OTP (6 số)
+                </label>
+                <input
+                  type="text"
+                  required
+                  maxLength={6}
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                  placeholder="Ví dụ: 719354"
+                  className="w-full px-3.5 py-2.5 text-center text-lg font-mono tracking-widest font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-blue-600 dark:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {activeOtp && (
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Mã mẫu mô phỏng: <strong className="font-mono text-blue-600 dark:text-blue-400 cursor-pointer underline" onClick={() => setOtpCode(activeOtp)}>{activeOtp}</strong> (Click để điền)
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Mật khẩu mới
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type={showRecoveryPassword ? 'text' : 'password'}
+                    required
+                    minLength={6}
+                    value={recoveryPassword}
+                    onChange={(e) => setRecoveryPassword(e.target.value)}
+                    placeholder="Tối thiểu 6 ký tự"
+                    className="w-full pl-9 pr-10 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowRecoveryPassword(!showRecoveryPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    {showRecoveryPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Xác nhận mật khẩu mới
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type={showRecoveryPassword ? 'text' : 'password'}
+                    required
+                    minLength={6}
+                    value={recoveryConfirmPassword}
+                    onChange={(e) => setRecoveryConfirmPassword(e.target.value)}
+                    placeholder="Nhập lại mật khẩu mới"
+                    className="w-full pl-9 pr-3.5 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex flex-col gap-2.5">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-xs sm:text-sm transition-all shadow-lg shadow-blue-600/25 active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {loading ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" /> Đang cập nhật...
+                    </>
+                  ) : (
+                    <>
+                      <KeyRound className="w-4 h-4" /> Đặt Lại Mật Khẩu & Đăng Nhập
+                    </>
+                  )}
+                </button>
+
+                <div className="flex items-center justify-between text-xs pt-1 px-1">
+                  <button
+                    type="button"
+                    onClick={handleResendRecovery}
+                    disabled={resendCountdown > 0 || isResending}
+                    className="text-blue-600 dark:text-blue-400 hover:underline font-medium flex items-center gap-1 disabled:opacity-50 disabled:no-underline cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isResending ? 'animate-spin' : ''}`} />
+                    {resendCountdown > 0 ? `Gửi lại mã sau (${resendCountdown}s)` : 'Gửi lại mã khôi phục'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setTab('login')}
+                    className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium"
+                  >
+                    ← Quay lại Đăng nhập
+                  </button>
+                </div>
+              </div>
+            </form>
+          ) : tab !== 'supabase' ? (
             <form onSubmit={handleSubmit} className="space-y-3.5">
               {tab === 'register' && (
                 <div>

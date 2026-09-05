@@ -11,6 +11,12 @@ import {
   deleteFromR2,
   R2_CONFIG,
 } from './src/lib/r2';
+import {
+  getEmailConfig,
+  sendTransactionalEmail,
+  generateEmailHtml,
+  emailLogs,
+} from './src/lib/email';
 
 const SERVER_SENTRY_DSN =
   process.env.SENTRY_DSN ||
@@ -236,6 +242,74 @@ async function startServer() {
         error: err?.message || String(err),
       });
     }
+  });
+
+  // ==========================================
+  // TRANSACTIONAL EMAIL API ENDPOINTS
+  // ==========================================
+
+  // Get Transactional Email Configuration Status
+  app.get('/api/email/status', (req, res) => {
+    try {
+      const config = getEmailConfig();
+      res.json({
+        success: true,
+        isResendConfigured: config.isResendConfigured,
+        isSmtpConfigured: config.isSmtpConfigured,
+        emailFrom: config.emailFrom,
+        defaultRecipient: config.defaultRecipient,
+        smtpHost: config.smtp.host ? `${config.smtp.host}:${config.smtp.port}` : null,
+        smtpUser: config.smtp.user || null,
+        mode: config.isResendConfigured
+          ? 'Resend API (Live)'
+          : config.isSmtpConfigured
+          ? 'Custom SMTP (Live)'
+          : 'Simulator / Local Preview',
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  // Send Transactional Email
+  app.post('/api/email/send', async (req, res) => {
+    try {
+      const { template, to, subject, data, customHtml } = req.body;
+      if (!template && !customHtml) {
+        return res.status(400).json({ success: false, error: 'Thiếu thông tin template hoặc HTML email' });
+      }
+
+      const result = await sendTransactionalEmail({
+        template: template || 'custom',
+        to: to || 'datminh96@gmail.com',
+        subject,
+        data: data || {},
+        customHtml,
+      });
+
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  // Preview Transactional Email Template HTML
+  app.post('/api/email/preview', (req, res) => {
+    try {
+      const { template = 'financial_summary', data = {}, customHtml } = req.body;
+      const { subject, html } = generateEmailHtml(template, {
+        ...data,
+        customHtml,
+      });
+      res.json({ success: true, subject, html });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  // Get Sent Email Logs
+  app.get('/api/email/logs', (req, res) => {
+    res.json({ success: true, logs: emailLogs });
   });
 
   // Gemini Technical Analysis Endpoint

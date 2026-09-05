@@ -3,6 +3,7 @@ import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 import { getSupabaseStatus, updateSupabaseCredentials } from '../../lib/supabase';
 import { r2Service, R2ObjectItem, R2StatusResponse } from '../../services/r2Service';
+import { TransactionalEmailSection } from './TransactionalEmailSection';
 import { 
   Settings, 
   Clock, 
@@ -658,10 +659,13 @@ export const SettingsView: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* 5. Cấu hình & Gửi Transactional Email */}
+          <TransactionalEmailSection />
         </>
       )}
 
-      {/* 5. Thông tin ứng dụng */}
+      {/* 6. Thông tin ứng dụng */}
       <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 space-y-1">
         <p className="font-bold text-slate-800 dark:text-slate-200 font-display">
           QUẢN LÝ CÁ NHÂN – GIỜ CÔNG | CHI TIÊU | ĐẦU TƯ

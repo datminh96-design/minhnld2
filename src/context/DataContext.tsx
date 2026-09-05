@@ -20,6 +20,7 @@ import { calculateWorkHours, generateUUID } from '../lib/utils';
 import { calculateInvestmentHoldings } from '../lib/utils';
 import { priceService } from '../services/priceService';
 import { r2Service, R2BackupPayload } from '../services/r2Service';
+import { emailService, SendEmailPayload, SendEmailResponse } from '../services/emailService';
 
 interface DataContextType {
   workSettings: WorkSettings;
@@ -60,6 +61,7 @@ interface DataContextType {
   triggerCloudBackup: (silent?: boolean) => Promise<void>;
   backupToCloudflareR2: () => Promise<boolean>;
   restoreFromCloudflareR2: (key: string) => Promise<boolean>;
+  sendTransactionalEmailNotification: (payload: SendEmailPayload) => Promise<SendEmailResponse>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -825,6 +827,21 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const sendTransactionalEmailNotification = async (payload: SendEmailPayload): Promise<SendEmailResponse> => {
+    try {
+      const res = await emailService.sendEmail(payload);
+      if (res.success) {
+        addToast(`Đã gửi Transactional Email: ${res.subject}`, 'success');
+      } else {
+        addToast(`Không thể gửi email: ${res.error || 'Lỗi không xác định'}`, 'error');
+      }
+      return res;
+    } catch (err: any) {
+      addToast(`Lỗi gửi Transactional Email: ${err.message || String(err)}`, 'error');
+      throw err;
+    }
+  };
+
   return (
     <DataContext.Provider value={{
       workSettings, workLogs, categories, transactions, investmentAssets, investmentTransactions, portfolioSnapshots,
@@ -833,7 +850,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       saveCategory, deleteCategory, saveInvestmentAsset, updateAssetPrice, deleteInvestmentAsset,
       saveInvestmentTransaction, deleteInvestmentTransaction, refreshMarketPrices, takeDailySnapshot, updateUserSettings,
       addToast, removeToast, clearAllData, syncWithSupabase, triggerCloudBackup,
-      backupToCloudflareR2, restoreFromCloudflareR2
+      backupToCloudflareR2, restoreFromCloudflareR2, sendTransactionalEmailNotification
     }}>
       {children}
     </DataContext.Provider>

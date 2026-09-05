@@ -3,6 +3,7 @@ import { User, Session } from '@supabase/supabase-js';
 import { getSupabaseClient, getSupabaseStatus } from '../lib/supabase';
 import { Profile } from '../types';
 import { DEFAULT_PROFILE } from '../lib/seedData';
+import { emailService } from '../services/emailService';
 
 interface AuthContextType {
   user: User | null;
@@ -13,12 +14,14 @@ interface AuthContextType {
   isSupabaseConfigured: boolean;
   isDemoUser: boolean;
   signInWithEmail: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUpWithEmail: (email: string, password: string, fullName: string) => Promise<{ error: Error | null; data?: any }>;
+  signUpWithEmail: (email: string, password: string, fullName: string) => Promise<{ error: Error | null; data?: any; verificationCode?: string }>;
   signOut: () => Promise<void>;
-  resetPassword: (email: string) => Promise<{ error: Error | null }>;
+  resetPassword: (email: string) => Promise<{ error: Error | null; recoveryCode?: string }>;
   updatePassword: (newPassword: string) => Promise<{ error: Error | null }>;
   updateProfile: (updates: Partial<Profile>) => Promise<{ error: Error | null }>;
   switchMode: (toDemo: boolean) => void;
+  sendVerificationEmail: (email: string, fullName: string, customCode?: string) => Promise<{ code: string; success: boolean }>;
+  sendPasswordRecoveryEmail: (email: string, customCode?: string) => Promise<{ code: string; success: boolean }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -127,7 +130,59 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const sendVerificationEmail = async (
+    targetEmail: string,
+    fullName: string,
+    customCode?: string
+  ): Promise<{ code: string; success: boolean }> => {
+    const code = customCode || Math.floor(100000 + Math.random() * 900000).toString();
+    try {
+      const res = await emailService.sendEmail({
+        template: 'account_verification',
+        to: targetEmail,
+        data: {
+          recipientName: fullName || targetEmail.split('@')[0],
+          email: targetEmail,
+          code,
+          expireMinutes: 15,
+        },
+      });
+      return { code, success: res.success };
+    } catch (err) {
+      console.warn('[Email] Could not dispatch verification email:', err);
+      return { code, success: false };
+    }
+  };
+
+  const sendPasswordRecoveryEmail = async (
+    targetEmail: string,
+    customCode?: string
+  ): Promise<{ code: string; success: boolean }> => {
+    const code = customCode || Math.floor(100000 + Math.random() * 900000).toString();
+    try {
+      const res = await emailService.sendEmail({
+        template: 'password_recovery',
+        to: targetEmail,
+        data: {
+          recipientName: targetEmail.split('@')[0],
+          email: targetEmail,
+          code,
+          expireMinutes: 15,
+          requestTime: new Date().toLocaleString('vi-VN'),
+        },
+      });
+      return { code, success: res.success };
+    } catch (err) {
+      console.warn('[Email] Could not dispatch password recovery email:', err);
+      return { code, success: false };
+    }
+  };
+
   const signUpWithEmail = async (email: string, password: string, fullName: string) => {
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    // Dispatch Account Verification Transactional Email
+    sendVerificationEmail(email, fullName, verificationCode);
+
     const { client, isConfigured: hasSupabase } = getSupabaseClient();
     if (!hasSupabase || !client) {
       // Demo simulated register
@@ -139,7 +194,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setProfile(demoProf);
       localStorage.setItem('demo_user_profile', JSON.stringify(demoProf));
       setIsDemoUser(true);
-      return { error: null };
+      return { error: null, verificationCode };
     }
 
     try {
@@ -155,7 +210,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (error) return { error };
       setIsDemoUser(false);
       localStorage.setItem('app_is_demo_mode', 'false');
-      return { error: null, data };
+      return { error: null, data, verificationCode };
     } catch (err: any) {
       return { error: err };
     }
@@ -182,14 +237,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const resetPassword = async (email: string) => {
+    const recoveryCode = Math.floor(100000 + Math.random() * 900000).toString();
+    // Dispatch Password Recovery Transactional Email
+    await sendPasswordRecoveryEmail(email, recoveryCode);
+
     const { client, isConfigured: hasSupabase } = getSupabaseClient();
     if (!hasSupabase || !client) {
-      return { error: null }; // Demo simulation success
+      return { error: null, recoveryCode }; // Demo simulation success with code
     }
     const { error } = await client.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/reset-password`,
     });
-    return { error };
+    return { error, recoveryCode };
   };
 
   const updatePassword = async (newPassword: string) => {
@@ -251,6 +310,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         updatePassword,
         updateProfile,
         switchMode,
+        sendVerificationEmail,
+        sendPasswordRecoveryEmail,
       }}
     >
       {children}
