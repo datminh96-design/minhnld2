@@ -38,6 +38,25 @@ export interface R2BackupPayload {
   totalRecords: number;
 }
 
+async function safeParseJson(response: Response, defaultErrorMsg: string): Promise<any> {
+  const text = await response.text();
+  try {
+    const data = JSON.parse(text);
+    if (!response.ok && !data.error) {
+      data.error = `HTTP ${response.status}: ${text.slice(0, 100)}`;
+    }
+    return data;
+  } catch {
+    return {
+      success: false,
+      connected: false,
+      error: response.ok
+        ? defaultErrorMsg
+        : `Lỗi máy chủ (${response.status}): ${text ? text.slice(0, 100) : defaultErrorMsg}`,
+    };
+  }
+}
+
 export const r2Service = {
   /**
    * Check connection status to Cloudflare R2
@@ -45,10 +64,14 @@ export const r2Service = {
   async checkStatus(): Promise<R2StatusResponse> {
     try {
       const response = await fetch('/api/r2/status');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      return await response.json();
+      const data = await safeParseJson(response, 'Không thể kiểm tra trạng thái R2');
+      return {
+        connected: Boolean(data?.connected),
+        buckets: Array.isArray(data?.buckets) ? data.buckets : [],
+        endpoint: data?.endpoint || '',
+        accountId: data?.accountId || '',
+        error: data?.error,
+      };
     } catch (error: any) {
       return {
         connected: false,
@@ -66,14 +89,17 @@ export const r2Service = {
   async listBackups(prefix = 'backups/'): Promise<R2ListResponse> {
     try {
       const response = await fetch(`/api/r2/objects?prefix=${encodeURIComponent(prefix)}`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      return await response.json();
+      const data = await safeParseJson(response, 'Không thể tải danh sách bản sao lưu R2');
+      return {
+        success: Boolean(data?.success),
+        bucket: data?.bucket || 'minhnld2',
+        objects: Array.isArray(data?.objects) ? data.objects : [],
+        error: data?.error,
+      };
     } catch (error: any) {
       return {
         success: false,
-        bucket: 'personal-finance-backups',
+        bucket: 'minhnld2',
         objects: [],
         error: error?.message || 'Không thể tải danh sách bản sao lưu R2',
       };
@@ -90,7 +116,8 @@ export const r2Service = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      return await response.json();
+      const data = await safeParseJson(response, 'Lỗi khi gửi bản sao lưu lên Cloudflare R2');
+      return data;
     } catch (error: any) {
       return {
         success: false,
@@ -105,10 +132,8 @@ export const r2Service = {
   async getBackup(key: string): Promise<{ success: boolean; data?: R2BackupPayload; error?: string }> {
     try {
       const response = await fetch(`/api/r2/backup?key=${encodeURIComponent(key)}`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      return await response.json();
+      const data = await safeParseJson(response, 'Không thể khôi phục dữ liệu từ Cloudflare R2');
+      return data;
     } catch (error: any) {
       return {
         success: false,
@@ -127,7 +152,8 @@ export const r2Service = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key }),
       });
-      return await response.json();
+      const data = await safeParseJson(response, 'Lỗi khi xóa bản ghi trên Cloudflare R2');
+      return data;
     } catch (error: any) {
       return {
         success: false,

@@ -143,7 +143,7 @@ export async function uploadToR2(
 ): Promise<{ success: boolean; key: string; bucket: string; error?: string }> {
   try {
     const client = getR2Client();
-    const targetBucket = await ensureBucketExists(bucketName);
+    const targetBucket = bucketName || R2_CONFIG.defaultBucket || 'minhnld2';
     
     const command = new PutObjectCommand({
       Bucket: targetBucket,
@@ -167,7 +167,7 @@ export async function uploadToR2(
     return {
       success: false,
       key,
-      bucket: bucketName,
+      bucket: bucketName || R2_CONFIG.defaultBucket,
       error: error?.message || String(error),
     };
   }
@@ -187,7 +187,7 @@ export async function listR2Objects(
 }> {
   try {
     const client = getR2Client();
-    const targetBucket = await ensureBucketExists(bucketName);
+    const targetBucket = bucketName || R2_CONFIG.defaultBucket || 'minhnld2';
     
     const command = new ListObjectsV2Command({
       Bucket: targetBucket,
@@ -211,7 +211,7 @@ export async function listR2Objects(
     console.error('[Cloudflare R2] List objects error:', error);
     return {
       success: false,
-      bucket: bucketName,
+      bucket: bucketName || R2_CONFIG.defaultBucket,
       objects: [],
       error: error?.message || String(error),
     };
@@ -227,7 +227,7 @@ export async function getFromR2(
 ): Promise<{ success: boolean; data?: string; error?: string }> {
   try {
     const client = getR2Client();
-    const targetBucket = await ensureBucketExists(bucketName);
+    const targetBucket = bucketName || R2_CONFIG.defaultBucket || 'minhnld2';
     
     const command = new GetObjectCommand({
       Bucket: targetBucket,
@@ -262,7 +262,7 @@ export async function deleteFromR2(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const client = getR2Client();
-    const targetBucket = await ensureBucketExists(bucketName);
+    const targetBucket = bucketName || R2_CONFIG.defaultBucket || 'minhnld2';
     
     const command = new DeleteObjectCommand({
       Bucket: targetBucket,
