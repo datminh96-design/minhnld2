@@ -12,15 +12,14 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 // Cloudflare R2 S3 credentials configuration
 export const R2_CONFIG = {
-  accountId: process.env.R2_ACCOUNT_ID || '',
-  accessKeyId: process.env.R2_ACCESS_KEY_ID || '',
-  secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
+  accountId: process.env.R2_ACCOUNT_ID || 'eb6f53f5795c23b1f75e360674a4650b',
+  accessKeyId: process.env.R2_ACCESS_KEY_ID || 'c415be80d7e69af090163b2ac446d60b',
+  secretAccessKey:
+    process.env.R2_SECRET_ACCESS_KEY ||
+    'fde9ab464ab90497d58b7a41510be6b139ca1cc3b9eaf11d9b9ec2b22b1e8e31',
   endpoint:
     process.env.R2_ENDPOINT ||
-    (process.env.R2_ACCOUNT_ID
-      ? `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`
-      : ''),
-  apiToken: process.env.R2_API_TOKEN || '',
+    'https://eb6f53f5795c23b1f75e360674a4650b.r2.cloudflarestorage.com',
   defaultBucket: process.env.R2_BUCKET_NAME || 'minhnld2',
 };
 
@@ -60,10 +59,31 @@ export async function testR2Connection(): Promise<{
 }> {
   try {
     const client = getR2Client();
-    const command = new ListBucketsCommand({});
-    const response = await client.send(command);
-    const buckets = (response.Buckets || []).map((b) => b.Name || '').filter(Boolean);
-    
+    let buckets: string[] = [];
+
+    try {
+      const command = new ListBucketsCommand({});
+      const response = await client.send(command);
+      buckets = (response.Buckets || []).map((b) => b.Name || '').filter(Boolean);
+    } catch (listErr) {
+      // If ListBuckets is restricted to specific bucket, test specific default bucket
+      try {
+        await client.send(
+          new ListObjectsV2Command({
+            Bucket: R2_CONFIG.defaultBucket,
+            MaxKeys: 1,
+          })
+        );
+        buckets = [R2_CONFIG.defaultBucket];
+      } catch (bucketErr) {
+        throw listErr;
+      }
+    }
+
+    if (buckets.length === 0 && R2_CONFIG.defaultBucket) {
+      buckets = [R2_CONFIG.defaultBucket];
+    }
+
     return {
       connected: true,
       buckets,
