@@ -9,6 +9,7 @@ interface AuthContextType {
   profile: Profile | null;
   session: Session | null;
   loading: boolean;
+  isAdmin: boolean;
   isSupabaseConfigured: boolean;
   isDemoUser: boolean;
   signInWithEmail: (email: string, password: string) => Promise<{ error: Error | null }>;
@@ -227,6 +228,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem('app_is_demo_mode', toDemo ? 'true' : 'false');
   };
 
+  const ADMIN_EMAIL = 'datminh96@gmail.com';
+  const isAdmin = Boolean(
+    (user?.email && user.email.toLowerCase() === ADMIN_EMAIL) ||
+    (profile?.email && profile.email.toLowerCase() === ADMIN_EMAIL)
+  );
+
   return (
     <AuthContext.Provider
       value={{
@@ -234,6 +241,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         profile,
         session,
         loading,
+        isAdmin,
         isSupabaseConfigured: isConfigured,
         isDemoUser,
         signInWithEmail,

@@ -46,6 +46,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     isSupabaseConfigured,
     isDemoUser,
     switchMode,
+    isAdmin,
   } = useAuth();
   const { addToast, backupToCloudflareR2 } = useData();
 
@@ -243,21 +244,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
 
               <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end">
-                <button
-                  type="button"
-                  onClick={handleQuickBackup}
-                  disabled={isBackingUp}
-                  className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-all flex items-center gap-1.5 shadow-sm"
-                >
-                  <Cloud className={`w-3.5 h-3.5 text-sky-500 ${isBackingUp ? 'animate-spin' : ''}`} />
-                  {isBackingUp ? 'Đang lưu...' : 'Sao lưu R2'}
-                </button>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={handleQuickBackup}
+                    disabled={isBackingUp}
+                    className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+                  >
+                    <Cloud className={`w-3.5 h-3.5 text-sky-500 ${isBackingUp ? 'animate-spin' : ''}`} />
+                    {isBackingUp ? 'Đang lưu...' : 'Sao lưu R2'}
+                  </button>
+                )}
 
                 <button
                   type="button"
                   onClick={handleSignOut}
                   disabled={loading}
-                  className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 transition-all flex items-center gap-1.5"
+                  className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 transition-all flex items-center gap-1.5 cursor-pointer"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                   Đăng Xuất
@@ -267,7 +270,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
 
           {/* Integration & Storage Status Badges */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className={`grid grid-cols-1 ${isAdmin ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-3`}>
             <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1">
               <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-200">
                 <span className="flex items-center gap-1.5">
@@ -280,17 +283,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </p>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1">
-              <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-200">
-                <span className="flex items-center gap-1.5">
-                  <Cloud className="w-3.5 h-3.5 text-sky-500" /> Cloudflare R2
-                </span>
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            {isAdmin && (
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1">
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  <span className="flex items-center gap-1.5">
+                    <Cloud className="w-3.5 h-3.5 text-sky-500" /> Cloudflare R2
+                  </span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Bucket <span className="font-mono text-emerald-500 font-semibold">minhnld2</span>
+                </p>
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Bucket <span className="font-mono text-emerald-500 font-semibold">minhnld2</span>
-              </p>
-            </div>
+            )}
 
             <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1">
               <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-200">
@@ -383,11 +388,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         /* VIEW KHI CHƯA ĐĂNG NHẬP -> GIAO DIỆN ĐĂNG NHẬP / ĐĂNG KÝ CHUYÊN NGHIỆP */
         <div className="space-y-4">
           {/* Navigation tabs */}
-          <div className="grid grid-cols-3 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80">
+          <div className={`grid ${isAdmin ? 'grid-cols-3' : 'grid-cols-2'} p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80`}>
             <button
               type="button"
               onClick={() => setTab('login')}
-              className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
+              className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 tab === 'login'
                   ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -399,7 +404,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <button
               type="button"
               onClick={() => setTab('register')}
-              className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
+              className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 tab === 'register'
                   ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -408,18 +413,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <UserPlus className="w-3.5 h-3.5" />
               Đăng Ký
             </button>
-            <button
-              type="button"
-              onClick={() => setTab('supabase')}
-              className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
-                tab === 'supabase'
-                  ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <Database className="w-3.5 h-3.5" />
-              Supabase {isSupabaseConfigured ? '🟢' : '⚪'}
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setTab('supabase')}
+                className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  tab === 'supabase'
+                    ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Database className="w-3.5 h-3.5" />
+                Supabase {isSupabaseConfigured ? '🟢' : '⚪'}
+              </button>
+            )}
           </div>
 
           {tab !== 'supabase' ? (

@@ -36,7 +36,7 @@ export const Header: React.FC<HeaderProps> = ({
   openAuthModal,
   onQuickAction,
 }) => {
-  const { profile, isDemoUser, isSupabaseConfigured, signOut } = useAuth();
+  const { profile, isDemoUser, isSupabaseConfigured, signOut, isAdmin } = useAuth();
   const { 
     userSettings, 
     updateUserSettings, 
@@ -100,67 +100,69 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Right Controls */}
       <div className="flex items-center gap-2 sm:gap-3">
-        {/* Glowing Lightbulb Backup Status Indicator */}
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => syncWithSupabase(true)}
-            onMouseEnter={() => setShowSyncTooltip(true)}
-            onMouseLeave={() => setShowSyncTooltip(false)}
-            className={`relative flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl border transition-all duration-300 ${
-              syncStatus === 'syncing'
-                ? 'bg-amber-500/15 border-amber-400/50 text-amber-500 dark:text-amber-300 ring-4 ring-amber-400/20'
-                : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50'
-            }`}
-            title="Nhấn để kích hoạt sao lưu tức thì lên Supabase Cloud"
-          >
-            {/* Luminous Lightbulb */}
-            <div className="relative flex items-center justify-center">
-              <Lightbulb 
-                className={`w-4 h-4 sm:w-4.5 sm:h-4.5 transition-all duration-300 ${
-                  syncStatus === 'syncing' 
-                    ? 'text-amber-400 fill-amber-400 scale-110 drop-shadow-[0_0_8px_rgba(251,191,36,0.9)] animate-pulse' 
-                    : 'text-amber-500 dark:text-amber-300 fill-amber-400/80 drop-shadow-[0_0_4px_rgba(245,158,11,0.5)]'
-                }`} 
-              />
-              {syncStatus === 'syncing' && (
-                <span className="absolute -top-1 -right-1 flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                </span>
-              )}
-            </div>
-
-            <div className="hidden sm:flex flex-col text-left">
-              <span className="text-[11px] font-bold leading-tight font-display flex items-center gap-1">
-                {syncStatus === 'syncing' ? 'Đang Sao Lưu...' : 'Đã Sao Lưu'}
-              </span>
-              <span className="text-[9px] opacity-75 leading-none">
-                {syncStatus === 'syncing' ? 'Supabase Cloud' : 'Tự động 100%'}
-              </span>
-            </div>
-          </button>
-
-          {/* Tooltip on hover */}
-          {showSyncTooltip && (
-            <div className="absolute right-0 top-full mt-2 w-64 p-3 rounded-2xl bg-slate-900/95 text-white backdrop-blur-md shadow-2xl border border-slate-700 z-50 text-xs animate-in fade-in zoom-in-95 pointer-events-none">
-              <div className="flex items-center gap-2 mb-1.5 text-amber-300 font-bold">
-                <Lightbulb className="w-4 h-4 fill-amber-300 text-amber-300" />
-                <span>Cơ chế Tự Động Sao Lưu Cloud</span>
+        {/* Glowing Lightbulb Backup Status Indicator (Admin only: datminh96@gmail.com) */}
+        {isAdmin && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => syncWithSupabase(true)}
+              onMouseEnter={() => setShowSyncTooltip(true)}
+              onMouseLeave={() => setShowSyncTooltip(false)}
+              className={`relative flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl border transition-all duration-300 cursor-pointer ${
+                syncStatus === 'syncing'
+                  ? 'bg-amber-500/15 border-amber-400/50 text-amber-500 dark:text-amber-300 ring-4 ring-amber-400/20'
+                  : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50'
+              }`}
+              title="Nhấn để kích hoạt sao lưu tức thì lên Supabase Cloud"
+            >
+              {/* Luminous Lightbulb */}
+              <div className="relative flex items-center justify-center">
+                <Lightbulb 
+                  className={`w-4 h-4 sm:w-4.5 sm:h-4.5 transition-all duration-300 ${
+                    syncStatus === 'syncing' 
+                      ? 'text-amber-400 fill-amber-400 scale-110 drop-shadow-[0_0_8px_rgba(251,191,36,0.9)] animate-pulse' 
+                      : 'text-amber-500 dark:text-amber-300 fill-amber-400/80 drop-shadow-[0_0_4px_rgba(245,158,11,0.5)]'
+                  }`} 
+                />
+                {syncStatus === 'syncing' && (
+                  <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                  </span>
+                )}
               </div>
-              <p className="text-[11px] text-slate-300 leading-relaxed">
-                Mỗi khi bạn <strong className="text-white">Thêm mới</strong>, <strong className="text-white">Sửa chữa</strong> hoặc <strong className="text-white">Xóa</strong> dữ liệu, hệ thống tự động đồng bộ và sao lưu an toàn ngay lập tức lên máy chủ Supabase.
-              </p>
-              <div className="mt-2 pt-2 border-t border-slate-800 text-[10px] text-slate-400 flex items-center justify-between">
-                <span>Trạng thái:</span>
-                <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Đang hoạt động
+
+              <div className="hidden sm:flex flex-col text-left">
+                <span className="text-[11px] font-bold leading-tight font-display flex items-center gap-1">
+                  {syncStatus === 'syncing' ? 'Đang Sao Lưu...' : 'Đã Sao Lưu'}
+                </span>
+                <span className="text-[9px] opacity-75 leading-none">
+                  {syncStatus === 'syncing' ? 'Supabase Cloud' : 'Tự động 100%'}
                 </span>
               </div>
-            </div>
-          )}
-        </div>
+            </button>
+
+            {/* Tooltip on hover */}
+            {showSyncTooltip && (
+              <div className="absolute right-0 top-full mt-2 w-64 p-3 rounded-2xl bg-slate-900/95 text-white backdrop-blur-md shadow-2xl border border-slate-700 z-50 text-xs animate-in fade-in zoom-in-95 pointer-events-none">
+                <div className="flex items-center gap-2 mb-1.5 text-amber-300 font-bold">
+                  <Lightbulb className="w-4 h-4 fill-amber-300 text-amber-300" />
+                  <span>Cơ chế Tự Động Sao Lưu Cloud</span>
+                </div>
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  Mỗi khi bạn <strong className="text-white">Thêm mới</strong>, <strong className="text-white">Sửa chữa</strong> hoặc <strong className="text-white">Xóa</strong> dữ liệu, hệ thống tự động đồng bộ và sao lưu an toàn ngay lập tức lên máy chủ Supabase.
+                </p>
+                <div className="mt-2 pt-2 border-t border-slate-800 text-[10px] text-slate-400 flex items-center justify-between">
+                  <span>Trạng thái:</span>
+                  <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Đang hoạt động
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Quick Add Button */}
         <div className="relative">
