@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 import { getSupabaseStatus, updateSupabaseCredentials } from '../../lib/supabase';
+import { r2Service, R2ObjectItem, R2StatusResponse } from '../../services/r2Service';
 import { 
   Settings, 
   Clock, 
@@ -20,7 +21,12 @@ import {
   Eye,
   EyeOff,
   CloudCheck,
-  Cloud
+  Cloud,
+  HardDrive,
+  Download,
+  UploadCloud,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 
 export const SettingsView: React.FC = () => {
@@ -34,7 +40,9 @@ export const SettingsView: React.FC = () => {
     syncStatus,
     lastSyncedAt,
     syncMessage,
-    triggerCloudBackup
+    triggerCloudBackup,
+    backupToCloudflareR2,
+    restoreFromCloudflareR2
   } = useData();
 
   const { isSupabaseConfigured, isDemoUser, profile } = useAuth();
@@ -52,12 +60,95 @@ export const SettingsView: React.FC = () => {
   const [currency, setCurrency] = useState(userSettings.currency);
   const [theme, setTheme] = useState(userSettings.theme);
 
-  // Masking toggles for Supabase
+  // Masking toggles for Supabase & Cloudflare R2
   const [showConfigDetails, setShowConfigDetails] = useState(false);
-  const [showKeySecret, setShowKeySecret] = useState(false);
+  const [showR2Details, setShowR2Details] = useState(false);
+
+  // Cloudflare R2 State
+  const [r2Status, setR2Status] = useState<R2StatusResponse | null>(null);
+  const [r2Backups, setR2Backups] = useState<R2ObjectItem[]>([]);
+  const [testingR2, setTestingR2] = useState(false);
+  const [backingUpToR2, setBackingUpToR2] = useState(false);
+  const [restoringKey, setRestoringKey] = useState<string | null>(null);
 
   // Copied SQL state
   const [copiedSql, setCopiedSql] = useState(false);
+
+  // Load Cloudflare R2 status & backups on mount
+  useEffect(() => {
+    checkR2Status();
+    loadR2Backups();
+  }, []);
+
+  const checkR2Status = async () => {
+    setTestingR2(true);
+    try {
+      const res = await r2Service.checkStatus();
+      setR2Status(res);
+    } catch (e) {
+      console.warn('R2 status check error:', e);
+    } finally {
+      setTestingR2(false);
+    }
+  };
+
+  const loadR2Backups = async () => {
+    try {
+      const res = await r2Service.listBackups();
+      if (res.success && res.objects) {
+        // Sort newest first
+        const sorted = [...res.objects].sort((a, b) => {
+          const timeA = a.lastModified ? new Date(a.lastModified).getTime() : 0;
+          const timeB = b.lastModified ? new Date(b.lastModified).getTime() : 0;
+          return timeB - timeA;
+        });
+        setR2Backups(sorted);
+      }
+    } catch (e) {
+      console.warn('R2 backup list error:', e);
+    }
+  };
+
+  const handleBackupR2 = async () => {
+    setBackingUpToR2(true);
+    try {
+      const ok = await backupToCloudflareR2();
+      if (ok) {
+        await loadR2Backups();
+      }
+    } finally {
+      setBackingUpToR2(false);
+    }
+  };
+
+  const handleRestoreR2 = async (key: string) => {
+    if (!window.confirm(`Bạn có chắc chắn muốn khôi phục dữ liệu từ bản sao lưu ${key}? Dữ liệu hiện tại sẽ được thay thế bằng bản sao lưu này.`)) {
+      return;
+    }
+    setRestoringKey(key);
+    try {
+      await restoreFromCloudflareR2(key);
+    } finally {
+      setRestoringKey(null);
+    }
+  };
+
+  const handleDeleteR2 = async (key: string) => {
+    if (!window.confirm(`Bạn có chắc muốn xóa bản sao lưu ${key} khỏi Cloudflare R2?`)) {
+      return;
+    }
+    try {
+      const res = await r2Service.deleteBackup(key);
+      if (res.success) {
+        addToast('Đã xóa bản sao lưu khỏi Cloudflare R2', 'success');
+        setR2Backups(prev => prev.filter(b => b.key !== key));
+      } else {
+        addToast(`Lỗi khi xóa: ${res.error || 'Lỗi không xác định'}`, 'error');
+      }
+    } catch (err: any) {
+      addToast(`Lỗi: ${err.message}`, 'error');
+    }
+  };
 
   // Save work settings
   const handleSaveWorkSettings = (e: React.FormEvent) => {
@@ -377,7 +468,190 @@ export const SettingsView: React.FC = () => {
         </div>
       </div>
 
-      {/* 4. Thông tin ứng dụng */}
+      {/* 4. Cấu hình Cloudflare R2 Object Storage */}
+      <div className="p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2.5 rounded-xl bg-orange-50 dark:bg-orange-950/50 text-orange-600 dark:text-orange-400">
+              <HardDrive className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display">
+                  Lưu Trữ & Sao Lưu Đám Mây Cloudflare R2 (S3)
+                </h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
+                  S3 Compatible
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">
+                Kho lưu trữ tệp tin và bản sao lưu JSON toàn diện không tốn phí băng thông xuất dữ liệu
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={checkR2Status}
+              disabled={testingR2}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-all cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${testingR2 ? 'animate-spin text-orange-500' : ''}`} />
+              <span>{testingR2 ? 'Đang kiểm tra...' : 'Kiểm tra R2'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleBackupR2}
+              disabled={backingUpToR2}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-orange-500 hover:bg-orange-600 text-white shadow-xs transition-all cursor-pointer disabled:opacity-50"
+            >
+              <UploadCloud className={`w-4 h-4 ${backingUpToR2 ? 'animate-bounce' : ''}`} />
+              <span>{backingUpToR2 ? 'Đang Tải Lên...' : 'Sao Lưu Lên R2'}</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs space-y-3">
+          {/* Status badge */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span
+                className={`w-2.5 h-2.5 rounded-full ${
+                  r2Status?.connected ? 'bg-emerald-500' : testingR2 ? 'bg-amber-400 animate-ping' : 'bg-emerald-500'
+                }`}
+              />
+              <span className="font-bold text-slate-900 dark:text-white">
+                Trạng thái:{' '}
+                {r2Status?.connected
+                  ? 'Đã kết nối Cloudflare R2 thành công'
+                  : testingR2
+                  ? 'Đang kiểm tra kết nối...'
+                  : r2Status?.error
+                  ? `Lỗi: ${r2Status.error}`
+                  : 'Sẵn sàng sao lưu'}
+              </span>
+            </div>
+            <span className="text-[11px] text-slate-400">
+              Buckets khả dụng: {r2Status?.buckets?.length || 1}
+            </span>
+          </div>
+
+          {/* Masked credentials box */}
+          <div className="p-3 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700/80 space-y-2">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-orange-500" />
+                Thông số kết nối Cloudflare S3 Endpoint (Bảo mật)
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowR2Details(!showR2Details)}
+                className="text-orange-600 dark:text-orange-400 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+              >
+                {showR2Details ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                <span>{showR2Details ? 'Ẩn thông tin' : 'Hiện thông tin'}</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono">
+              <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                <span className="text-slate-400 block text-[10px]">S3 Endpoint:</span>
+                <span className="text-slate-700 dark:text-slate-200 font-semibold truncate block">
+                  {r2Status?.endpoint || (showR2Details ? 'Configured in Environment' : 'https://...r2.cloudflarestorage.com')}
+                </span>
+              </div>
+              <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                <span className="text-slate-400 block text-[10px]">Access Key ID:</span>
+                <span className="text-slate-700 dark:text-slate-200 font-semibold truncate block">
+                  {showR2Details ? 'Đã cấu hình bảo mật qua ENV' : '•••••••••••••••• (Ẩn an toàn)'}
+                </span>
+              </div>
+              <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                <span className="text-slate-400 block text-[10px]">Account ID:</span>
+                <span className="text-slate-700 dark:text-slate-200 font-semibold truncate block">
+                  {r2Status?.accountId || (showR2Details ? 'Configured in Environment' : '••••••••••••••••')}
+                </span>
+              </div>
+              <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                <span className="text-slate-400 block text-[10px]">Default Bucket:</span>
+                <span className="text-slate-700 dark:text-slate-200 font-semibold truncate block">
+                  minhnld2
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Backup History Table */}
+          <div className="space-y-2 pt-1">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-slate-700 dark:text-slate-300 text-xs flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-slate-400" />
+                Lịch sử bản sao lưu trên Cloudflare R2 ({r2Backups.length})
+              </span>
+              <button
+                type="button"
+                onClick={loadR2Backups}
+                className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 text-[11px] flex items-center gap-1 cursor-pointer"
+              >
+                <RefreshCw className="w-3 h-3" /> Làm mới danh sách
+              </button>
+            </div>
+
+            {r2Backups.length === 0 ? (
+              <div className="p-4 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/80 text-center text-slate-400 text-xs">
+                Chưa có bản sao lưu nào trên Cloudflare R2. Nhấn nút <strong>"Sao Lưu Lên R2"</strong> để tạo bản đầu tiên.
+              </div>
+            ) : (
+              <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                {r2Backups.map((item) => (
+                  <div
+                    key={item.key}
+                    className="p-2.5 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700/80 flex items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="font-mono text-slate-800 dark:text-slate-200 truncate font-semibold">
+                        {item.key.replace('backups/', '')}
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        {item.lastModified
+                          ? new Date(item.lastModified).toLocaleString('vi-VN')
+                          : 'Vừa tải lên'}{' '}
+                        • {(item.size / 1024).toFixed(1)} KB
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleRestoreR2(item.key)}
+                        disabled={restoringKey === item.key}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 font-medium text-[11px] transition-all cursor-pointer disabled:opacity-50"
+                        title="Khôi phục dữ liệu từ bản này"
+                      >
+                        <Download className={`w-3 h-3 ${restoringKey === item.key ? 'animate-bounce' : ''}`} />
+                        <span>{restoringKey === item.key ? 'Đang khôi phục...' : 'Khôi phục'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteR2(item.key)}
+                        className="p-1 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition cursor-pointer"
+                        title="Xóa bản sao lưu này khỏi R2"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 5. Thông tin ứng dụng */}
       <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 space-y-1">
         <p className="font-bold text-slate-800 dark:text-slate-200 font-display">
           QUẢN LÝ CÁ NHÂN – GIỜ CÔNG | CHI TIÊU | ĐẦU TƯ

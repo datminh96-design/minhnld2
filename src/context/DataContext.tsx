@@ -19,6 +19,7 @@ import { getSupabaseClient } from '../lib/supabase';
 import { calculateWorkHours, generateUUID } from '../lib/utils';
 import { calculateInvestmentHoldings } from '../lib/utils';
 import { priceService } from '../services/priceService';
+import { r2Service, R2BackupPayload } from '../services/r2Service';
 
 interface DataContextType {
   workSettings: WorkSettings;
@@ -57,6 +58,8 @@ interface DataContextType {
   clearAllData: () => void;
   syncWithSupabase: (showToast?: boolean) => Promise<void>;
   triggerCloudBackup: (silent?: boolean) => Promise<void>;
+  backupToCloudflareR2: () => Promise<boolean>;
+  restoreFromCloudflareR2: (key: string) => Promise<boolean>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -723,6 +726,105 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     addToast('Đã xóa toàn bộ dữ liệu', 'success');
   };
 
+  /**
+   * Backup full application state snapshot directly to Cloudflare R2 S3 storage
+   */
+  const backupToCloudflareR2 = async (): Promise<boolean> => {
+    try {
+      setSyncStatus('syncing');
+      setSyncMessage('Đang sao lưu toàn bộ dữ liệu lên Cloudflare R2...');
+
+      const payload: R2BackupPayload = {
+        workLogs,
+        workSettings,
+        transactions,
+        categories,
+        investmentAssets,
+        investmentTransactions,
+        portfolioSnapshots,
+        userSettings,
+        backupTimestamp: new Date().toISOString(),
+        appVersion: '1.0.0',
+        totalRecords: workLogs.length + transactions.length + investmentAssets.length + investmentTransactions.length + portfolioSnapshots.length,
+      };
+
+      const result = await r2Service.saveBackup(payload);
+
+      if (result.success) {
+        setSyncStatus('synced');
+        setLastSyncedAt(new Date());
+        setSyncMessage('Sao lưu Cloudflare R2 thành công');
+        addToast(`Đã sao lưu thành công lên Cloudflare R2 (${result.key})`, 'success');
+        return true;
+      } else {
+        throw new Error(result.error || 'Lỗi sao lưu R2');
+      }
+    } catch (err: any) {
+      console.error('[Cloudflare R2] Backup error:', err);
+      setSyncStatus('error');
+      setSyncMessage('Lỗi sao lưu Cloudflare R2');
+      addToast(`Lỗi sao lưu R2: ${err.message || String(err)}`, 'error');
+      return false;
+    }
+  };
+
+  /**
+   * Restore full application state snapshot from Cloudflare R2 S3 storage
+   */
+  const restoreFromCloudflareR2 = async (key: string): Promise<boolean> => {
+    try {
+      setSyncStatus('syncing');
+      setSyncMessage('Đang tải và khôi phục dữ liệu từ Cloudflare R2...');
+
+      const result = await r2Service.getBackup(key);
+      if (!result.success || !result.data) {
+        throw new Error(result.error || 'Không thể đọc bản sao lưu');
+      }
+
+      const backup = result.data;
+
+      if (backup.workSettings) setWorkSettings(backup.workSettings);
+      if (backup.userSettings) setUserSettings(backup.userSettings);
+      if (Array.isArray(backup.workLogs)) setWorkLogs(backup.workLogs);
+      if (Array.isArray(backup.categories)) setCategories(backup.categories);
+      if (Array.isArray(backup.transactions)) setTransactions(backup.transactions);
+      if (Array.isArray(backup.investmentAssets)) setInvestmentAssets(backup.investmentAssets);
+      if (Array.isArray(backup.investmentTransactions)) setInvestmentTransactions(backup.investmentTransactions);
+      if (Array.isArray(backup.portfolioSnapshots)) setPortfolioSnapshots(backup.portfolioSnapshots);
+
+      // If user is authenticated with Supabase, sync restored data up to Supabase
+      if (!isDemoUser && user) {
+        const { client } = getSupabaseClient();
+        if (client) {
+          try {
+            if (backup.workSettings) await client.from('work_settings').upsert({ ...backup.workSettings, user_id: user.id });
+            if (backup.userSettings) await client.from('user_settings').upsert({ ...backup.userSettings, user_id: user.id });
+            if (backup.workLogs?.length) await client.from('work_logs').upsert(backup.workLogs.map(l => ({ ...l, user_id: user.id })));
+            if (backup.categories?.length) await client.from('expense_categories').upsert(backup.categories.map(c => ({ ...c, user_id: user.id })));
+            if (backup.transactions?.length) await client.from('transactions').upsert(backup.transactions.map(t => ({ ...t, user_id: user.id })));
+            if (backup.investmentAssets?.length) await client.from('investment_assets').upsert(backup.investmentAssets.map(a => ({ ...a, user_id: user.id })));
+            if (backup.investmentTransactions?.length) await client.from('investment_transactions').upsert(backup.investmentTransactions.map(it => ({ ...it, user_id: user.id })));
+            if (backup.portfolioSnapshots?.length) await client.from('portfolio_snapshots').upsert(backup.portfolioSnapshots.map(s => ({ ...s, user_id: user.id })));
+          } catch (cloudErr) {
+            console.warn('Lỗi khi đồng bộ dữ liệu phục hồi lên Supabase:', cloudErr);
+          }
+        }
+      }
+
+      setSyncStatus('synced');
+      setLastSyncedAt(new Date());
+      setSyncMessage('Đã khôi phục dữ liệu từ Cloudflare R2 thành công');
+      addToast('Khôi phục dữ liệu từ Cloudflare R2 thành công!', 'success');
+      return true;
+    } catch (err: any) {
+      console.error('[Cloudflare R2] Restore error:', err);
+      setSyncStatus('error');
+      setSyncMessage('Lỗi khôi phục Cloudflare R2');
+      addToast(`Lỗi khôi phục R2: ${err.message || String(err)}`, 'error');
+      return false;
+    }
+  };
+
   return (
     <DataContext.Provider value={{
       workSettings, workLogs, categories, transactions, investmentAssets, investmentTransactions, portfolioSnapshots,
@@ -730,7 +832,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       updateWorkSettings, saveWorkLog, deleteWorkLog, getWorkLogsForMonth, saveTransaction, deleteTransaction,
       saveCategory, deleteCategory, saveInvestmentAsset, updateAssetPrice, deleteInvestmentAsset,
       saveInvestmentTransaction, deleteInvestmentTransaction, refreshMarketPrices, takeDailySnapshot, updateUserSettings,
-      addToast, removeToast, clearAllData, syncWithSupabase, triggerCloudBackup
+      addToast, removeToast, clearAllData, syncWithSupabase, triggerCloudBackup,
+      backupToCloudflareR2, restoreFromCloudflareR2
     }}>
       {children}
     </DataContext.Provider>

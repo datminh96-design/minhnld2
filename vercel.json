@@ -2,6 +2,14 @@
   "framework": "vite",
   "rewrites": [
     {
+      "source": "/api/fmarket/(.*)",
+      "destination": "/api/fmarket"
+    },
+    {
+      "source": "/api/vps-stock/(.*)",
+      "destination": "/api/vps-stock"
+    },
+    {
       "source": "/((?!api/.*).*)",
       "destination": "/index.html"
     }

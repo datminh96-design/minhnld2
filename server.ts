@@ -3,6 +3,14 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import * as Sentry from '@sentry/node';
+import {
+  testR2Connection,
+  uploadToR2,
+  getFromR2,
+  listR2Objects,
+  deleteFromR2,
+  R2_CONFIG,
+} from './src/lib/r2';
 
 const SERVER_SENTRY_DSN =
   process.env.SENTRY_DSN ||
@@ -86,7 +94,147 @@ async function startServer() {
 
   // API Health check
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', hasGeminiKey: !!process.env.GEMINI_API_KEY });
+    res.json({
+      status: 'ok',
+      hasGeminiKey: !!process.env.GEMINI_API_KEY,
+      sentryConfigured: !!SERVER_SENTRY_DSN,
+      r2Configured: !!(R2_CONFIG.accessKeyId && R2_CONFIG.secretAccessKey),
+    });
+  });
+
+  // Cloudflare R2 Storage Status & Connectivity Test
+  app.get('/api/r2/status', async (req, res) => {
+    try {
+      const result = await testR2Connection();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({
+        connected: false,
+        error: err?.message || String(err),
+      });
+    }
+  });
+
+  // Cloudflare R2 List Objects / Backups
+  app.get('/api/r2/objects', async (req, res) => {
+    try {
+      const prefix = (req.query.prefix as string) || '';
+      const result = await listR2Objects(prefix);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: err?.message || String(err),
+      });
+    }
+  });
+
+  // Cloudflare R2 Upload Backup Endpoint
+  app.post('/api/r2/backup', async (req, res) => {
+    try {
+      const payload = req.body;
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const key = `backups/backup_${timestamp}.json`;
+
+      const uploadResult = await uploadToR2(
+        key,
+        JSON.stringify(payload, null, 2),
+        'application/json'
+      );
+
+      res.status(uploadResult.success ? 200 : 500).json(uploadResult);
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: err?.message || String(err),
+      });
+    }
+  });
+
+  // Cloudflare R2 Retrieve Backup Endpoint
+  app.get('/api/r2/backup', async (req, res) => {
+    try {
+      const key = req.query.key as string;
+      if (!key) {
+        return res.status(400).json({ success: false, error: 'Thiếu key của bản sao lưu' });
+      }
+
+      const result = await getFromR2(key);
+      if (!result.success || !result.data) {
+        return res.status(404).json({ success: false, error: result.error || 'Không tìm thấy file trên R2' });
+      }
+
+      const parsed = JSON.parse(result.data);
+      res.json({ success: true, data: parsed });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: err?.message || String(err),
+      });
+    }
+  });
+
+  // Cloudflare R2 Generic Upload File Endpoint
+  app.post('/api/r2/upload', async (req, res) => {
+    try {
+      const { key, data, contentType = 'application/json' } = req.body;
+      if (!key || !data) {
+        return res.status(400).json({ success: false, error: 'Thiếu key hoặc data' });
+      }
+
+      const uploadResult = await uploadToR2(key, data, contentType);
+      res.status(uploadResult.success ? 200 : 500).json(uploadResult);
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: err?.message || String(err),
+      });
+    }
+  });
+
+  // Cloudflare R2 Delete Object Endpoint
+  app.delete('/api/r2/object', async (req, res) => {
+    try {
+      const { key } = req.body;
+      if (!key) {
+        return res.status(400).json({ success: false, error: 'Thiếu key cần xóa' });
+      }
+
+      const deleteResult = await deleteFromR2(key);
+      res.json(deleteResult);
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: err?.message || String(err),
+      });
+    }
+  });
+
+  // Sentry Verification Endpoint
+  app.get('/api/sentry-test', async (req, res) => {
+    try {
+      const eventId = Sentry.captureMessage('Sentry test verification event from Node server', {
+        level: 'info',
+        extra: {
+          timestamp: new Date().toISOString(),
+          testSource: 'User Verification Request',
+        },
+      });
+      // Wait for Sentry to flush the event to Sentry servers (up to 2 seconds)
+      const flushed = await Sentry.flush(2000);
+      res.json({
+        success: true,
+        message: 'Sentry test event captured and flushed successfully!',
+        eventId,
+        flushed,
+        dsn: SERVER_SENTRY_DSN ? 'Configured' : 'Missing',
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: err?.message || String(err),
+      });
+    }
   });
 
   // Gemini Technical Analysis Endpoint
