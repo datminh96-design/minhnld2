@@ -1,4 +1,4 @@
-import { deleteFromR2, getFromR2 } from '../../src/lib/r2';
+import { deleteFromR2, getFromR2 } from './_helpers';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -11,7 +11,7 @@ export default async function handler(req: any, res: any) {
 
   if (req.method === 'GET') {
     try {
-      const key = req.query.key as string;
+      const key = req.query?.key as string;
       if (!key) {
         return res.status(400).json({ success: false, error: 'Thiếu key' });
       }
@@ -32,7 +32,15 @@ export default async function handler(req: any, res: any) {
 
   if (req.method === 'DELETE') {
     try {
-      const { key } = req.body || {};
+      let body = req.body;
+      if (typeof body === 'string') {
+        try {
+          body = JSON.parse(body);
+        } catch {
+          // ignore
+        }
+      }
+      const key = body?.key;
       if (!key) {
         return res.status(400).json({ success: false, error: 'Thiếu key cần xóa' });
       }

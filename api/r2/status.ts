@@ -1,4 +1,4 @@
-import { testR2Connection } from '../../src/lib/r2';
+import { testR2Connection } from './_helpers';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -13,8 +13,9 @@ export default async function handler(req: any, res: any) {
     const result = await testR2Connection();
     return res.status(200).json(result);
   } catch (error: any) {
-    return res.status(500).json({
+    return res.status(200).json({
       connected: false,
+      buckets: [],
       error: error?.message || 'Lỗi kiểm tra kết nối Cloudflare R2',
     });
   }

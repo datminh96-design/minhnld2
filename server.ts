@@ -91,6 +91,7 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(express.json({ limit: '10mb' }));
+  app.use(express.static(path.join(process.cwd(), 'public')));
 
   // API Health check
   app.get('/api/health', (req, res) => {

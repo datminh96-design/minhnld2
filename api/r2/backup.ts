@@ -1,4 +1,4 @@
-import { uploadToR2, getFromR2 } from '../../src/lib/r2';
+import { uploadToR2, getFromR2 } from './_helpers';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -11,13 +11,21 @@ export default async function handler(req: any, res: any) {
 
   if (req.method === 'POST') {
     try {
-      const payload = req.body;
+      let payload = req.body;
+      if (typeof payload === 'string') {
+        try {
+          payload = JSON.parse(payload);
+        } catch {
+          // ignore
+        }
+      }
+
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const key = `backups/backup_${timestamp}.json`;
 
       const uploadResult = await uploadToR2(
         key,
-        JSON.stringify(payload, null, 2),
+        typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2),
         'application/json'
       );
 
@@ -32,7 +40,7 @@ export default async function handler(req: any, res: any) {
 
   if (req.method === 'GET') {
     try {
-      const key = req.query.key as string;
+      const key = req.query?.key as string;
       if (!key) {
         return res.status(400).json({ success: false, error: 'Thiếu tham số key của bản sao lưu' });
       }
@@ -42,7 +50,12 @@ export default async function handler(req: any, res: any) {
         return res.status(404).json({ success: false, error: result.error || 'Không tìm thấy file trên R2' });
       }
 
-      const parsed = JSON.parse(result.data);
+      let parsed: any;
+      try {
+        parsed = JSON.parse(result.data);
+      } catch {
+        parsed = result.data;
+      }
       return res.status(200).json({ success: true, data: parsed });
     } catch (error: any) {
       return res.status(500).json({

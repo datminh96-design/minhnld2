@@ -1,4 +1,4 @@
-import { uploadToR2 } from '../../src/lib/r2';
+import { uploadToR2 } from './_helpers';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -14,7 +14,15 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { key, data, contentType = 'application/json' } = req.body || {};
+    let body = req.body;
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body);
+      } catch {
+        // ignore
+      }
+    }
+    const { key, data, contentType = 'application/json' } = body || {};
     if (!key || !data) {
       return res.status(400).json({ success: false, error: 'Thiếu key hoặc data' });
     }
