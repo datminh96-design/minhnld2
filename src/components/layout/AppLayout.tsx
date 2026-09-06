@@ -1,15 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Sidebar, NavTab } from './Sidebar';
 import { Header } from './Header';
-import { DashboardView } from '../../features/dashboard/DashboardView';
-import { WorkView } from '../../features/work/WorkView';
-import { ExpensesView } from '../../features/expenses/ExpensesView';
-import { InvestmentsView } from '../../features/investments/InvestmentsView';
-import { ReportsView } from '../../features/reports/ReportsView';
-import { SettingsView } from '../../features/settings/SettingsView';
-import { AuthModal } from '../../features/auth/AuthModal';
 import { ToastContainer } from '../ui/Toast';
 import { useData } from '../../context/DataContext';
+
+const DashboardView = lazy(() => import('../../features/dashboard/DashboardView').then(m => ({ default: m.DashboardView })));
+const WorkView = lazy(() => import('../../features/work/WorkView').then(m => ({ default: m.WorkView })));
+const ExpensesView = lazy(() => import('../../features/expenses/ExpensesView').then(m => ({ default: m.ExpensesView })));
+const InvestmentsView = lazy(() => import('../../features/investments/InvestmentsView').then(m => ({ default: m.InvestmentsView })));
+const ReportsView = lazy(() => import('../../features/reports/ReportsView').then(m => ({ default: m.ReportsView })));
+const SettingsView = lazy(() => import('../../features/settings/SettingsView').then(m => ({ default: m.SettingsView })));
+const AuthModal = lazy(() => import('../../features/auth/AuthModal').then(m => ({ default: m.AuthModal })));
 
 export const AppLayout: React.FC = () => {
   const [activeTab, setActiveTab] = useState<NavTab>(() => {
@@ -51,10 +52,14 @@ export const AppLayout: React.FC = () => {
       {/* Toast Notification Layer */}
 
       {/* Supabase Auth Modal */}
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-      />
+      {isAuthModalOpen && (
+        <Suspense fallback={null}>
+          <AuthModal
+            isOpen={isAuthModalOpen}
+            onClose={() => setIsAuthModalOpen(false)}
+          />
+        </Suspense>
+      )}
 
       {/* Sidebar Navigation */}
       <Sidebar
@@ -83,22 +88,33 @@ export const AppLayout: React.FC = () => {
 
         {/* Page Views */}
         <main className="flex-1 p-4 sm:p-6 max-w-7xl w-full mx-auto animate-in fade-in duration-200">
-          {activeTab === 'dashboard' && (
-            <DashboardView
-              onNavigateTab={(tab) => setActiveTab(tab)}
-              onQuickAction={handleQuickAction}
-            />
-          )}
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center py-24 min-h-[300px]">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="w-8 h-8 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+                  <span className="text-xs font-medium text-slate-400">Đang tải giao diện...</span>
+                </div>
+              </div>
+            }
+          >
+            {activeTab === 'dashboard' && (
+              <DashboardView
+                onNavigateTab={(tab) => setActiveTab(tab)}
+                onQuickAction={handleQuickAction}
+              />
+            )}
 
-          {activeTab === 'work' && <WorkView />}
+            {activeTab === 'work' && <WorkView />}
 
-          {activeTab === 'expenses' && <ExpensesView />}
+            {activeTab === 'expenses' && <ExpensesView />}
 
-          {activeTab === 'investments' && <InvestmentsView />}
+            {activeTab === 'investments' && <InvestmentsView />}
 
-          {activeTab === 'reports' && <ReportsView />}
+            {activeTab === 'reports' && <ReportsView />}
 
-          {activeTab === 'settings' && <SettingsView />}
+            {activeTab === 'settings' && <SettingsView />}
+          </Suspense>
         </main>
       </div>
 

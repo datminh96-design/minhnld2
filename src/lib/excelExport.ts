@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import { WorkLog } from '../types';
 import { formatDateVN, getDayOfWeek, formatMinutesToHM } from './utils';
 
@@ -31,13 +30,14 @@ function formatMinutesToHColonM(minutes: number | undefined | null): string {
   return `${h}:${m < 10 ? '0' : ''}${m}`;
 }
 
-export function exportWorkLogsToExcel(
+export async function exportWorkLogsToExcel(
   workLogs: WorkLog[],
   month: number,
   year: number,
   summary: WorkExportSummary,
   employeeInfo?: EmployeeExportInfo
 ) {
+  const XLSX = await import('xlsx');
   const monthStr = month < 10 ? `0${month}` : `${month}`;
   const fileName = `Bang_Ghi_Gio_Lam_Thang_${monthStr}_${year}.xlsx`;
 
