@@ -16,7 +16,7 @@ export const R2_CONFIG = {
   accessKeyId: process.env.R2_ACCESS_KEY_ID || 'c415be80d7e69af090163b2ac446d60b',
   secretAccessKey:
     process.env.R2_SECRET_ACCESS_KEY ||
-    'fde9ab464ab90497d58b7a41510be6b139ca1cc3b9eaf11d9b9ec2b22b1e8e31',
+    '67b447654bce01ef126b8c79df49d4a4b0308cef0005c8b52aba1187a99d6b19',
   endpoint:
     process.env.R2_ENDPOINT ||
     'https://eb6f53f5795c23b1f75e360674a4650b.r2.cloudflarestorage.com',
@@ -24,6 +24,18 @@ export const R2_CONFIG = {
 };
 
 let r2ClientInstance: S3Client | null = null;
+
+/**
+ * Dynamically update R2 configuration
+ */
+export function updateR2Config(newConfig: Partial<typeof R2_CONFIG>) {
+  if (newConfig.accountId) R2_CONFIG.accountId = newConfig.accountId.trim();
+  if (newConfig.accessKeyId) R2_CONFIG.accessKeyId = newConfig.accessKeyId.trim();
+  if (newConfig.secretAccessKey) R2_CONFIG.secretAccessKey = newConfig.secretAccessKey.trim();
+  if (newConfig.endpoint) R2_CONFIG.endpoint = newConfig.endpoint.trim();
+  if (newConfig.defaultBucket) R2_CONFIG.defaultBucket = newConfig.defaultBucket.trim();
+  r2ClientInstance = null; // Reset cached client instance to apply new credentials
+}
 
 /**
  * Lazy initialization of S3 Client configured for Cloudflare R2

@@ -57,7 +57,63 @@ async function safeParseJson(response: Response, defaultErrorMsg: string): Promi
   }
 }
 
+export interface R2ConfigResponse {
+  accountId: string;
+  accessKeyId: string;
+  endpoint: string;
+  defaultBucket: string;
+  hasSecretKey: boolean;
+  secretKeyMasked?: string;
+}
+
+export interface R2UpdateConfigPayload {
+  accountId?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  endpoint?: string;
+  defaultBucket?: string;
+}
+
 export const r2Service = {
+  /**
+   * Fetch current R2 configuration metadata (masked)
+   */
+  async getConfig(): Promise<R2ConfigResponse> {
+    try {
+      const response = await fetch('/api/r2/config');
+      return await safeParseJson(response, 'Không thể tải cấu hình R2');
+    } catch (error: any) {
+      return {
+        accountId: '',
+        accessKeyId: '',
+        endpoint: '',
+        defaultBucket: 'minhnld2',
+        hasSecretKey: false,
+      };
+    }
+  },
+
+  /**
+   * Update R2 credentials dynamically
+   */
+  async updateConfig(payload: R2UpdateConfigPayload): Promise<R2StatusResponse> {
+    try {
+      const response = await fetch('/api/r2/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      return await safeParseJson(response, 'Không thể cập nhật cấu hình R2');
+    } catch (error: any) {
+      return {
+        connected: false,
+        buckets: [],
+        endpoint: '',
+        accountId: '',
+        error: error?.message || 'Không thể kết nối máy chủ để cập nhật R2',
+      };
+    }
+  },
   /**
    * Check connection status to Cloudflare R2
    */

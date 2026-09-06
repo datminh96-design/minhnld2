@@ -29,7 +29,11 @@ import {
   CheckCircle2,
   AlertCircle,
   Mail,
-  Send
+  Send,
+  Key,
+  KeyRound,
+  X,
+  Lock
 } from 'lucide-react';
 
 export const SettingsView: React.FC = () => {
@@ -73,6 +77,17 @@ export const SettingsView: React.FC = () => {
   const [testingR2, setTestingR2] = useState(false);
   const [backingUpToR2, setBackingUpToR2] = useState(false);
   const [restoringKey, setRestoringKey] = useState<string | null>(null);
+  const [editR2ModalOpen, setEditR2ModalOpen] = useState(false);
+  const [updatingR2Config, setUpdatingR2Config] = useState(false);
+  const [copiedEnv, setCopiedEnv] = useState(false);
+
+  const [r2ConfigForm, setR2ConfigForm] = useState({
+    accountId: 'eb6f53f5795c23b1f75e360674a4650b',
+    accessKeyId: 'c415be80d7e69af090163b2ac446d60b',
+    secretAccessKey: '67b447654bce01ef126b8c79df49d4a4b0308cef0005c8b52aba1187a99d6b19',
+    endpoint: 'https://eb6f53f5795c23b1f75e360674a4650b.r2.cloudflarestorage.com',
+    defaultBucket: 'minhnld2',
+  });
 
   // Copied SQL state
   const [copiedSql, setCopiedSql] = useState(false);
@@ -81,7 +96,62 @@ export const SettingsView: React.FC = () => {
   useEffect(() => {
     checkR2Status();
     loadR2Backups();
+    loadR2Config();
   }, []);
+
+  const loadR2Config = async () => {
+    try {
+      const cfg = await r2Service.getConfig();
+      if (cfg) {
+        setR2ConfigForm(prev => ({
+          ...prev,
+          accountId: cfg.accountId || prev.accountId,
+          accessKeyId: cfg.accessKeyId || prev.accessKeyId,
+          endpoint: cfg.endpoint || prev.endpoint,
+          defaultBucket: cfg.defaultBucket || prev.defaultBucket,
+        }));
+      }
+    } catch (e) {
+      console.warn('Load R2 config error:', e);
+    }
+  };
+
+  const handleSaveR2Config = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!r2ConfigForm.secretAccessKey && !r2Status?.connected) {
+      addToast('Vui lòng nhập mã Secret Access Key từ Cloudflare', 'error');
+      return;
+    }
+
+    setUpdatingR2Config(true);
+    try {
+      const res = await r2Service.updateConfig(r2ConfigForm);
+      setR2Status(res);
+      if (res.connected) {
+        addToast('Đã kết nối và lưu cấu hình Cloudflare R2 thành công!', 'success');
+        setEditR2ModalOpen(false);
+        loadR2Backups();
+      } else {
+        addToast(`Lỗi kết nối R2: ${res.error || 'Vui lòng kiểm tra lại Secret Access Key'}`, 'error');
+      }
+    } catch (err: any) {
+      addToast(`Lỗi: ${err?.message || 'Không thể lưu cấu hình R2'}`, 'error');
+    } finally {
+      setUpdatingR2Config(false);
+    }
+  };
+
+  const handleCopyVercelEnv = () => {
+    const envText = `R2_ACCOUNT_ID=${r2ConfigForm.accountId}
+R2_ACCESS_KEY_ID=${r2ConfigForm.accessKeyId}
+R2_SECRET_ACCESS_KEY=${r2ConfigForm.secretAccessKey || 'YOUR_SECRET_ACCESS_KEY'}
+R2_BUCKET_NAME=${r2ConfigForm.defaultBucket}
+R2_ENDPOINT=${r2ConfigForm.endpoint}`;
+    navigator.clipboard.writeText(envText);
+    setCopiedEnv(true);
+    setTimeout(() => setCopiedEnv(false), 2500);
+    addToast('Đã sao chép 5 biến môi trường Cloudflare R2 cho Vercel!', 'success');
+  };
 
   const checkR2Status = async () => {
     setTestingR2(true);
@@ -501,7 +571,16 @@ export const SettingsView: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setEditR2ModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-orange-50 dark:bg-orange-950/40 hover:bg-orange-100 dark:hover:bg-orange-900/60 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-800 transition-all cursor-pointer"
+                >
+                  <KeyRound className="w-3.5 h-3.5 text-orange-500" />
+                  <span>Cập nhật khóa R2</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={checkR2Status}
@@ -674,6 +753,172 @@ export const SettingsView: React.FC = () => {
         </p>
         <p>Phiên bản 1.0.0 • Tối ưu hóa triển khai Vercel & Supabase Cloud PostgreSQL • Tự động sao lưu dữ liệu khi thêm, sửa, xóa</p>
       </div>
+
+      {/* MODAL: Chỉnh sửa & Cập nhật Cấu hình Cloudflare R2 */}
+      {editR2ModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-orange-50 dark:bg-orange-950/60 text-orange-600 dark:text-orange-400">
+                  <KeyRound className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display">
+                    Cấu Hình Khóa Cloudflare R2 (S3)
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Cập nhật Access Key, Secret Access Key & Endpoint
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditR2ModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body / Form */}
+            <form onSubmit={handleSaveR2Config} className="p-4 sm:p-5 space-y-3.5 overflow-y-auto">
+              {/* Account ID */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Account ID
+                </label>
+                <input
+                  type="text"
+                  value={r2ConfigForm.accountId}
+                  onChange={(e) => setR2ConfigForm({ ...r2ConfigForm, accountId: e.target.value })}
+                  placeholder="eb6f53f5795c23b1f75e360674a4650b"
+                  required
+                  className="w-full px-3 py-2 rounded-xl text-xs font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+
+              {/* Access Key ID */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Access Key ID
+                </label>
+                <input
+                  type="text"
+                  value={r2ConfigForm.accessKeyId}
+                  onChange={(e) => setR2ConfigForm({ ...r2ConfigForm, accessKeyId: e.target.value })}
+                  placeholder="c415be80d7e69af090163b2ac446d60b"
+                  required
+                  className="w-full px-3 py-2 rounded-xl text-xs font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+
+              {/* Secret Access Key */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                    <Lock className="w-3 h-3 text-orange-500" />
+                    Secret Access Key (Bắt buộc khi tạo Token mới)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const text = await navigator.clipboard.readText();
+                        if (text) {
+                          setR2ConfigForm(prev => ({ ...prev, secretAccessKey: text.trim() }));
+                          addToast('Đã dán Secret Key từ clipboard', 'success');
+                        }
+                      } catch {
+                        addToast('Vui lòng dán trực tiếp vào ô nhập liệu', 'info');
+                      }
+                    }}
+                    className="text-[11px] text-orange-600 dark:text-orange-400 hover:underline cursor-pointer flex items-center gap-1"
+                  >
+                    <Copy className="w-3 h-3" /> Dán từ bộ nhớ tạm
+                  </button>
+                </div>
+                <input
+                  type="password"
+                  value={r2ConfigForm.secretAccessKey}
+                  onChange={(e) => setR2ConfigForm({ ...r2ConfigForm, secretAccessKey: e.target.value })}
+                  placeholder="Nhập hoặc dán Secret Access Key 64 ký tự..."
+                  className="w-full px-3 py-2 rounded-xl text-xs font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Nhấn nút "Click to copy" tại mục Secret Access Key trên Cloudflare Dashboard và dán vào đây.
+                </p>
+              </div>
+
+              {/* Default Bucket */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Default Bucket Name
+                </label>
+                <input
+                  type="text"
+                  value={r2ConfigForm.defaultBucket}
+                  onChange={(e) => setR2ConfigForm({ ...r2ConfigForm, defaultBucket: e.target.value })}
+                  placeholder="minhnld2"
+                  required
+                  className="w-full px-3 py-2 rounded-xl text-xs font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+
+              {/* Endpoint */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  S3 Endpoint URL
+                </label>
+                <input
+                  type="text"
+                  value={r2ConfigForm.endpoint}
+                  onChange={(e) => setR2ConfigForm({ ...r2ConfigForm, endpoint: e.target.value })}
+                  placeholder="https://eb6f53f5795c23b1f75e360674a4650b.r2.cloudflarestorage.com"
+                  required
+                  className="w-full px-3 py-2 rounded-xl text-xs font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+
+              {/* Copy Vercel ENV block */}
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={handleCopyVercelEnv}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-all cursor-pointer"
+                >
+                  {copiedEnv ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedEnv ? 'Đã sao chép ENV' : 'Sao chép 5 biến ENV cho Vercel'}</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditR2ModalOpen(false)}
+                    className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    Đóng
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={updatingR2Config}
+                    className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-semibold bg-orange-500 hover:bg-orange-600 text-white shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {updatingR2Config ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Save className="w-3.5 h-3.5" />
+                    )}
+                    <span>{updatingR2Config ? 'Đang kiểm tra & lưu...' : 'Lưu & Kiểm tra kết nối'}</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

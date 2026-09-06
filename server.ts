@@ -8,6 +8,7 @@ import {
   getFromR2,
   listR2Objects,
   deleteFromR2,
+  updateR2Config,
   R2_CONFIG,
 } from './src/lib/r2.ts';
 import {
@@ -116,6 +117,46 @@ app.use(express.static(path.join(process.cwd(), 'public')));
       res.json(result);
     } catch (err: any) {
       res.status(500).json({
+        connected: false,
+        error: err?.message || String(err),
+      });
+    }
+  });
+
+  // Cloudflare R2 Get & Update Configuration
+  app.get('/api/r2/config', (req, res) => {
+    res.json({
+      accountId: R2_CONFIG.accountId,
+      accessKeyId: R2_CONFIG.accessKeyId,
+      endpoint: R2_CONFIG.endpoint,
+      defaultBucket: R2_CONFIG.defaultBucket,
+      hasSecretKey: !!R2_CONFIG.secretAccessKey,
+      secretKeyMasked: R2_CONFIG.secretAccessKey
+        ? `${R2_CONFIG.secretAccessKey.slice(0, 6)}••••••••${R2_CONFIG.secretAccessKey.slice(-6)}`
+        : '',
+    });
+  });
+
+  app.post('/api/r2/config', async (req, res) => {
+    try {
+      const { accountId, accessKeyId, secretAccessKey, endpoint, defaultBucket } = req.body;
+      updateR2Config({
+        accountId,
+        accessKeyId,
+        secretAccessKey,
+        endpoint,
+        defaultBucket,
+      });
+
+      // Test connection with new config
+      const testResult = await testR2Connection();
+      res.json({
+        success: testResult.connected,
+        ...testResult,
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
         connected: false,
         error: err?.message || String(err),
       });
