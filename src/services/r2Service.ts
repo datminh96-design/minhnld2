@@ -36,6 +36,7 @@ function getDirectS3Client(): S3Client {
     clientCache = new S3Client({
       region: 'auto',
       endpoint: creds.endpoint,
+      forcePathStyle: true,
       credentials: {
         accessKeyId: creds.accessKeyId,
         secretAccessKey: creds.secretAccessKey,

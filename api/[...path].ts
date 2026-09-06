@@ -22,7 +22,7 @@ export default async function handler(req: any, res: any) {
       });
     });
   } catch (err: any) {
-    console.error('[API Index Error]:', err);
+    console.error('[API Handler Error]:', err);
     if (!res.headersSent) {
       res.status(500).json({ success: false, error: err?.message || 'Internal Server Error' });
     }
