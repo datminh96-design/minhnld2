@@ -353,6 +353,187 @@ app.use(express.static(path.join(process.cwd(), 'public')));
     res.json({ success: true, logs: emailLogs });
   });
 
+  // ==========================================
+  // REAL-TIME MARKET PRICES API ENDPOINT
+  // ==========================================
+  app.post(['/api/market/batch-prices', '/api/market/prices'], async (req, res) => {
+    try {
+      const { assets = [], usdtRate = 25450 } = req.body || {};
+      const results: Record<string, any> = {};
+      const currentUsdtRate = Number(usdtRate) > 0 ? Number(usdtRate) : 25450;
+
+      // 1. Fetch Binance Crypto Prices in parallel
+      const cryptoSymbols = assets
+        .filter((a: any) => {
+          const sym = (a.symbol || a.asset_symbol || '').toUpperCase().trim();
+          const type = (a.type || a.asset_type || '').toLowerCase();
+          return (
+            type === 'crypto' ||
+            ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'DOGE', 'ADA', 'DOT', 'AVAX', 'NEAR', 'XAUT', 'PAXG', 'SUI', 'PEPE', 'SHIB', 'TON', 'LINK'].includes(sym)
+          );
+        })
+        .map((a: any) => (a.symbol || a.asset_symbol || '').toUpperCase().trim());
+
+      const binancePriceMap: Record<string, { usdt: number; change24h?: number }> = {};
+      if (cryptoSymbols.length > 0) {
+        await Promise.allSettled(
+          cryptoSymbols.map(async (rawSym: string) => {
+            const pair = rawSym === 'XAUT' ? 'PAXGUSDT' : rawSym.endsWith('USDT') ? rawSym : `${rawSym}USDT`;
+            try {
+              const [priceRes, tickerRes] = await Promise.all([
+                fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${pair}`, { cache: 'no-cache' }),
+                fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${pair}`, { cache: 'no-cache' }).catch(() => null),
+              ]);
+
+              if (priceRes.ok) {
+                const data: any = await priceRes.json();
+                const usdt = parseFloat(data.price);
+                let change24h = 0;
+                if (tickerRes && tickerRes.ok) {
+                  const tData: any = await tickerRes.json();
+                  if (tData.priceChangePercent) change24h = parseFloat(tData.priceChangePercent);
+                }
+                if (!isNaN(usdt) && usdt > 0) {
+                  binancePriceMap[rawSym] = { usdt, change24h };
+                }
+              }
+            } catch {
+              // Try Binance fallback mirror
+              try {
+                const altRes = await fetch(`https://data-api.binance.vision/api/v3/ticker/price?symbol=${pair}`);
+                if (altRes.ok) {
+                  const data: any = await altRes.json();
+                  const usdt = parseFloat(data.price);
+                  if (!isNaN(usdt) && usdt > 0) {
+                    binancePriceMap[rawSym] = { usdt };
+                  }
+                }
+              } catch {}
+            }
+          })
+        );
+      }
+
+      // 2. Fetch Vietnam Stocks from VPS / Entrade
+      const stockSymbols = assets
+        .filter((a: any) => {
+          const sym = (a.symbol || a.asset_symbol || '').toUpperCase().trim();
+          const type = (a.type || a.asset_type || '').toLowerCase();
+          return type === 'stock' || ['TPB', 'VCB', 'HPG', 'FPT', 'MWG', 'SSI', 'TCB', 'MBB', 'VHM', 'VIC', 'STB', 'DGC', 'CTG', 'ACB', 'VPB', 'HDB', 'VND', 'GEX', 'VRE', 'GAS', 'MSN', 'PLX', 'PNJ', 'VNM', 'KDH', 'PDR', 'NVL', 'DIG'].includes(sym);
+        })
+        .map((a: any) => (a.symbol || a.asset_symbol || '').toUpperCase().trim());
+
+      const stockPriceMap: Record<string, { price: number; changePercent?: number }> = {};
+      if (stockSymbols.length > 0) {
+        await Promise.allSettled(
+          stockSymbols.map(async (rawSym: string) => {
+            try {
+              const res = await fetch(`https://bgapidatafeed.vps.com.vn/getliststockdata/${rawSym}`, { cache: 'no-cache' });
+              if (res.ok) {
+                const data: any = await res.json();
+                if (Array.isArray(data) && data.length > 0) {
+                  const item = data[0];
+                  const rawPrice = item.lastPrice || item.r || item.closePrice;
+                  if (rawPrice && !isNaN(Number(rawPrice))) {
+                    const priceVnd = Math.round(Number(rawPrice) * 1000);
+                    const changePercent = item.changePc ? parseFloat(item.changePc) : 0;
+                    stockPriceMap[rawSym] = { price: priceVnd, changePercent };
+                    return;
+                  }
+                }
+              }
+            } catch {}
+
+            try {
+              const now = Math.floor(Date.now() / 1000);
+              const from = now - 7 * 86400;
+              const res = await fetch(
+                `https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?symbol=${rawSym}&from=${from}&to=${now}&resolution=1D`,
+                { cache: 'no-cache' }
+              );
+              if (res.ok) {
+                const data: any = await res.json();
+                if (data?.c && Array.isArray(data.c) && data.c.length > 0) {
+                  const latestClose = data.c[data.c.length - 1];
+                  const prevClose = data.c.length > 1 ? data.c[data.c.length - 2] : latestClose;
+                  const priceVnd = Math.round(latestClose * 1000);
+                  const changePercent = prevClose > 0 ? ((latestClose - prevClose) / prevClose) * 100 : 0;
+                  stockPriceMap[rawSym] = { price: priceVnd, changePercent };
+                }
+              }
+            } catch {}
+          })
+        );
+      }
+
+      // 3. Assemble results for each asset
+      for (const item of assets) {
+        const id = item.id || item.symbol || item.asset_symbol;
+        const sym = (item.symbol || item.asset_symbol || '').toUpperCase().trim();
+        const type = (item.type || item.asset_type || '').toLowerCase();
+
+        // Crypto
+        if (binancePriceMap[sym]) {
+          const usdt = binancePriceMap[sym].usdt;
+          const vnd = Math.round(usdt * currentUsdtRate);
+          results[id] = {
+            symbol: sym,
+            price: vnd,
+            usdtPrice: usdt,
+            changePercent: binancePriceMap[sym].change24h,
+            updatedAt: new Date().toISOString(),
+            source: 'binance',
+            sourceName: 'Binance Live Ticker',
+          };
+          continue;
+        }
+
+        // Stock
+        if (stockPriceMap[sym]) {
+          results[id] = {
+            symbol: sym,
+            price: stockPriceMap[sym].price,
+            usdtPrice: Math.round((stockPriceMap[sym].price / currentUsdtRate) * 100) / 100,
+            changePercent: stockPriceMap[sym].changePercent,
+            updatedAt: new Date().toISOString(),
+            source: 'hose_api',
+            sourceName: 'Sàn HOSE/HNX Trực Tiếp',
+          };
+          continue;
+        }
+
+        // Gold
+        if (sym === 'SJC' || type === 'gold') {
+          const goldUsdt = binancePriceMap['PAXG']?.usdt || binancePriceMap['XAUT']?.usdt || 2850;
+          const sjcVnd = Math.round(goldUsdt * 1.20565 * currentUsdtRate * 1.05);
+          results[id] = {
+            symbol: sym,
+            price: sjcVnd,
+            usdtPrice: Math.round(sjcVnd / currentUsdtRate),
+            updatedAt: new Date().toISOString(),
+            source: 'gold_api',
+            sourceName: 'Giá Vàng SJC / PAXG Spot',
+          };
+          continue;
+        }
+
+        // Preserve current price if no new quote
+        results[id] = {
+          symbol: sym,
+          price: item.price || item.current_price || 0,
+          usdtPrice: item.current_price ? Math.round((item.current_price / currentUsdtRate) * 100) / 100 : 0,
+          updatedAt: new Date().toISOString(),
+          source: 'cache',
+          sourceName: 'Giá hiện tại',
+        };
+      }
+
+      res.json({ success: true, results, usdtRate: currentUsdtRate, timestamp: new Date().toISOString() });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
   // Gemini Technical Analysis Endpoint
   app.post('/api/gemini/analyze-technical', async (req, res) => {
     const {

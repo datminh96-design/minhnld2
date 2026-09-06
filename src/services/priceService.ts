@@ -538,24 +538,71 @@ class PriceService {
   }
 
   /**
-   * Batch update all assets
+   * Batch update all assets with live pricing
    */
   async fetchBatchPrices(assets: InvestmentAsset[]): Promise<Record<string, PriceUpdateResult>> {
     const results: Record<string, PriceUpdateResult> = {};
-    for (const asset of assets) {
-      try {
-        const res = await this.fetchPrice(asset);
-        results[asset.id] = res;
-      } catch {
-        results[asset.id] = {
-          symbol: asset.asset_symbol,
-          price: asset.current_price,
-          updatedAt: new Date().toISOString(),
-          source: 'cache',
-          sourceName: 'Bộ nhớ đệm',
-        };
+    if (!assets || assets.length === 0) return results;
+
+    // 1. Try high-speed server batch endpoint first
+    try {
+      const response = await fetch('/api/market/batch-prices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assets: assets.map((a) => ({
+            id: a.id,
+            symbol: a.asset_symbol,
+            type: a.asset_type,
+            price: a.current_price,
+          })),
+          usdtRate: this.usdtVndRate,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.results) {
+          if (data.usdtRate && data.usdtRate > 0) {
+            this.usdtVndRate = data.usdtRate;
+          }
+          // Merge results
+          Object.entries(data.results).forEach(([id, r]: [string, any]) => {
+            results[id] = {
+              symbol: r.symbol,
+              price: r.price,
+              usdtPrice: r.usdtPrice,
+              changePercent: r.changePercent,
+              updatedAt: r.updatedAt || new Date().toISOString(),
+              source: r.source || 'binance',
+              sourceName: r.sourceName || 'Trực tiếp',
+            };
+          });
+          return results;
+        }
       }
+    } catch {
+      // Fall through to client direct fetching
     }
+
+    // 2. Direct client-side fetch in parallel
+    await Promise.all(
+      assets.map(async (asset) => {
+        try {
+          const res = await this.fetchPrice(asset);
+          results[asset.id] = res;
+        } catch {
+          results[asset.id] = {
+            symbol: asset.asset_symbol,
+            price: asset.current_price,
+            updatedAt: new Date().toISOString(),
+            source: 'cache',
+            sourceName: 'Bộ nhớ đệm',
+          };
+        }
+      })
+    );
+
     return results;
   }
 }

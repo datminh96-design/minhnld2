@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useData } from '../../context/DataContext';
 import { 
   InvestmentAsset, 
@@ -31,7 +31,8 @@ import {
   Sparkles,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Clock
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -99,6 +100,32 @@ export const InvestmentsView: React.FC = () => {
   const [usdtRate, setUsdtRate] = useState<number>(25400); // 1 USDT = 25,400 VND
   const [bnbPriceUsdt, setBnbPriceUsdt] = useState<number>(580); // 1 BNB = 580 USDT
   const [txNotes, setTxNotes] = useState('');
+
+  // 15s Countdown & Live Refresh Timer State
+  const [countdown, setCountdown] = useState<number>(15);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+
+  // 15-second countdown timer for auto-refreshing live market prices
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          refreshMarketPrices(true, false);
+          setLastUpdated(new Date());
+          return 15;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [refreshMarketPrices]);
+
+  const handleManualRefresh = async () => {
+    await refreshMarketPrices(false);
+    setLastUpdated(new Date());
+    setCountdown(15);
+  };
 
   // Holdings Sorting state (Default: Total Invested Descending)
   const [sortField, setSortField] = useState<'totalInvested' | 'currentValue' | 'totalProfit' | 'symbol' | 'currentQuantity' | 'averageCost' | 'currentPrice'>('totalInvested');
@@ -464,24 +491,28 @@ export const InvestmentsView: React.FC = () => {
             </button>
           </div>
 
-          {/* Action Buttons: Refresh, Add Asset, Add Tx */}
+          {/* Action Buttons: 15s Auto-Refresh Badge, Refresh, Add Asset, Add Tx */}
           <div className="flex flex-wrap items-center gap-2">
             <div 
-              className="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-800/60 shadow-2xs"
-              title="Tự động cập nhật 5s/lần"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold shadow-2xs select-none"
+              title={`Tự động cập nhật 15s/lần. Lần cập nhật cuối: ${lastUpdated.toLocaleTimeString('vi-VN')}`}
             >
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
+              <span className="text-[11px] font-medium hidden sm:inline">Trực tiếp:</span>
+              <span className="text-[11px] font-bold font-mono px-1.5 py-0.2 rounded bg-emerald-200/60 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200">
+                {countdown}s
+              </span>
             </div>
 
             <button
               type="button"
-              onClick={() => refreshMarketPrices()}
+              onClick={handleManualRefresh}
               disabled={isRefreshingPrices}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs border border-slate-200 dark:border-slate-700 transition-all"
-              title="Cập nhật giá thị trường trực tiếp ngay"
+              title={`Cập nhật giá thị trường trực tiếp ngay (Lần cuối: ${lastUpdated.toLocaleTimeString('vi-VN')})`}
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingPrices ? 'animate-spin text-emerald-500' : ''}`} />
               <span>Làm mới</span>

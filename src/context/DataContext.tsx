@@ -124,12 +124,24 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [investmentAssets]);
 
   useEffect(() => {
+    // Initial fetch on mount
+    const timer = setTimeout(() => {
+      if (investmentAssetsRef.current.length > 0) {
+        refreshMarketPrices(true, false);
+      }
+    }, 1000);
+
+    // Auto-refresh every 15 seconds
     const interval = setInterval(() => {
       if (investmentAssetsRef.current.length > 0) {
         refreshMarketPrices(true, false);
       }
-    }, 10000);
-    return () => clearInterval(interval);
+    }, 15000);
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
   }, []);
 
   const calculatedHoldings = useMemo(() => {
