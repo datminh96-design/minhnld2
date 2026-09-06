@@ -9,13 +9,13 @@ import {
   listR2Objects,
   deleteFromR2,
   R2_CONFIG,
-} from './src/lib/r2';
+} from './src/lib/r2.ts';
 import {
   getEmailConfig,
   sendTransactionalEmail,
   generateEmailHtml,
   emailLogs,
-} from './src/lib/email';
+} from './src/lib/email.ts';
 
 const SERVER_SENTRY_DSN =
   process.env.SENTRY_DSN ||
@@ -1349,8 +1349,8 @@ Hãy cung cấp ĐÚNG 5 TIN TỨC / SỰ KIỆN QUAN TRỌNG MỚI NHẤT trong
   }
 
   export async function setupVite() {
-    // Vite middleware for development
-    if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+    // Vite middleware for development (only in local dev standalone server)
+    if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
       const viteModuleName = 'vite';
       const { createServer: createViteServer } = await import(/* @vite-ignore */ viteModuleName);
       const vite = await createViteServer({
@@ -1358,7 +1358,7 @@ Hãy cung cấp ĐÚNG 5 TIN TỨC / SỰ KIỆN QUAN TRỌNG MỚI NHẤT trong
         appType: 'spa',
       });
       app.use(vite.middlewares);
-    } else {
+    } else if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
       const distPath = path.join(process.cwd(), 'dist');
       app.use(express.static(distPath));
       app.get('*', (req, res) => {
@@ -1367,7 +1367,14 @@ Hãy cung cấp ĐÚNG 5 TIN TỨC / SỰ KIỆN QUAN TRỌNG MỚI NHẤT trong
     }
   }
 
-  if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
+  const isServerless = Boolean(
+    process.env.VERCEL ||
+    process.env.NOW_REGION ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.LAMBDA_TASK_ROOT
+  );
+
+  if (process.env.NODE_ENV !== 'test' && !isServerless) {
     setupVite().then(() => {
       const port = Number(process.env.PORT) || 3000;
       app.listen(port, '0.0.0.0', () => {
