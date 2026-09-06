@@ -1342,7 +1342,8 @@ Hãy cung cấp ĐÚNG 5 TIN TỨC / SỰ KIỆN QUAN TRỌNG MỚI NHẤT trong
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
-    const { createServer: createViteServer } = await import('vite');
+    const viteModuleName = 'vite';
+    const { createServer: createViteServer } = await import(/* @vite-ignore */ viteModuleName);
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
