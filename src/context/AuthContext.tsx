@@ -14,18 +14,13 @@ interface AuthContextType {
   isSupabaseConfigured: boolean;
   isDemoUser: boolean;
   signInWithEmail: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUpWithEmail: (email: string, password: string, fullName: string, recoveryEmail?: string) => Promise<{ error: Error | null; data?: any; verificationCode?: string; recoveryCode?: string }>;
+  signUpWithEmail: (email: string, password: string, fullName: string) => Promise<{ error: Error | null; data?: any; verificationCode?: string }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: Error | null; recoveryCode?: string }>;
   updatePassword: (newPassword: string) => Promise<{ error: Error | null }>;
   updateProfile: (updates: Partial<Profile>) => Promise<{ error: Error | null }>;
   switchMode: (toDemo: boolean) => void;
-  sendVerificationEmail: (
-    email: string,
-    fullName: string,
-    customCode?: string,
-    options?: { isRecovery?: boolean; accountEmail?: string }
-  ) => Promise<{ code: string; success: boolean }>;
+  sendVerificationEmail: (email: string, fullName: string, customCode?: string) => Promise<{ code: string; success: boolean }>;
   sendPasswordRecoveryEmail: (email: string, customCode?: string) => Promise<{ code: string; success: boolean }>;
 }
 
@@ -138,8 +133,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const sendVerificationEmail = async (
     targetEmail: string,
     fullName: string,
-    customCode?: string,
-    options?: { isRecovery?: boolean; accountEmail?: string }
+    customCode?: string
   ): Promise<{ code: string; success: boolean }> => {
     const code = customCode || Math.floor(100000 + Math.random() * 900000).toString();
     try {
@@ -149,10 +143,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         data: {
           recipientName: fullName || targetEmail.split('@')[0],
           email: targetEmail,
-          accountEmail: options?.accountEmail || user?.email || profile?.email || targetEmail,
           code,
           expireMinutes: 15,
-          isRecovery: options?.isRecovery || false,
         },
       });
       return { code, success: res.success };
@@ -186,25 +178,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const signUpWithEmail = async (
-    email: string,
-    password: string,
-    fullName: string,
-    recoveryEmail?: string
-  ) => {
+  const signUpWithEmail = async (email: string, password: string, fullName: string) => {
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    // Dispatch Account Verification Transactional Email to primary email
+    // Dispatch Account Verification Transactional Email
     sendVerificationEmail(email, fullName, verificationCode);
-
-    let recoveryCode: string | undefined;
-    if (recoveryEmail && recoveryEmail.trim() && recoveryEmail !== email) {
-      recoveryCode = Math.floor(100000 + Math.random() * 900000).toString();
-      // Dispatch Verification Email to Recovery Email address
-      sendVerificationEmail(recoveryEmail.trim(), fullName, recoveryCode, {
-        isRecovery: true,
-        accountEmail: email,
-      });
-    }
 
     const { client, isConfigured: hasSupabase } = getSupabaseClient();
     if (!hasSupabase || !client) {
@@ -213,13 +190,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         id: 'demo-user-id',
         full_name: fullName || 'Khách',
         email,
-        recovery_email: recoveryEmail ? recoveryEmail.trim() : undefined,
-        recovery_email_verified: false,
       };
       setProfile(demoProf);
       localStorage.setItem('demo_user_profile', JSON.stringify(demoProf));
       setIsDemoUser(true);
-      return { error: null, verificationCode, recoveryCode };
+      return { error: null, verificationCode };
     }
 
     try {
@@ -229,14 +204,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         options: {
           data: {
             full_name: fullName,
-            recovery_email: recoveryEmail ? recoveryEmail.trim() : undefined,
           },
         },
       });
       if (error) return { error };
       setIsDemoUser(false);
       localStorage.setItem('app_is_demo_mode', 'false');
-      return { error: null, data, verificationCode, recoveryCode };
+      return { error: null, data, verificationCode };
     } catch (err: any) {
       return { error: err };
     }

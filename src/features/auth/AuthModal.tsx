@@ -65,15 +65,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [showSupabaseKey, setShowSupabaseKey] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Recovery Email Registration & Verification states
-  const [recoveryEmail, setRecoveryEmail] = useState('');
-  const [profileRecoveryEmail, setProfileRecoveryEmail] = useState(profile?.recovery_email || '');
-  const [isRegisteringRecovery, setIsRegisteringRecovery] = useState(false);
-  const [showRecoveryVerifyBox, setShowRecoveryVerifyBox] = useState(false);
-  const [recoveryOtpInput, setRecoveryOtpInput] = useState('');
-  const [activeRecoveryOtpCode, setActiveRecoveryOtpCode] = useState('');
-  const [recoveryCountdown, setRecoveryCountdown] = useState(0);
-
   // Verification & Recovery States
   const [otpCode, setOtpCode] = useState('');
   const [activeOtp, setActiveOtp] = useState('');
@@ -97,13 +88,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const isAuthenticated = Boolean(user && !isDemoUser);
 
-  // Sync recovery email when profile changes
-  useEffect(() => {
-    if (profile?.recovery_email) {
-      setProfileRecoveryEmail(profile.recovery_email);
-    }
-  }, [profile?.recovery_email]);
-
   // Countdown timer effect
   useEffect(() => {
     if (resendCountdown <= 0) return;
@@ -112,75 +96,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }, 1000);
     return () => clearInterval(timer);
   }, [resendCountdown]);
-
-  // Recovery countdown timer effect
-  useEffect(() => {
-    if (recoveryCountdown <= 0) return;
-    const timer = setInterval(() => {
-      setRecoveryCountdown((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [recoveryCountdown]);
-
-  const handleRegisterRecoveryEmail = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const cleanEmail = profileRecoveryEmail.trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
-      addToast('Vui lòng nhập địa chỉ email khôi phục hợp lệ', 'warning');
-      return;
-    }
-
-    setIsRegisteringRecovery(true);
-    try {
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
-      setActiveRecoveryOtpCode(code);
-      setRecoveryOtpInput('');
-
-      // Dispatch Account Verification Email to recovery email address
-      await sendVerificationEmail(
-        cleanEmail,
-        profile?.full_name || 'Người dùng',
-        code,
-        {
-          isRecovery: true,
-          accountEmail: user?.email || profile?.email || cleanEmail,
-        }
-      );
-
-      // Save to profile as unverified yet
-      await updateProfile({
-        recovery_email: cleanEmail,
-        recovery_email_verified: false,
-      });
-
-      setShowRecoveryVerifyBox(true);
-      setRecoveryCountdown(60);
-      addToast(`Đã gửi email xác thực kích hoạt tài khoản đến email khôi phục: ${cleanEmail}`, 'success');
-    } catch (err: any) {
-      addToast('Không thể gửi email xác thực: ' + (err?.message || ''), 'error');
-    } finally {
-      setIsRegisteringRecovery(false);
-    }
-  };
-
-  const handleVerifyRecoveryOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanCode = recoveryOtpInput.trim();
-    if (!cleanCode || cleanCode.length < 4) {
-      addToast('Vui lòng nhập mã OTP 6 số từ email khôi phục', 'warning');
-      return;
-    }
-
-    const cleanEmail = profileRecoveryEmail.trim().toLowerCase();
-    await updateProfile({
-      recovery_email: cleanEmail,
-      recovery_email_verified: true,
-    });
-
-    setShowRecoveryVerifyBox(false);
-    setRecoveryOtpInput('');
-    addToast(`Xác thực thành công! Email khôi phục ${cleanEmail} đã được kích hoạt bảo vệ tài khoản.`, 'success');
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -201,15 +116,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           onClose();
         }
       } else if (tab === 'register') {
-        const res = await signUpWithEmail(email, password, fullName, recoveryEmail);
+        const res = await signUpWithEmail(email, password, fullName);
         if (res.error) {
           addToast(res.error.message || 'Đăng ký thất bại', 'error');
         } else {
           setActiveOtp(res.verificationCode || '482910');
           setResendCountdown(60);
           setTab('verify_register');
-          const recoveryNotice = recoveryEmail ? ` và email khôi phục ${recoveryEmail}` : '';
-          addToast(`Đã gửi email xác thực kích hoạt tài khoản đến ${email}${recoveryNotice}`, 'success');
+          addToast(`Đã gửi email xác thực kích hoạt tài khoản đến ${email}`, 'success');
         }
       } else if (tab === 'forgot') {
         const res = await resetPassword(email);
@@ -522,142 +436,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           </div>
 
-          {/* Email Khôi Phục & Xác Thực Tài Khoản */}
-          <div className="p-4.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400">
-                  <Mail className="w-4 h-4" />
-                </div>
-                <div>
-                  <h5 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-                    Email Khôi Phục Tài Khoản
-                  </h5>
-                  <p className="text-[11px] text-slate-400">
-                    Bảo vệ 2 lớp & khôi phục khẩn cấp tài khoản
-                  </p>
-                </div>
-              </div>
-
-              {profile?.recovery_email && profile?.recovery_email_verified ? (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Đã xác thực kích hoạt
-                </span>
-              ) : profile?.recovery_email ? (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                  <AlertCircle className="w-3.5 h-3.5" /> Đã đăng ký • Chưa xác thực
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
-                  Chưa thiết lập
-                </span>
-              )}
-            </div>
-
-            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-              Khi bạn đăng ký hoặc đổi email khôi phục, hệ thống sẽ tự động gửi <strong>Email xác thực tài khoản kèm mã OTP 6 số</strong> đến địa chỉ này để kích hoạt.
-            </p>
-
-            <form onSubmit={handleRegisterRecoveryEmail} className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
-                  Địa chỉ Email Khôi Phục
-                </label>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <div className="relative flex-1">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input
-                      type="email"
-                      required
-                      value={profileRecoveryEmail}
-                      onChange={(e) => setProfileRecoveryEmail(e.target.value)}
-                      placeholder="datminh96@gmail.com"
-                      className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={isRegisteringRecovery || !profileRecoveryEmail}
-                    className="py-2 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-medium text-xs transition-all shadow-md shadow-emerald-500/20 disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
-                  >
-                    {isRegisteringRecovery ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Đang gửi email...
-                      </>
-                    ) : (
-                      <>
-                        <Send className="w-3.5 h-3.5" /> Gửi Email Xác Thực
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </form>
-
-            {/* OTP Verification Box for Recovery Email */}
-            {showRecoveryVerifyBox && (
-              <form onSubmit={handleVerifyRecoveryOtp} className="p-4 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-500/40 space-y-3 animate-in fade-in zoom-in-95">
-                <div className="flex items-start gap-2.5">
-                  <div className="p-1.5 rounded-lg bg-emerald-500 text-white shrink-0 mt-0.5">
-                    <Mail className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h6 className="text-xs font-bold text-emerald-950 dark:text-emerald-100">
-                      Nhập mã xác thực gửi đến email khôi phục:
-                    </h6>
-                    <p className="text-[11px] text-emerald-700 dark:text-emerald-300 font-mono font-semibold break-all">
-                      {profileRecoveryEmail}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex flex-col sm:flex-row items-center gap-2">
-                  <input
-                    type="text"
-                    maxLength={6}
-                    autoFocus
-                    required
-                    value={recoveryOtpInput}
-                    onChange={(e) => setRecoveryOtpInput(e.target.value.replace(/\D/g, ''))}
-                    placeholder="•••••• (6 chữ số)"
-                    className="w-full sm:w-48 text-center py-2 text-sm font-mono tracking-widest font-bold rounded-xl border border-emerald-500/50 bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                  <button
-                    type="submit"
-                    disabled={recoveryOtpInput.length < 4}
-                    className="w-full sm:w-auto py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Xác Nhận Kích Hoạt
-                  </button>
-                </div>
-
-                {activeRecoveryOtpCode && (
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Mã mẫu mô phỏng nhanh: <strong className="font-mono text-emerald-600 dark:text-emerald-400 cursor-pointer underline" onClick={() => setRecoveryOtpInput(activeRecoveryOtpCode)}>{activeRecoveryOtpCode}</strong> (Click để điền)
-                  </p>
-                )}
-
-                <div className="flex items-center justify-between pt-1 text-[11px]">
-                  <button
-                    type="button"
-                    onClick={() => handleRegisterRecoveryEmail()}
-                    disabled={recoveryCountdown > 0 || isRegisteringRecovery}
-                    className="text-emerald-600 dark:text-emerald-400 hover:underline font-medium disabled:opacity-50 cursor-pointer"
-                  >
-                    {recoveryCountdown > 0 ? `Gửi lại mã sau (${recoveryCountdown}s)` : 'Gửi lại mã xác thực'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowRecoveryVerifyBox(false)}
-                    className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                  >
-                    Đóng
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-
           {/* Change Password Form (Secure) */}
           <div className="p-4.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
             <div className="flex items-center justify-between">
@@ -794,12 +572,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     </h5>
                     <p className="text-xs font-mono font-bold text-emerald-800 dark:text-emerald-300 break-all">
                       {email || 'datminh96@gmail.com'}
-                      {recoveryEmail ? ` • Email khôi phục: ${recoveryEmail}` : ''}
                     </p>
                     <p className="text-[11px] text-emerald-700 dark:text-emerald-400/90 leading-relaxed pt-0.5">
-                      {recoveryEmail
-                        ? `Hệ thống đã tự động gửi email xác thực tài khoản kèm mã OTP kích hoạt đến ${email} và email khôi phục ${recoveryEmail} (hiệu lực 15 phút).`
-                        : 'Hệ thống gửi Transactional Email kích hoạt tự động. Vui lòng mở hòm thư để lấy mã OTP (hiệu lực 15 phút).'}
+                      Hệ thống gửi Transactional Email kích hoạt tự động. Vui lòng mở hòm thư để lấy mã OTP (hiệu lực 15 phút).
                     </p>
                   </div>
                 </div>
@@ -1055,32 +830,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
-                </div>
-              )}
-
-              {tab === 'register' && (
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      Email Khôi Phục Dự Phòng (Khuyên dùng)
-                    </label>
-                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
-                      Gửi email xác thực ngay
-                    </span>
-                  </div>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input
-                      type="email"
-                      value={recoveryEmail}
-                      onChange={(e) => setRecoveryEmail(e.target.value)}
-                      placeholder="recovery@gmail.com (hoặc để trống)"
-                      className="w-full pl-9 pr-3.5 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white dark:focus:bg-slate-800 transition-all"
-                    />
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    Hệ thống sẽ gửi email xác thực tài khoản kèm mã OTP đến email khôi phục này để kích hoạt.
-                  </p>
                 </div>
               )}
 

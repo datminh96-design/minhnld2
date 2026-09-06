@@ -49,6 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const [showQuickMenu, setShowQuickMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showSyncTooltip, setShowSyncTooltip] = useState(false);
 
   const getTabTitle = (tab: NavTab) => {
     switch (tab) {
@@ -105,6 +106,8 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={() => syncWithSupabase(true)}
+              onMouseEnter={() => setShowSyncTooltip(true)}
+              onMouseLeave={() => setShowSyncTooltip(false)}
               className={`relative flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl border transition-all duration-300 cursor-pointer ${
                 syncStatus === 'syncing'
                   ? 'bg-amber-500/15 border-amber-400/50 text-amber-500 dark:text-amber-300 ring-4 ring-amber-400/20'
@@ -138,6 +141,26 @@ export const Header: React.FC<HeaderProps> = ({
                 </span>
               </div>
             </button>
+
+            {/* Tooltip on hover */}
+            {showSyncTooltip && (
+              <div className="absolute right-0 top-full mt-2 w-64 p-3 rounded-2xl bg-slate-900/95 text-white backdrop-blur-md shadow-2xl border border-slate-700 z-50 text-xs animate-in fade-in zoom-in-95 pointer-events-none">
+                <div className="flex items-center gap-2 mb-1.5 text-amber-300 font-bold">
+                  <Lightbulb className="w-4 h-4 fill-amber-300 text-amber-300" />
+                  <span>Cơ chế Tự Động Sao Lưu Cloud</span>
+                </div>
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  Mỗi khi bạn <strong className="text-white">Thêm mới</strong>, <strong className="text-white">Sửa chữa</strong> hoặc <strong className="text-white">Xóa</strong> dữ liệu, hệ thống tự động đồng bộ và sao lưu an toàn ngay lập tức lên máy chủ Supabase.
+                </p>
+                <div className="mt-2 pt-2 border-t border-slate-800 text-[10px] text-slate-400 flex items-center justify-between">
+                  <span>Trạng thái:</span>
+                  <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Đang hoạt động
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
