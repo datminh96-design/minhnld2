@@ -18,11 +18,23 @@ import {
   Sparkles,
   Inbox,
   UserCheck,
-  KeyRound
+  KeyRound,
+  Settings,
+  Lock,
+  Check,
+  Info
 } from 'lucide-react';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
-import { emailService, EmailStatusResponse, EmailLog } from '../../services/emailService';
+import {
+  emailService,
+  EmailStatusResponse,
+  EmailLog,
+  getSavedEmailConfig,
+  saveEmailConfig,
+  UserEmailConfig
+} from '../../services/emailService';
+import { generateEmailHtml } from '../../lib/emailTemplates';
 
 export const TransactionalEmailSection: React.FC = () => {
   const {
@@ -30,7 +42,6 @@ export const TransactionalEmailSection: React.FC = () => {
     transactions,
     calculatedHoldings,
     investmentAssets,
-    userSettings,
     addToast
   } = useData();
   const { profile, user } = useAuth();
@@ -44,16 +55,10 @@ export const TransactionalEmailSection: React.FC = () => {
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [customRecipient, setCustomRecipient] = useState('datminh96@gmail.com');
   const [logs, setLogs] = useState<EmailLog[]>([]);
-  const [loadingLogs, setLoadingLogs] = useState(false);
-  const [selectedTemplateTab, setSelectedTemplateTab] = useState<
-    | 'account_verification'
-    | 'password_recovery'
-    | 'financial_summary'
-    | 'backup_success'
-    | 'budget_alert'
-    | 'work_hours_statement'
-    | 'security_alert'
-  >('account_verification');
+  const [showConfigModal, setShowConfigModal] = useState(false);
+
+  // Email Config State
+  const [emailConfig, setEmailConfig] = useState<UserEmailConfig>(getSavedEmailConfig());
 
   // Calculate dynamic data from current app state
   const currentMonth = new Date().getMonth() + 1;
@@ -99,14 +104,11 @@ export const TransactionalEmailSection: React.FC = () => {
   };
 
   const loadLogs = async () => {
-    setLoadingLogs(true);
     try {
       const data = await emailService.getLogs();
       setLogs(data);
     } catch (err: any) {
       console.error('Failed to load email logs', err);
-    } finally {
-      setLoadingLogs(false);
     }
   };
 
@@ -114,6 +116,13 @@ export const TransactionalEmailSection: React.FC = () => {
     loadStatus();
     loadLogs();
   }, []);
+
+  const handleSaveConfig = () => {
+    saveEmailConfig(emailConfig);
+    setShowConfigModal(false);
+    loadStatus();
+    addToast('Đã lưu cấu hình dịch vụ gửi email thành công!', 'success');
+  };
 
   const getTemplatePayloadData = (tmpl: string) => {
     const recipientName = profile?.full_name || 'Nguyễn Lê Đạt Minh';
@@ -150,7 +159,7 @@ export const TransactionalEmailSection: React.FC = () => {
           recipientName,
           backupTime: new Date().toLocaleString('vi-VN'),
           backupSize: '128.4 KB',
-          recordCount: workLogs.length + transactions.length + investmentAssets.length,
+          recordCount: workLogs.length + transactions.length + investmentAssets.length || 48,
           bucketName: 'minhnld2',
           fileKey: `backups/backup_${new Date().toISOString().replace(/[:.]/g, '-')}.json`,
         };
@@ -177,11 +186,11 @@ export const TransactionalEmailSection: React.FC = () => {
           recipientName,
           eventTime: new Date().toLocaleString('vi-VN'),
           eventType: 'Đăng nhập trang quản trị Admin / Đồng bộ dữ liệu',
-          ipAddress: '14.232.18.92',
-          userAgent: 'Chrome trên Windows (AI Studio Cloud)',
+          ipAddress: '14.232.18.92 (Việt Nam)',
+          userAgent: 'Chrome trên Windows / Cloudflare R2 Cloud',
         };
       default:
-        return {};
+        return { recipientName };
     }
   };
 
@@ -197,10 +206,17 @@ export const TransactionalEmailSection: React.FC = () => {
       });
 
       if (res.success) {
-        addToast(
-          `Đã gửi Transactional Email "${res.subject}" tới ${targetEmail} thành công! [${res.provider.toUpperCase()}]`,
-          'success'
-        );
+        if (res.simulated) {
+          addToast(
+            `Đã dựng mẫu "${res.subject || 'Thông báo'}" [MÔ PHỎNG]. Để gửi thư thực tế về hòm thư ${targetEmail}, vui lòng bấm "Cấu hình gửi mail" để nhập mật khẩu ứng dụng Gmail hoặc Resend Key.`,
+            'info'
+          );
+        } else {
+          addToast(
+            `Đã gửi Transactional Email "${res.subject}" tới ${targetEmail} thành công! [${res.provider.toUpperCase()}]`,
+            'success'
+          );
+        }
         loadLogs();
       } else {
         addToast(`Gửi email không thành công: ${res.error || 'Lỗi server'}`, 'error');
@@ -212,20 +228,14 @@ export const TransactionalEmailSection: React.FC = () => {
     }
   };
 
-  const handlePreview = async (templateName: any) => {
+  const handlePreview = (templateName: any) => {
     setLoadingPreview(true);
     setPreviewTemplate(templateName);
     try {
       const payloadData = getTemplatePayloadData(templateName);
-      const res = await emailService.previewEmail({
-        template: templateName,
-        data: payloadData,
-      });
-
-      if (res.success) {
-        setPreviewHtml(res.html);
-        setPreviewSubject(res.subject);
-      }
+      const rendered = generateEmailHtml(templateName, payloadData);
+      setPreviewHtml(rendered.html);
+      setPreviewSubject(rendered.subject);
     } catch (err: any) {
       addToast(`Lỗi khi tạo bản xem trước: ${err.message || String(err)}`, 'error');
       setPreviewTemplate(null);
@@ -307,7 +317,7 @@ export const TransactionalEmailSection: React.FC = () => {
                 Transactional Email (Email Giao Dịch Tự Động)
               </h3>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                Resend • SMTP • Admin
+                HTML Responsive • SMTP • Resend
               </span>
             </div>
             <p className="text-xs text-slate-400">
@@ -316,18 +326,29 @@ export const TransactionalEmailSection: React.FC = () => {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            loadStatus();
-            loadLogs();
-          }}
-          disabled={loadingStatus}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-all cursor-pointer disabled:opacity-50 self-start sm:self-auto"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loadingStatus ? 'animate-spin text-blue-500' : ''}`} />
-          <span>{loadingStatus ? 'Đang tải...' : 'Làm mới trạng thái'}</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowConfigModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 transition-all cursor-pointer"
+          >
+            <Settings className="w-3.5 h-3.5" />
+            <span>Cấu hình gửi Mail thật</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              loadStatus();
+              loadLogs();
+            }}
+            disabled={loadingStatus}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-all cursor-pointer disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loadingStatus ? 'animate-spin text-blue-500' : ''}`} />
+            <span>{loadingStatus ? 'Đang tải...' : 'Làm mới'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Service Status Cards */}
@@ -335,46 +356,50 @@ export const TransactionalEmailSection: React.FC = () => {
         <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1">
           <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-200">
             <span className="flex items-center gap-1.5">
-              <Server className="w-3.5 h-3.5 text-blue-500" /> Trạng thái máy chủ
+              <Server className="w-3.5 h-3.5 text-blue-500" /> Kênh gửi Mail
             </span>
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
           </div>
           <p className="text-xs font-bold text-slate-900 dark:text-white">
-            {status?.mode || 'Simulator / Live Preview'}
+            {emailConfig.provider === 'gmail_smtp' && emailConfig.gmailAppPassword
+              ? 'Gmail SMTP (Gửi thực tế)'
+              : emailConfig.provider === 'resend' && emailConfig.resendApiKey
+              ? 'Resend API (Gửi thực tế)'
+              : 'Mô phỏng & Xem trước HTML'}
           </p>
           <p className="text-[11px] text-slate-400">
-            {status?.isResendConfigured
-              ? 'Đã kết nối Resend API Key'
-              : status?.isSmtpConfigured
-              ? 'Đã kết nối SMTP Transporter'
-              : 'Sẵn sàng gửi & mô phỏng HTML'}
+            {emailConfig.provider === 'gmail_smtp' && emailConfig.gmailAppPassword
+              ? `Tài khoản: ${emailConfig.gmailUser}`
+              : 'Sẵn sàng tạo mã HTML đầy đủ'}
           </p>
         </div>
 
         <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1">
           <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-200">
             <span className="flex items-center gap-1.5">
-              <Inbox className="w-3.5 h-3.5 text-emerald-500" /> Người gửi mặc định
+              <Inbox className="w-3.5 h-3.5 text-emerald-500" /> Địa chỉ người gửi
             </span>
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
           </div>
           <p className="text-xs font-semibold text-slate-900 dark:text-white font-mono truncate">
-            {status?.emailFrom || 'Personal Finance <onboarding@resend.dev>'}
+            {emailConfig.provider === 'gmail_smtp'
+              ? emailConfig.gmailUser
+              : 'Personal Finance <onboarding@resend.dev>'}
           </p>
-          <p className="text-[11px] text-slate-400">Cấu hình qua biến EMAIL_FROM</p>
+          <p className="text-[11px] text-slate-400">Tiêu chuẩn bảo mật SSL/TLS</p>
         </div>
 
         <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1">
           <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-200">
             <span className="flex items-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-purple-500" /> Người nhận Admin
+              <ShieldCheck className="w-3.5 h-3.5 text-purple-500" /> Hộp thư nhận mẫu
             </span>
             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 dark:bg-purple-950 text-purple-600 dark:text-purple-400">
               Admin
             </span>
           </div>
           <p className="text-xs font-bold text-slate-900 dark:text-white font-mono truncate">
-            datminh96@gmail.com
+            {customRecipient || 'datminh96@gmail.com'}
           </p>
           <p className="text-[11px] text-slate-400">Nguyễn Lê Đạt Minh</p>
         </div>
@@ -388,7 +413,7 @@ export const TransactionalEmailSection: React.FC = () => {
             Địa chỉ Email nhận thử nghiệm:
           </label>
           <p className="text-[11px] text-slate-500 dark:text-slate-400">
-            Mặc định là tài khoản quản trị <strong className="text-slate-700 dark:text-slate-200">datminh96@gmail.com</strong>
+            Hộp thư nhận: <strong className="text-slate-700 dark:text-slate-200 font-mono">datminh96@gmail.com</strong>
           </p>
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -397,7 +422,7 @@ export const TransactionalEmailSection: React.FC = () => {
             value={customRecipient}
             onChange={(e) => setCustomRecipient(e.target.value)}
             placeholder="datminh96@gmail.com"
-            className="w-full sm:w-64 px-3 py-1.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full sm:w-64 px-3 py-1.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
           />
           <button
             type="button"
@@ -416,7 +441,7 @@ export const TransactionalEmailSection: React.FC = () => {
             <FileText className="w-3.5 h-3.5 text-blue-500" />
             Danh Sách Mẫu Transactional Email Sẵn Sàng Gửi
           </h4>
-          <span className="text-[11px] text-slate-400">5 Mẫu chuẩn HTML Responsive</span>
+          <span className="text-[11px] text-slate-400">{templatesList.length} Mẫu chuẩn HTML Responsive</span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -454,7 +479,7 @@ export const TransactionalEmailSection: React.FC = () => {
                     onClick={() => handlePreview(item.id)}
                     className="flex-1 flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-medium transition cursor-pointer"
                   >
-                    <Eye className="w-3 h-3 text-slate-500" />
+                    <Eye className="w-3.5 h-3.5 text-slate-500" />
                     <span>Xem mẫu</span>
                   </button>
 
@@ -464,7 +489,7 @@ export const TransactionalEmailSection: React.FC = () => {
                     disabled={isSending}
                     className="flex-1 flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition shadow-xs cursor-pointer disabled:opacity-50"
                   >
-                    <Send className={`w-3 h-3 ${isSending ? 'animate-spin' : ''}`} />
+                    <Send className={`w-3.5 h-3.5 ${isSending ? 'animate-spin' : ''}`} />
                     <span>{isSending ? 'Đang gửi...' : 'Gửi ngay'}</span>
                   </button>
                 </div>
@@ -492,7 +517,7 @@ export const TransactionalEmailSection: React.FC = () => {
 
         {logs.length === 0 ? (
           <div className="p-4 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/80 text-center text-slate-400 text-xs">
-            Chưa có bản ghi email nào trong phiên này. Nhấn nút <strong>"Gửi ngay"</strong> ở bất kỳ mẫu nào phía trên để thử nghiệm gửi Transactional Email.
+            Chưa có bản ghi email nào trong phiên này. Nhấn nút <strong>"Gửi ngay"</strong> ở bất kỳ mẫu nào phía trên để gửi thử nghiệm.
           </div>
         ) : (
           <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
@@ -596,6 +621,181 @@ export const TransactionalEmailSection: React.FC = () => {
                   <span>Gửi Thử Ngay</span>
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Email Configuration Modal */}
+      {showConfigModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400">
+                  <Settings className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white font-display">
+                    Cấu Hình Gửi Email Thực Tế
+                  </h4>
+                  <p className="text-xs text-slate-400">Chọn phương thức gửi thư về hộp thư datminh96@gmail.com</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowConfigModal(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+              {/* Provider Selection Tabs */}
+              <div className="grid grid-cols-3 gap-2 p-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setEmailConfig({ ...emailConfig, provider: 'simulator' })}
+                  className={`py-2 px-2.5 rounded-lg font-semibold transition ${
+                    emailConfig.provider === 'simulator'
+                      ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Mô phỏng (Simulator)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEmailConfig({ ...emailConfig, provider: 'gmail_smtp' })}
+                  className={`py-2 px-2.5 rounded-lg font-semibold transition ${
+                    emailConfig.provider === 'gmail_smtp'
+                      ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Gmail SMTP (Khuyên dùng)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEmailConfig({ ...emailConfig, provider: 'resend' })}
+                  className={`py-2 px-2.5 rounded-lg font-semibold transition ${
+                    emailConfig.provider === 'resend'
+                      ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Resend API
+                </button>
+              </div>
+
+              {/* Provider: Simulator */}
+              {emailConfig.provider === 'simulator' && (
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 space-y-2">
+                  <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-100">
+                    <Info className="w-4 h-4 text-blue-500" />
+                    Chế độ Mô Phỏng (Simulator Mode)
+                  </div>
+                  <p>
+                    Hệ thống sẽ render giao diện HTML tức thời và lưu vào lịch sử mô phỏng mà không cần cung cấp mật khẩu.
+                  </p>
+                  <p className="text-slate-400 text-[11px]">
+                    👉 Để nhận email thực tế đến hộp thư <strong>datminh96@gmail.com</strong>, hãy chọn tab <strong>"Gmail SMTP"</strong>.
+                  </p>
+                </div>
+              )}
+
+              {/* Provider: Gmail SMTP */}
+              {emailConfig.provider === 'gmail_smtp' && (
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                      Tài khoản Gmail gửi thư:
+                    </label>
+                    <input
+                      type="email"
+                      value={emailConfig.gmailUser}
+                      onChange={(e) => setEmailConfig({ ...emailConfig, gmailUser: e.target.value })}
+                      placeholder="datminh96@gmail.com"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-mono"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between">
+                      <span>Mật khẩu ứng dụng Google (16 ký tự):</span>
+                      <a
+                        href="https://myaccount.google.com/apppasswords"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] text-blue-500 hover:underline flex items-center gap-1"
+                      >
+                        Lấy mật khẩu ứng dụng <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </label>
+                    <input
+                      type="password"
+                      value={emailConfig.gmailAppPassword}
+                      onChange={(e) => setEmailConfig({ ...emailConfig, gmailAppPassword: e.target.value })}
+                      placeholder="vd: abcd efgh ijkl mnop"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-mono"
+                    />
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 text-[11px] text-slate-600 dark:text-slate-300 space-y-1">
+                    <strong className="text-blue-700 dark:text-blue-300">💡 Cách tạo Mật khẩu ứng dụng trong 30 giây:</strong>
+                    <ol className="list-decimal pl-4 space-y-0.5 text-slate-500 dark:text-slate-400">
+                      <li>Truy cập <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" className="text-blue-500 underline">Google App Passwords</a>.</li>
+                      <li>Đặt tên ứng dụng là "QuanLyTaiChinh" và bấm Tạo (Generate).</li>
+                      <li>Copy chuỗi 16 chữ cái (không bao gồm khoảng trắng) dán vào ô trên.</li>
+                    </ol>
+                  </div>
+                </div>
+              )}
+
+              {/* Provider: Resend */}
+              {emailConfig.provider === 'resend' && (
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between">
+                      <span>Resend API Key:</span>
+                      <a
+                        href="https://resend.com/api-keys"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] text-blue-500 hover:underline flex items-center gap-1"
+                      >
+                        Lấy API Key tại resend.com <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </label>
+                    <input
+                      type="password"
+                      value={emailConfig.resendApiKey}
+                      onChange={(e) => setEmailConfig({ ...emailConfig, resendApiKey: e.target.value })}
+                      placeholder="re_xxxxxxxxxxxxxxxxx"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-mono"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowConfigModal(false)}
+                className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveConfig}
+                className="px-5 py-2 text-xs font-semibold rounded-xl bg-blue-600 hover:bg-blue-700 text-white transition flex items-center gap-1.5 shadow-xs"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Lưu Cấu Hình</span>
+              </button>
             </div>
           </div>
         </div>
