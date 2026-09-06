@@ -95,7 +95,7 @@ export const WorkView: React.FC = () => {
   const [editingLog, setEditingLog] = useState<WorkLog | null>(null);
 
   // Form states
-  const [formDate, setFormDate] = useState<string>('2026-09-01');
+  const [formDate, setFormDate] = useState<string>(new Date().toISOString().substring(0, 10));
   const [formCheckIn, setFormCheckIn] = useState<string>('08:00');
   const [formCheckOut, setFormCheckOut] = useState<string>('18:00');
   const [formBreakStart, setFormBreakStart] = useState<string>('12:00');

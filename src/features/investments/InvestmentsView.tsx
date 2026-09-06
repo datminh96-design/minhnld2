@@ -90,7 +90,7 @@ export const InvestmentsView: React.FC = () => {
   // Tx Form States
   const [txAssetId, setTxAssetId] = useState('');
   const [txType, setTxType] = useState<InvestmentTxType>('buy');
-  const [txDate, setTxDate] = useState('2026-09-01');
+  const [txDate, setTxDate] = useState(new Date().toISOString().substring(0, 10));
   const [txQuantity, setTxQuantity] = useState('');
   const [txPrice, setTxPrice] = useState('');
   const [txPriceCurrency, setTxPriceCurrency] = useState<'VND' | 'USDT'>('VND');

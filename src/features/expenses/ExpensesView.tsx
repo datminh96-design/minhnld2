@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
 import { Transaction, TransactionType, DateFilterPreset, ExpenseCategory } from '../../types';
-import { formatCurrency, formatDateVN, getDayOfWeek } from '../../lib/utils';
+import { formatCurrency, formatDateVN, getDayOfWeek, getTodayDateString, getWeekRange, getCurrentMonthPrefix, getMonthsAgoRange, getYearRange } from '../../lib/utils';
 import { Modal } from '../../components/ui/Modal';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { 
@@ -56,8 +56,8 @@ export const ExpensesView: React.FC = () => {
 
   // Filter States
   const [filterPreset, setFilterPreset] = useState<DateFilterPreset>('month');
-  const [customStartDate, setCustomStartDate] = useState<string>('2026-09-01');
-  const [customEndDate, setCustomEndDate] = useState<string>('2026-09-30');
+  const [customStartDate, setCustomStartDate] = useState<string>(getTodayDateString());
+  const [customEndDate, setCustomEndDate] = useState<string>(getTodayDateString());
   const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense'>('all');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -69,7 +69,7 @@ export const ExpensesView: React.FC = () => {
 
   // Tx Form States
   const [formType, setFormType] = useState<TransactionType>('expense');
-  const [formDate, setFormDate] = useState<string>('2026-09-01');
+  const [formDate, setFormDate] = useState<string>(getTodayDateString());
   const [formCategoryId, setFormCategoryId] = useState<string>('');
   const [formCategoryName, setFormCategoryName] = useState<string>('Ăn uống');
   const [formAmount, setFormAmount] = useState<string>('');
@@ -88,28 +88,34 @@ export const ExpensesView: React.FC = () => {
 
   // Date Filtering logic
   const filteredTransactions = useMemo(() => {
-    // Current simulated date reference: 2026-09-01
-    const refDate = new Date('2026-09-30');
+    const today = getTodayDateString();
+    const currentMonth = getCurrentMonthPrefix();
+    const weekRange = getWeekRange();
+    const months3 = getMonthsAgoRange(3);
+    const months6 = getMonthsAgoRange(6);
+    const year = getYearRange();
 
     return transactions.filter((tx) => {
-      const txDate = new Date(tx.transaction_date);
+      // Ensure we only use the YYYY-MM-DD part of the transaction date string
+      // just in case it contains a time component or timezone from the database.
+      const txDate = tx.transaction_date ? tx.transaction_date.substring(0, 10) : '';
 
       // 1. Date Preset Filter
       let passDate = true;
       if (filterPreset === 'today') {
-        passDate = tx.transaction_date === '2026-09-20'; // simulate active today
+        passDate = txDate === today;
       } else if (filterPreset === 'week') {
-        passDate = tx.transaction_date >= '2026-09-14' && tx.transaction_date <= '2026-09-20';
+        passDate = txDate >= weekRange.start && txDate <= weekRange.end;
       } else if (filterPreset === 'month') {
-        passDate = tx.transaction_date.startsWith('2026-09');
+        passDate = txDate.startsWith(currentMonth);
       } else if (filterPreset === '3months') {
-        passDate = tx.transaction_date >= '2026-07-01' && tx.transaction_date <= '2026-09-30';
+        passDate = txDate >= months3.start && txDate <= months3.end;
       } else if (filterPreset === '6months') {
-        passDate = tx.transaction_date >= '2026-04-01' && tx.transaction_date <= '2026-09-30';
+        passDate = txDate >= months6.start && txDate <= months6.end;
       } else if (filterPreset === '1year') {
-        passDate = tx.transaction_date >= '2026-01-01' && tx.transaction_date <= '2026-12-31';
+        passDate = txDate >= year.start && txDate <= year.end;
       } else if (filterPreset === 'custom') {
-        passDate = tx.transaction_date >= customStartDate && tx.transaction_date <= customEndDate;
+        passDate = txDate >= customStartDate && txDate <= customEndDate;
       }
 
       if (!passDate) return false;
@@ -174,13 +180,29 @@ export const ExpensesView: React.FC = () => {
 
   // Chart 2: Income vs Expense Monthly / Timeline Data
   const monthlyComparisonData = useMemo(() => {
-    const monthlyMap: Record<string, { income: number; expense: number }> = {
-      '05/26': { income: 55000000, expense: 22000000 },
-      '06/26': { income: 62000000, expense: 26500000 },
-      '07/26': { income: 58000000, expense: 24000000 },
-      '08/26': { income: 68000000, expense: 29000000 },
-      '09/26': { income: summary.totalIncome, expense: summary.totalExpense },
-    };
+    const monthlyMap: Record<string, { income: number; expense: number }> = {};
+    
+    // Auto-generate past 5 months including current
+    for (let i = 4; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const mLabel = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getFullYear()).substring(2)}`;
+      monthlyMap[mLabel] = { income: 0, expense: 0 };
+    }
+
+    transactions.forEach(tx => {
+      if (!tx.transaction_date) return;
+      const parts = tx.transaction_date.split('-');
+      if (parts.length < 2) return;
+      const mLabel = `${parts[1]}/${parts[0].substring(2)}`;
+      if (monthlyMap[mLabel]) {
+        if (tx.transaction_type === 'income') {
+          monthlyMap[mLabel].income += tx.amount;
+        } else {
+          monthlyMap[mLabel].expense += tx.amount;
+        }
+      }
+    });
 
     return Object.entries(monthlyMap).map(([month, data]) => ({
       month,
@@ -188,7 +210,7 @@ export const ExpensesView: React.FC = () => {
       ChiTieu: data.expense,
       SoDu: data.income - data.expense,
     }));
-  }, [summary]);
+  }, [transactions]);
 
   // Chart 3: Expense Trend Timeline
   const expenseTrendData = useMemo(() => {
@@ -212,7 +234,7 @@ export const ExpensesView: React.FC = () => {
   const handleOpenAddTxModal = (type: TransactionType = 'expense') => {
     setEditingTx(null);
     setFormType(type);
-    setFormDate(new Date().toISOString().substring(0, 10));
+    setFormDate(getTodayDateString());
     const availCats = categories.filter((c) => c.type === type);
     const defaultCat = availCats[0]?.name || (type === 'income' ? 'Lương' : 'Ăn uống');
     setFormCategoryName(defaultCat);

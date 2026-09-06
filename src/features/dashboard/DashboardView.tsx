@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { useData } from '../../context/DataContext';
-import { formatCurrency, formatPercent } from '../../lib/utils';
+import { formatCurrency, formatPercent, getCurrentMonthPrefix } from '../../lib/utils';
 import { 
   Clock, 
   Wallet, 
@@ -46,11 +46,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     userSettings 
   } = useData();
 
-  // Current active date reference (e.g. Month 9, 2026 or current date)
-  const currentYear = 2026;
-  const currentMonth = 9;
-  const monthStr = '09';
-  const prefix = `${currentYear}-${monthStr}`;
+  // Current active date reference
+  const d = new Date();
+  const currentMonth = d.getMonth() + 1;
+  const currentYear = d.getFullYear();
+  const monthStr = String(currentMonth).padStart(2, '0');
+  const prefix = getCurrentMonthPrefix();
 
   // ==========================================
   // CARD 1 – STATS GIỜ CÔNG
@@ -252,7 +253,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display">
                     QUẢN LÝ GIỜ CÔNG
                   </h3>
-                  <span className="text-[11px] text-slate-400">Tháng 09/2026</span>
+                  <span className="text-[11px] text-slate-400">Tháng {monthStr}/{currentYear}</span>
                 </div>
               </div>
               <button
@@ -323,7 +324,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display">
                     QUẢN LÝ CHI TIÊU
                   </h3>
-                  <span className="text-[11px] text-slate-400">Dòng tiền tháng 09</span>
+                  <span className="text-[11px] text-slate-400">Dòng tiền tháng {monthStr}</span>
                 </div>
               </div>
               <button

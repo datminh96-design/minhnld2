@@ -238,6 +238,47 @@ export function calculateWorkHours(
   };
 }
 
+export function getTodayDateString(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function getWeekRange(): { start: string; end: string } {
+  const d = new Date();
+  const day = d.getDay(); // 0 is Sunday, 1 is Monday
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const start = new Date(d);
+  start.setDate(d.getDate() + diffToMonday);
+  
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+
+  const format = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  return { start: format(start), end: format(end) };
+}
+
+export function getCurrentMonthPrefix(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+export function getMonthsAgoRange(monthsAgo: number): { start: string; end: string } {
+  const d = new Date();
+  const format = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const end = format(d);
+
+  const startD = new Date(d);
+  startD.setMonth(startD.getMonth() - monthsAgo);
+  startD.setDate(1); // Set to start of that month? Or just exact days ago? Usually 3 months means 1st of that month to now.
+  // Actually, standard is exact days or 1st of month. Let's do 1st of the month `monthsAgo` months ago.
+  return { start: format(startD), end };
+}
+
+export function getYearRange(): { start: string; end: string } {
+  const d = new Date();
+  return { start: `${d.getFullYear()}-01-01`, end: `${d.getFullYear()}-12-31` };
+}
+
 export function calculateInvestmentHoldings(assets: any[], transactions: any[], method: string): any[] {
   let totalPortfolioValue = 0;
   
