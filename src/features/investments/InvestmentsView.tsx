@@ -68,7 +68,7 @@ export const InvestmentsView: React.FC = () => {
   } = useData();
 
   // State
-  const [activeTab, setActiveTab] = useState<'holdings' | 'transactions' | 'charts'>('holdings');
+  const [activeTab, setActiveTab] = useState<'holdings' | 'transactions' | 'charts' | 'technical'>('holdings');
   const [assetTypeFilter, setAssetTypeFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [showQuickAdd, setShowQuickAdd] = useState(false);
@@ -450,6 +450,18 @@ export const InvestmentsView: React.FC = () => {
             >
               Biểu Đồ Danh Mục
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('technical')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                activeTab === 'technical'
+                  ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-purple-500" />
+              <span>Phân Tích Kỹ Thuật</span>
+            </button>
           </div>
 
           {/* Action Buttons: Refresh, Add Asset, Add Tx */}
@@ -494,33 +506,35 @@ export const InvestmentsView: React.FC = () => {
         </div>
 
         {/* Search & Asset Type Filter */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-          <div className="relative sm:col-span-2">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Tìm theo mã tài sản (BTC, VCB, SJC...), tên gọi..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-3.5 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-            />
-          </div>
+        {(activeTab === 'holdings' || activeTab === 'transactions') && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <div className="relative sm:col-span-2">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Tìm theo mã tài sản (BTC, VCB, SJC...), tên gọi..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-3.5 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
 
-          <div>
-            <select
-              value={assetTypeFilter}
-              onChange={(e) => setAssetTypeFilter(e.target.value)}
-              className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none"
-            >
-              <option value="all">Tất cả loại tài sản</option>
-              <option value="crypto">🪙 Tiền mã hóa (Crypto)</option>
-              <option value="stock">📈 Cổ phiếu (Stocks)</option>
-              <option value="fund">🏛️ Chứng chỉ quỹ (Funds)</option>
-              <option value="gold">👑 Vàng & Kim loại quý</option>
-              <option value="other">💎 Tài sản khác</option>
-            </select>
+            <div>
+              <select
+                value={assetTypeFilter}
+                onChange={(e) => setAssetTypeFilter(e.target.value)}
+                className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none"
+              >
+                <option value="all">Tất cả loại tài sản</option>
+                <option value="crypto">🪙 Tiền mã hóa (Crypto)</option>
+                <option value="stock">📈 Cổ phiếu (Stocks)</option>
+                <option value="fund">🏛️ Chứng chỉ quỹ (Funds)</option>
+                <option value="gold">👑 Vàng & Kim loại quý</option>
+                <option value="other">💎 Tài sản khác</option>
+              </select>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Main Tab 1: Holdings Table */}
@@ -790,13 +804,6 @@ export const InvestmentsView: React.FC = () => {
             </div>
           </div>
 
-          {/* 4H Technical Analysis & AI Quantitative Forecast Section */}
-          <TechnicalAnalysis4HSection
-            holdings={calculatedHoldings}
-            userCurrency={userSettings.currency}
-            addToast={addToast}
-          />
-
           {/* Quick Add Asset Section directly under Holdings */}
           {showQuickAdd && (
             <AddAssetQuickSection
@@ -995,6 +1002,17 @@ export const InvestmentsView: React.FC = () => {
               </ResponsiveContainer>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Main Tab 4: Technical Analysis & AI Quant Forecast */}
+      {activeTab === 'technical' && (
+        <div className="space-y-5">
+          <TechnicalAnalysis4HSection
+            holdings={calculatedHoldings}
+            userCurrency={userSettings.currency}
+            addToast={addToast}
+          />
         </div>
       )}
 
