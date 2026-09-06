@@ -101,7 +101,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 
   // API Health check
-  app.get('/api/health', (req, res) => {
+  app.get(['/api/health', '/health'], (req, res) => {
     res.json({
       status: 'ok',
       hasGeminiKey: !!process.env.GEMINI_API_KEY,
@@ -111,7 +111,7 @@ app.use(express.static(path.join(process.cwd(), 'public')));
   });
 
   // Cloudflare R2 Storage Status & Connectivity Test
-  app.get('/api/r2/status', async (req, res) => {
+  app.get(['/api/r2/status', '/r2/status'], async (req, res) => {
     try {
       const result = await testR2Connection();
       res.json(result);
@@ -124,7 +124,7 @@ app.use(express.static(path.join(process.cwd(), 'public')));
   });
 
   // Cloudflare R2 Get & Update Configuration
-  app.get('/api/r2/config', (req, res) => {
+  app.get(['/api/r2/config', '/r2/config'], (req, res) => {
     res.json({
       accountId: R2_CONFIG.accountId,
       accessKeyId: R2_CONFIG.accessKeyId,
@@ -137,9 +137,9 @@ app.use(express.static(path.join(process.cwd(), 'public')));
     });
   });
 
-  app.post('/api/r2/config', async (req, res) => {
+  app.post(['/api/r2/config', '/r2/config'], async (req, res) => {
     try {
-      const { accountId, accessKeyId, secretAccessKey, endpoint, defaultBucket } = req.body;
+      const { accountId, accessKeyId, secretAccessKey, endpoint, defaultBucket } = req.body || {};
       updateR2Config({
         accountId,
         accessKeyId,
@@ -164,7 +164,7 @@ app.use(express.static(path.join(process.cwd(), 'public')));
   });
 
   // Cloudflare R2 List Objects / Backups
-  app.get('/api/r2/objects', async (req, res) => {
+  app.get(['/api/r2/objects', '/r2/objects'], async (req, res) => {
     try {
       const prefix = (req.query.prefix as string) || '';
       const result = await listR2Objects(prefix);
@@ -178,7 +178,7 @@ app.use(express.static(path.join(process.cwd(), 'public')));
   });
 
   // Cloudflare R2 Upload Backup Endpoint
-  app.post('/api/r2/backup', async (req, res) => {
+  app.post(['/api/r2/backup', '/r2/backup'], async (req, res) => {
     try {
       const payload = req.body;
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -200,7 +200,7 @@ app.use(express.static(path.join(process.cwd(), 'public')));
   });
 
   // Cloudflare R2 Retrieve Backup Endpoint
-  app.get('/api/r2/backup', async (req, res) => {
+  app.get(['/api/r2/backup', '/r2/backup'], async (req, res) => {
     try {
       const key = req.query.key as string;
       if (!key) {
@@ -223,9 +223,9 @@ app.use(express.static(path.join(process.cwd(), 'public')));
   });
 
   // Cloudflare R2 Generic Upload File Endpoint
-  app.post('/api/r2/upload', async (req, res) => {
+  app.post(['/api/r2/upload', '/r2/upload'], async (req, res) => {
     try {
-      const { key, data, contentType = 'application/json' } = req.body;
+      const { key, data, contentType = 'application/json' } = req.body || {};
       if (!key || !data) {
         return res.status(400).json({ success: false, error: 'Thiếu key hoặc data' });
       }
@@ -241,9 +241,9 @@ app.use(express.static(path.join(process.cwd(), 'public')));
   });
 
   // Cloudflare R2 Delete Object Endpoint
-  app.delete('/api/r2/object', async (req, res) => {
+  app.delete(['/api/r2/object', '/r2/object'], async (req, res) => {
     try {
-      const { key } = req.body;
+      const { key } = req.body || {};
       if (!key) {
         return res.status(400).json({ success: false, error: 'Thiếu key cần xóa' });
       }
@@ -1388,6 +1388,28 @@ Hãy cung cấp ĐÚNG 5 TIN TỨC / SỰ KIỆN QUAN TRỌNG MỚI NHẤT trong
       // Ignored if not available in current environment
     }
   }
+
+  // Fallback 404 handler for API routes to prevent hanging in serverless environments
+  app.use((req, res, next) => {
+    if (res.headersSent) return;
+    if (req.url && (req.url.startsWith('/api') || req.url.startsWith('/r2') || req.url.startsWith('/gemini') || req.url.startsWith('/email'))) {
+      return res.status(404).json({
+        success: false,
+        error: `API route not found: ${req.method} ${req.url}`,
+      });
+    }
+    next();
+  });
+
+  // Global Express error handler
+  app.use((err: any, req: any, res: any, next: any) => {
+    if (res.headersSent) return next(err);
+    console.error('[API Server Error]:', err);
+    res.status(500).json({
+      success: false,
+      error: err?.message || 'Lỗi xử lý yêu cầu máy chủ',
+    });
+  });
 
   export async function setupVite() {
     // Vite middleware for development (only in local dev standalone server)
