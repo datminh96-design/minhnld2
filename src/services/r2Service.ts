@@ -177,16 +177,23 @@ export const r2Service = {
   async checkStatus(): Promise<R2StatusResponse> {
     try {
       const response = await fetch('/api/r2/status');
-      if (response.ok) {
-        const data = await safeParseJson(response, 'Không thể kiểm tra trạng thái R2');
-        if (data?.connected) {
-          return {
-            connected: true,
-            buckets: Array.isArray(data?.buckets) ? data.buckets : ['minhnld2'],
-            endpoint: data?.endpoint || FALLBACK_R2_CONFIG.endpoint,
-            accountId: data?.accountId || FALLBACK_R2_CONFIG.accountId,
-          };
-        }
+      const data = await safeParseJson(response, 'Không thể kiểm tra trạng thái R2');
+      if (response.ok && data?.connected) {
+        return {
+          connected: true,
+          buckets: Array.isArray(data?.buckets) ? data.buckets : ['minhnld2'],
+          endpoint: data?.endpoint || FALLBACK_R2_CONFIG.endpoint,
+          accountId: data?.accountId || FALLBACK_R2_CONFIG.accountId,
+        };
+      }
+      if (data?.error && response.status !== 404) {
+        return {
+          connected: false,
+          buckets: [],
+          endpoint: data?.endpoint || FALLBACK_R2_CONFIG.endpoint,
+          accountId: data?.accountId || FALLBACK_R2_CONFIG.accountId,
+          error: data.error,
+        };
       }
     } catch {}
 
@@ -222,15 +229,21 @@ export const r2Service = {
   async listBackups(prefix = 'backups/'): Promise<R2ListResponse> {
     try {
       const response = await fetch(`/api/r2/objects?prefix=${encodeURIComponent(prefix)}`);
-      if (response.ok) {
-        const data = await safeParseJson(response, 'Không thể tải danh sách bản sao lưu R2');
-        if (data?.success && Array.isArray(data?.objects)) {
-          return {
-            success: true,
-            bucket: data?.bucket || 'minhnld2',
-            objects: data.objects,
-          };
-        }
+      const data = await safeParseJson(response, 'Không thể tải danh sách bản sao lưu R2');
+      if (response.ok && data?.success && Array.isArray(data?.objects)) {
+        return {
+          success: true,
+          bucket: data?.bucket || 'minhnld2',
+          objects: data.objects,
+        };
+      }
+      if (data?.error && response.status !== 404) {
+        return {
+          success: false,
+          bucket: 'minhnld2',
+          objects: [],
+          error: data.error,
+        };
       }
     } catch {}
 
@@ -278,9 +291,12 @@ export const r2Service = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (response.ok) {
-        const data = await safeParseJson(response, 'Lỗi khi gửi bản sao lưu lên Cloudflare R2');
-        if (data?.success) return data;
+      const data = await safeParseJson(response, 'Lỗi khi gửi bản sao lưu lên Cloudflare R2');
+      if (response.ok && data?.success) {
+        return data;
+      }
+      if (data?.error && response.status !== 404) {
+        return { success: false, error: data.error };
       }
     } catch {}
 
@@ -314,9 +330,12 @@ export const r2Service = {
   async getBackup(key: string): Promise<{ success: boolean; data?: R2BackupPayload; error?: string }> {
     try {
       const response = await fetch(`/api/r2/backup?key=${encodeURIComponent(key)}`);
-      if (response.ok) {
-        const data = await safeParseJson(response, 'Không thể khôi phục dữ liệu từ Cloudflare R2');
-        if (data?.success && data?.data) return data;
+      const data = await safeParseJson(response, 'Không thể khôi phục dữ liệu từ Cloudflare R2');
+      if (response.ok && data?.success && data?.data) {
+        return data;
+      }
+      if (data?.error && response.status !== 404) {
+        return { success: false, error: data.error };
       }
     } catch {}
 
@@ -354,9 +373,12 @@ export const r2Service = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key }),
       });
-      if (response.ok) {
-        const data = await safeParseJson(response, 'Lỗi khi xóa bản ghi trên Cloudflare R2');
-        if (data?.success) return data;
+      const data = await safeParseJson(response, 'Lỗi khi xóa bản ghi trên Cloudflare R2');
+      if (response.ok && data?.success) {
+        return data;
+      }
+      if (data?.error && response.status !== 404) {
+        return { success: false, error: data.error };
       }
     } catch {}
 
