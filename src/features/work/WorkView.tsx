@@ -12,6 +12,7 @@ import {
 import { exportWorkLogsToExcel } from '../../lib/excelExport';
 import { Modal } from '../../components/ui/Modal';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { SalaryCalculator } from './SalaryCalculator';
 import { 
   Clock, 
   Calendar, 
@@ -88,7 +89,7 @@ export const WorkView: React.FC = () => {
   const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [viewMode, setViewMode] = useState<'simple' | 'table' | 'charts'>('simple');
+  const [viewMode, setViewMode] = useState<'simple' | 'table' | 'charts' | 'salary'>('simple');
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -518,6 +519,17 @@ export const WorkView: React.FC = () => {
             >
               Biểu Đồ
             </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('salary')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                viewMode === 'salary'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              Bảng Lương
+            </button>
           </div>
 
           <button
@@ -593,7 +605,13 @@ export const WorkView: React.FC = () => {
       </div>
 
       {/* Main View Area */}
-      {viewMode === 'simple' ? (
+      {viewMode === 'salary' ? (
+        <SalaryCalculator 
+          month={selectedMonth}
+          year={selectedYear}
+          totalOvertimeMinutes={summary.totalOvertimeMinutes}
+        />
+      ) : viewMode === 'simple' ? (
         /* ========================================================================= */
         /* BẢNG GHI GIỜ LÀM (CHUẨN FORM EXCEL ĐƠN GIẢN DỄ NHÌN NHƯ ẢNH MẪU) */
         /* ========================================================================= */
