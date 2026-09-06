@@ -141,7 +141,7 @@ export const KNOWN_ASSET_NAMES: Record<string, { name: string; type: AssetType; 
 
 // In-memory cache for mutual fund NAVs from Fmarket
 let fundNavCache: Record<string, number> = {
-  VEOF: 33191.92,
+  VEOF: 32684.74,
   VESAF: 28450.10,
   VIBF: 15200.00,
   DCDS: 82140.50,

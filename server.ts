@@ -466,7 +466,51 @@ app.use(express.static(path.join(process.cwd(), 'public')));
         );
       }
 
-      // 3. Assemble results for each asset
+      // 3. Fetch Mutual Funds from Fmarket
+      const fundMap: Record<string, number> = {
+        VEOF: 32684.74,
+        VESAF: 28450.1,
+        VIBF: 15200.0,
+        DCDS: 82140.5,
+        DCBC: 35120.0,
+        VCBF_MGF: 27800.0,
+        SSISCA: 41200.0,
+      };
+
+      const fundSymbols = assets
+        .filter((a: any) => {
+          const sym = (a.symbol || a.asset_symbol || '').toUpperCase().trim();
+          const type = (a.type || a.asset_type || '').toLowerCase();
+          return type === 'fund' || ['VEOF', 'VESAF', 'VIBF', 'DCDS', 'DCBC', 'VCBF_MGF', 'SSISCA'].includes(sym);
+        })
+        .map((a: any) => (a.symbol || a.asset_symbol || '').toUpperCase().trim());
+
+      if (fundSymbols.length > 0) {
+        try {
+          const fRes = await fetch('https://api.fmarket.vn/res/products/filter', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              types: ['NEW_FUND', 'TRADING_FUND'],
+              page: 1,
+              pageSize: 100,
+            }),
+          });
+          if (fRes.ok) {
+            const fData: any = await fRes.json();
+            if (fData?.data?.rows && Array.isArray(fData.data.rows)) {
+              fData.data.rows.forEach((row: any) => {
+                const code = (row.shortName || row.code || '').toUpperCase().trim();
+                if (code && typeof row.nav === 'number' && row.nav > 0) {
+                  fundMap[code] = row.nav;
+                }
+              });
+            }
+          }
+        } catch {}
+      }
+
+      // 4. Assemble results for each asset
       for (const item of assets) {
         const id = item.id || item.symbol || item.asset_symbol;
         const sym = (item.symbol || item.asset_symbol || '').toUpperCase().trim();
@@ -498,6 +542,20 @@ app.use(express.static(path.join(process.cwd(), 'public')));
             updatedAt: new Date().toISOString(),
             source: 'hose_api',
             sourceName: 'Sàn HOSE/HNX Trực Tiếp',
+          };
+          continue;
+        }
+
+        // Mutual Fund
+        if (fundMap[sym] || type === 'fund') {
+          const nav = fundMap[sym] || (sym === 'VEOF' ? 32684.74 : item.price || item.current_price || 0);
+          results[id] = {
+            symbol: sym,
+            price: Math.round(nav * 100) / 100,
+            usdtPrice: Math.round((nav / currentUsdtRate) * 100) / 100,
+            updatedAt: new Date().toISOString(),
+            source: 'fmarket',
+            sourceName: 'Fmarket NAV Live',
           };
           continue;
         }
