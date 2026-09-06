@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useRe
 import {
   WorkSettings, WorkLog, ExpenseCategory, Transaction,
   InvestmentAsset, InvestmentTransaction, PortfolioSnapshot,
-  UserSettings, CloudSyncStatus, ToastMessage, CalculatedAssetHolding
+  UserSettings, CloudSyncStatus, ToastMessage, CalculatedAssetHolding,
+  MonthlySalaryData, SalaryRecord
 } from '../types';
 import {
   DEFAULT_WORK_SETTINGS,
@@ -30,6 +31,7 @@ interface DataContextType {
   investmentAssets: InvestmentAsset[];
   investmentTransactions: InvestmentTransaction[];
   portfolioSnapshots: PortfolioSnapshot[];
+  salaryRecords: Record<string, MonthlySalaryData>;
   userSettings: UserSettings;
   calculatedHoldings: CalculatedAssetHolding[];
   toasts: ToastMessage[];
@@ -39,6 +41,8 @@ interface DataContextType {
   syncMessage: string;
   isRefreshingPrices: boolean;
   updateWorkSettings: (newSettings: Partial<WorkSettings>) => Promise<void>;
+  saveSalaryRecord: (month: number, year: number, data: MonthlySalaryData, totalOvertimeMinutes?: number) => Promise<void>;
+  getSalaryRecord: (month: number, year: number) => MonthlySalaryData;
   saveWorkLog: (log: Omit<WorkLog, 'id'> & { id?: string }) => Promise<void>;
   deleteWorkLog: (id: string) => Promise<void>;
   getWorkLogsForMonth: (month: number, year: number) => WorkLog[];
@@ -105,6 +109,31 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const saved = typeof window !== 'undefined' ? localStorage.getItem('app_portfolio_snapshots') : null;
     return saved ? JSON.parse(saved) : getInitialPortfolioSnapshots();
   });
+  const [salaryRecords, setSalaryRecords] = useState<Record<string, MonthlySalaryData>>(() => {
+    const initialMap: Record<string, MonthlySalaryData> = {};
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('app_salary_records');
+      if (saved) {
+        try { Object.assign(initialMap, JSON.parse(saved)); } catch {}
+      }
+      // Scan any legacy per-month keys like app_salary_2026_9
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('app_salary_') && k !== 'app_salary_records') {
+          try {
+            const v = localStorage.getItem(k);
+            if (v) {
+              const parts = k.replace('app_salary_', '').split('_');
+              if (parts.length >= 2) {
+                initialMap[`${parts[0]}_${parts[1]}`] = JSON.parse(v);
+              }
+            }
+          } catch {}
+        }
+      }
+    }
+    return initialMap;
+  });
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [loadingData, setLoadingData] = useState<boolean>(false);
@@ -165,8 +194,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       localStorage.setItem('app_investment_assets', JSON.stringify(investmentAssets));
       localStorage.setItem('app_investment_txs', JSON.stringify(investmentTransactions));
       localStorage.setItem('app_portfolio_snapshots', JSON.stringify(portfolioSnapshots));
+      localStorage.setItem('app_salary_records', JSON.stringify(salaryRecords));
     }
-  }, [workSettings, userSettings, workLogs, categories, transactions, investmentAssets, investmentTransactions, portfolioSnapshots]);
+  }, [workSettings, userSettings, workLogs, categories, transactions, investmentAssets, investmentTransactions, portfolioSnapshots, salaryRecords]);
 
   const triggerCloudBackup = async (silent = true) => {
     setSyncStatus('syncing');
@@ -194,6 +224,33 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         console.error('Lỗi tải work_settings:', wsError);
       } else if (wsData) {
         setWorkSettings({ ...DEFAULT_WORK_SETTINGS, ...wsData });
+        if (wsData.salary_data && typeof wsData.salary_data === 'object') {
+          setSalaryRecords(prev => ({ ...prev, ...wsData.salary_data }));
+        }
+      }
+
+      // Load dedicated salary records table
+      try {
+        const { data: salData, error: salError } = await client.from('salary_records').select('*').eq('user_id', user.id);
+        if (!salError && salData && Array.isArray(salData)) {
+          const salMap: Record<string, MonthlySalaryData> = {};
+          salData.forEach((r: any) => {
+            const m = Number(r.month);
+            const y = Number(r.year);
+            if (m && y) {
+              salMap[`${y}_${m}`] = {
+                baseSalary: Number(r.base_salary) || 0,
+                kpiBonus: Number(r.kpi_bonus) || 0,
+                salesBonus: Number(r.sales_bonus) || 0,
+                otherAllowance: Number(r.other_allowance) || 0,
+                insuranceDeduction: Number(r.insurance_deduction) || 0,
+              };
+            }
+          });
+          setSalaryRecords(prev => ({ ...prev, ...salMap }));
+        }
+      } catch (salErr) {
+        console.warn('Tải salary_records:', salErr);
       }
 
       const { data: usData, error: usError } = await client.from('user_settings').select('*').eq('user_id', user.id).maybeSingle();
@@ -433,6 +490,88 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       default_break_end: updated.default_break_end,
       standard_hours_per_day: updated.standard_hours_per_day
     }, 'Đã lưu cấu hình giờ công');
+  };
+
+  const getSalaryRecord = (month: number, year: number): MonthlySalaryData => {
+    const key = `${year}_${month}`;
+    if (salaryRecords[key]) return salaryRecords[key];
+    if (typeof window !== 'undefined') {
+      const legacy = localStorage.getItem(`app_salary_${year}_${month}`);
+      if (legacy) {
+        try { return JSON.parse(legacy); } catch {}
+      }
+    }
+    return {
+      baseSalary: 0,
+      kpiBonus: 0,
+      salesBonus: 0,
+      otherAllowance: 0,
+      insuranceDeduction: 0,
+    };
+  };
+
+  const saveSalaryRecord = async (month: number, year: number, data: MonthlySalaryData, totalOvertimeMinutes: number = 0) => {
+    const key = `${year}_${month}`;
+    const newMap = { ...salaryRecords, [key]: data };
+    setSalaryRecords(newMap);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('app_salary_records', JSON.stringify(newMap));
+      localStorage.setItem(`app_salary_${year}_${month}`, JSON.stringify(data));
+    }
+
+    // Calculations for cloud summary
+    const standardDays = workSettings.standard_days_per_month || 26;
+    const standardHours = workSettings.standard_hours_per_day || 8;
+    const standardMinutes = standardDays * standardHours * 60;
+    const perMinuteRate = data.baseSalary > 0 && standardMinutes > 0 ? (data.baseSalary / standardMinutes) : 0;
+    const overtimePay = totalOvertimeMinutes > 0 ? (perMinuteRate * totalOvertimeMinutes) : 0;
+    const totalSalary = data.baseSalary + data.kpiBonus + data.salesBonus + data.otherAllowance - data.insuranceDeduction + overtimePay;
+
+    if (!isDemoUser && user) {
+      triggerCloudBackup();
+      try {
+        const { client } = getSupabaseClient();
+        if (client) {
+          // 1. Try upserting to dedicated salary_records table
+          const recordId = `${user.id.slice(0, 18)}-sal-${year}-${month}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+          await client.from('salary_records').upsert({
+            id: recordId,
+            user_id: user.id,
+            month,
+            year,
+            base_salary: data.baseSalary,
+            kpi_bonus: data.kpiBonus,
+            sales_bonus: data.salesBonus,
+            other_allowance: data.otherAllowance,
+            insurance_deduction: data.insuranceDeduction,
+            total_overtime_minutes: totalOvertimeMinutes,
+            overtime_pay: Math.round(overtimePay),
+            total_salary: Math.round(totalSalary),
+            updated_at: new Date().toISOString()
+          });
+
+          // 2. Also backup to work_settings as durable fallback
+          const updatedWorkSettings = {
+            ...workSettings,
+            salary_data: { ...(workSettings.salary_data || {}), [key]: data }
+          };
+          setWorkSettings(updatedWorkSettings);
+          await client.from('work_settings').upsert({
+            id: updatedWorkSettings.id,
+            user_id: user.id,
+            default_check_in: updatedWorkSettings.default_check_in,
+            default_check_out: updatedWorkSettings.default_check_out,
+            default_break_start: updatedWorkSettings.default_break_start,
+            default_break_end: updatedWorkSettings.default_break_end,
+            standard_hours_per_day: updatedWorkSettings.standard_hours_per_day
+          });
+        }
+      } catch (err: any) {
+        console.warn('Lỗi lưu bảng lương lên Cloud:', err);
+      }
+    }
+
+    addToast(`Đã lưu và đồng bộ Bảng Lương Tháng ${month}/${year} lên Supabase Cloud!`, 'success');
   };
 
   const updateUserSettings = async (newSettings: Partial<UserSettings>) => {
@@ -731,11 +870,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setInvestmentAssets([]);
     setInvestmentTransactions([]);
     setPortfolioSnapshots([]);
+    setSalaryRecords({});
     localStorage.removeItem('app_work_logs');
     localStorage.removeItem('app_transactions');
     localStorage.removeItem('app_investment_assets');
     localStorage.removeItem('app_investment_txs');
     localStorage.removeItem('app_portfolio_snapshots');
+    localStorage.removeItem('app_salary_records');
     triggerCloudBackup(false);
     addToast('Đã xóa toàn bộ dữ liệu', 'success');
   };
@@ -751,6 +892,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const payload: R2BackupPayload = {
         workLogs,
         workSettings,
+        salaryRecords,
         transactions,
         categories,
         investmentAssets,
@@ -759,7 +901,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         userSettings,
         backupTimestamp: new Date().toISOString(),
         appVersion: '1.0.0',
-        totalRecords: workLogs.length + transactions.length + investmentAssets.length + investmentTransactions.length + portfolioSnapshots.length,
+        totalRecords: workLogs.length + transactions.length + investmentAssets.length + investmentTransactions.length + portfolioSnapshots.length + Object.keys(salaryRecords).length,
       };
 
       const result = await r2Service.saveBackup(payload);
@@ -799,6 +941,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       if (backup.workSettings) setWorkSettings(backup.workSettings);
       if (backup.userSettings) setUserSettings(backup.userSettings);
+      if (backup.salaryRecords) setSalaryRecords(backup.salaryRecords);
       if (Array.isArray(backup.workLogs)) setWorkLogs(backup.workLogs);
       if (Array.isArray(backup.categories)) setCategories(backup.categories);
       if (Array.isArray(backup.transactions)) setTransactions(backup.transactions);
@@ -857,8 +1000,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   return (
     <DataContext.Provider value={{
       workSettings, workLogs, categories, transactions, investmentAssets, investmentTransactions, portfolioSnapshots,
-      userSettings, calculatedHoldings, toasts, loadingData, syncStatus, lastSyncedAt, syncMessage, isRefreshingPrices,
-      updateWorkSettings, saveWorkLog, deleteWorkLog, getWorkLogsForMonth, saveTransaction, deleteTransaction,
+      salaryRecords, userSettings, calculatedHoldings, toasts, loadingData, syncStatus, lastSyncedAt, syncMessage, isRefreshingPrices,
+      updateWorkSettings, saveSalaryRecord, getSalaryRecord, saveWorkLog, deleteWorkLog, getWorkLogsForMonth, saveTransaction, deleteTransaction,
       saveCategory, deleteCategory, saveInvestmentAsset, updateAssetPrice, deleteInvestmentAsset,
       saveInvestmentTransaction, deleteInvestmentTransaction, refreshMarketPrices, takeDailySnapshot, updateUserSettings,
       addToast, removeToast, clearAllData, syncWithSupabase, triggerCloudBackup,

@@ -37,6 +37,32 @@ export interface WorkSettings {
   default_break_end: string; // e.g. '14:00'
   standard_hours_per_day: number; // e.g. 8.0
   standard_days_per_month?: number; // e.g. 26 days (26 * 8h = 208h)
+  salary_data?: Record<string, any>; // Backup salary JSON
+}
+
+export interface MonthlySalaryData {
+  baseSalary: number;
+  kpiBonus: number;
+  salesBonus: number;
+  otherAllowance: number;
+  insuranceDeduction: number;
+}
+
+export interface SalaryRecord {
+  id?: string;
+  user_id?: string;
+  month: number;
+  year: number;
+  base_salary: number;
+  kpi_bonus: number;
+  sales_bonus: number;
+  other_allowance: number;
+  insurance_deduction: number;
+  total_overtime_minutes?: number;
+  overtime_pay?: number;
+  total_salary?: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface WorkLog {
