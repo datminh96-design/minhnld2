@@ -92,12 +92,12 @@ function getGeminiClient(): GoogleGenAI | null {
   return geminiClient;
 }
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+const app = express();
+export { app };
+const PORT = 3000;
 
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.static(path.join(process.cwd(), 'public')));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.static(path.join(process.cwd(), 'public')));
 
   // API Health check
   app.get('/api/health', (req, res) => {
@@ -1340,23 +1340,6 @@ Hãy cung cấp ĐÚNG 5 TIN TỨC / SỰ KIỆN QUAN TRỌNG MỚI NHẤT trong
     }
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
-    const viteModuleName = 'vite';
-    const { createServer: createViteServer } = await import(/* @vite-ignore */ viteModuleName);
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  }
-
   if (SERVER_SENTRY_DSN) {
     try {
       Sentry.setupExpressErrorHandler(app);
@@ -1365,16 +1348,30 @@ Hãy cung cấp ĐÚNG 5 TIN TỨC / SỰ KIỆN QUAN TRỌNG MỚI NHẤT trong
     }
   }
 
-  return app;
-}
+  export async function setupVite() {
+    // Vite middleware for development
+    if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+      const viteModuleName = 'vite';
+      const { createServer: createViteServer } = await import(/* @vite-ignore */ viteModuleName);
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } else {
+      const distPath = path.join(process.cwd(), 'dist');
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    }
+  }
 
-export default startServer;
-
-if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
-  startServer().then((app) => {
-    const port = Number(process.env.PORT) || 3000;
-    app.listen(port, '0.0.0.0', () => {
-      console.log(`Server running on http://0.0.0.0:${port}`);
+  if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
+    setupVite().then(() => {
+      const port = Number(process.env.PORT) || 3000;
+      app.listen(port, '0.0.0.0', () => {
+        console.log(`Server running on http://0.0.0.0:${port}`);
+      });
     });
-  });
-}
+  }
