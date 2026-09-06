@@ -34,6 +34,7 @@ if (SERVER_SENTRY_DSN) {
 }
 
 let geminiClient: GoogleGenAI | null = null;
+// ... (rest of the file will be maintained correctly)
 
 // In-memory cache for Gemini Technical Analysis to preserve API quota
 const geminiAnalysisCache = new Map<string, { data: any; model: string; timestamp: number }>();
@@ -1370,7 +1371,7 @@ export default startServer;
 
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   startServer().then((app) => {
-    const port = process.env.PORT || 3000;
+    const port = Number(process.env.PORT) || 3000;
     app.listen(port, '0.0.0.0', () => {
       console.log(`Server running on http://0.0.0.0:${port}`);
     });
