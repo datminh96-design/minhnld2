@@ -116,9 +116,59 @@ export function generateEmailHtml(template: string, data: Record<string, any> = 
       const code = data.code || '482910';
       const userEmail = data.email || 'datminh96@gmail.com';
       const expireMinutes = data.expireMinutes || 15;
+      const isRecovery = Boolean(data.isRecovery);
+      const accountEmail = data.accountEmail || userEmail;
 
-      const subject = `[Xác Thực Tài Khoản] Mã xác nhận kích hoạt tài khoản của bạn: ${code}`;
-      const content = `
+      const subject = isRecovery
+        ? `[Xác Thực Email Khôi Phục] Mã xác thực kích hoạt tài khoản của bạn: ${code}`
+        : `[Xác Thực Tài Khoản] Mã xác nhận kích hoạt tài khoản của bạn: ${code}`;
+
+      const content = isRecovery
+        ? `
+        <div style="text-align: center; margin-bottom: 24px;">
+          <div style="display: inline-block; width: 54px; height: 54px; line-height: 54px; background: #ecfdf5; border-radius: 50%; color: #059669; font-size: 26px; border: 2px solid #a7f3d0; margin-bottom: 8px;">🛡️</div>
+          <h2 style="font-size: 20px; color: #0f172a; margin: 8px 0 4px 0; font-weight: 700;">Xác Thực Email Khôi Phục Tài Khoản</h2>
+          <p style="color: #64748b; font-size: 13px; margin: 0;">Xin chào <strong>${recipientName}</strong>, bạn vừa đăng ký địa chỉ email này làm <strong>Email Khôi Phục</strong> dự phòng cho tài khoản của mình.</p>
+        </div>
+
+        <p style="color: #334155; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">
+          Để bảo vệ tài khoản <strong style="color: #059669; font-family: monospace;">${accountEmail}</strong> và kích hoạt khả năng khôi phục mật khẩu, lấy lại tài khoản khẩn cấp qua email này, vui lòng nhập mã OTP 6 chữ số dưới đây:
+        </p>
+
+        <div style="background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%); border: 2px dashed #10b981; border-radius: 14px; padding: 24px; text-align: center; margin: 24px 0;">
+          <span style="font-size: 11px; text-transform: uppercase; color: #059669; font-weight: 700; letter-spacing: 1.5px; display: block; margin-bottom: 8px;">Mã Xác Thực Kích Hoạt Email Khôi Phục (OTP)</span>
+          <div style="font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #065f46; font-family: monospace; padding: 4px 0;">
+            ${code}
+          </div>
+          <span style="font-size: 12px; color: #059669; display: block; margin-top: 8px;">⏱️ Mã này có hiệu lực trong vòng <strong>${expireMinutes} phút</strong></span>
+        </div>
+
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 24px; font-size: 13px;">
+          <table width="100%" border="0" cellpadding="4" cellspacing="0">
+            <tr>
+              <td style="color: #64748b; width: 40%;">Email khôi phục:</td>
+              <td style="color: #0f172a; font-weight: 600; font-family: monospace;">${userEmail}</td>
+            </tr>
+            <tr>
+              <td style="color: #64748b;">Tài khoản liên kết:</td>
+              <td style="color: #0f172a; font-weight: 600; font-family: monospace;">${accountEmail}</td>
+            </tr>
+            <tr>
+              <td style="color: #64748b;">Thời gian đăng ký:</td>
+              <td style="color: #0f172a; font-weight: 600;">${currentDate}</td>
+            </tr>
+            <tr>
+              <td style="color: #64748b;">Cơ chế bảo mật:</td>
+              <td style="color: #059669; font-weight: 600;">Xác thực 2 lớp & Khôi phục khẩn cấp</td>
+            </tr>
+          </table>
+        </div>
+
+        <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin-bottom: 0;">
+          🔒 <strong>Lưu ý an toàn:</strong> Không chia sẻ mã xác thực này cho bất kỳ ai. Nếu bạn không thực hiện yêu cầu đăng ký email khôi phục này, vui lòng bỏ qua thư này.
+        </p>
+      `
+        : `
         <div style="text-align: center; margin-bottom: 24px;">
           <div style="display: inline-block; width: 54px; height: 54px; line-height: 54px; background: #ecfdf5; border-radius: 50%; color: #059669; font-size: 26px; border: 2px solid #a7f3d0; margin-bottom: 8px;">✨</div>
           <h2 style="font-size: 20px; color: #0f172a; margin: 8px 0 4px 0; font-weight: 700;">Chào mừng bạn đến với hệ thống!</h2>
