@@ -3,6 +3,7 @@ import { Sidebar, NavTab } from './Sidebar';
 import { Header } from './Header';
 import { ToastContainer } from '../ui/Toast';
 import { useData } from '../../context/DataContext';
+import { useAuth } from '../../context/AuthContext';
 
 const DashboardView = lazy(() => import('../../features/dashboard/DashboardView').then(m => ({ default: m.DashboardView })));
 const WorkView = lazy(() => import('../../features/work/WorkView').then(m => ({ default: m.WorkView })));
@@ -13,6 +14,7 @@ const SettingsView = lazy(() => import('../../features/settings/SettingsView').t
 const AuthModal = lazy(() => import('../../features/auth/AuthModal').then(m => ({ default: m.AuthModal })));
 
 export const AppLayout: React.FC = () => {
+  const { isAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState<NavTab>(() => {
     if (typeof window !== 'undefined') {
       const savedTab = localStorage.getItem('activeTab');
@@ -24,8 +26,12 @@ export const AppLayout: React.FC = () => {
   });
 
   useEffect(() => {
-    localStorage.setItem('activeTab', activeTab);
-  }, [activeTab]);
+    if (activeTab === 'settings' && !isAdmin) {
+      setActiveTab('dashboard');
+    } else {
+      localStorage.setItem('activeTab', activeTab);
+    }
+  }, [activeTab, isAdmin]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isOpenMobile, setIsOpenMobile] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -113,7 +119,7 @@ export const AppLayout: React.FC = () => {
 
             {activeTab === 'reports' && <ReportsView />}
 
-            {activeTab === 'settings' && <SettingsView />}
+            {activeTab === 'settings' && isAdmin && <SettingsView />}
           </Suspense>
         </main>
       </div>

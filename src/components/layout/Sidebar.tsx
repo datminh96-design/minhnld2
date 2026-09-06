@@ -36,7 +36,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setIsOpenMobile,
   openAuthModal,
 }) => {
-  const { isSupabaseConfigured, isDemoUser, profile } = useAuth();
+  const { isSupabaseConfigured, isDemoUser, profile, isAdmin } = useAuth();
 
   const navItems = [
     {
@@ -74,14 +74,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badge: undefined,
       color: 'text-indigo-500',
     },
-    {
+  ];
+
+  if (isAdmin) {
+    navItems.push({
       id: 'settings' as NavTab,
       label: 'Cài Đặt',
       icon: Settings,
       badge: undefined,
       color: 'text-slate-400',
-    },
-  ];
+    });
+  }
 
   const handleTabClick = (tab: NavTab) => {
     setActiveTab(tab);
