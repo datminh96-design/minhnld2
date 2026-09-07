@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
 import { formatCurrency } from '../../lib/utils';
-import { Save, Calculator, Cloud, CheckCircle2, Loader2, CloudCheck } from 'lucide-react';
+import { Save, Calculator, Cloud, CheckCircle2, Loader2, Briefcase, Clock, AlertCircle } from 'lucide-react';
 import { MonthlySalaryData } from '../../types';
 
 interface SalaryCalculatorProps {
@@ -11,12 +11,30 @@ interface SalaryCalculatorProps {
 }
 
 export const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({ month, year, totalOvertimeMinutes }) => {
-  const { workSettings, getSalaryRecord, saveSalaryRecord, syncStatus } = useData();
+  const { workSettings, getSalaryRecord, saveSalaryRecord, businessTrips } = useData();
 
   const [data, setData] = useState<MonthlySalaryData>(() => getSalaryRecord(month, year));
   const [isSaved, setIsSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const isInitialMount = useRef(true);
+
+  // Business Trips for this month
+  const monthPrefix = `${year}-${String(month).padStart(2, '0')}`;
+  const monthTripsSummary = useMemo(() => {
+    const list = businessTrips.filter((t) => t.trip_date.startsWith(monthPrefix));
+    let pendingAmount = 0;
+    let paidAmount = 0;
+    list.forEach((t) => {
+      if (t.is_paid) paidAmount += t.total_amount || 0;
+      else pendingAmount += t.total_amount || 0;
+    });
+    return {
+      count: list.length,
+      pendingAmount,
+      paidAmount,
+      totalAmount: pendingAmount + paidAmount,
+    };
+  }, [businessTrips, monthPrefix]);
 
   // Sync state when month/year changes or when loaded from cloud
   useEffect(() => {
@@ -232,6 +250,34 @@ export const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({ month, year,
                 </span>
               </div>
             </div>
+
+            {/* Phụ cấp Công Tác Phí Tháng */}
+            {monthTripsSummary.count > 0 && (
+              <div className="mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs space-y-1.5">
+                <div className="flex items-center justify-between font-bold text-amber-700 dark:text-amber-300">
+                  <span className="flex items-center gap-1.5">
+                    <Briefcase className="w-3.5 h-3.5" /> Công Tác Phí ({monthTripsSummary.count} chuyến)
+                  </span>
+                  <span className="font-mono">{formatCurrency(monthTripsSummary.totalAmount)}</span>
+                </div>
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" /> Chờ thanh toán:
+                  </span>
+                  <span className="font-bold text-rose-600 dark:text-rose-400 font-mono">
+                    {formatCurrency(monthTripsSummary.pendingAmount)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" /> Đã thanh toán:
+                  </span>
+                  <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                    {formatCurrency(monthTripsSummary.paidAmount)}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="mt-6 pt-5 border-t-2 border-dashed border-slate-200 dark:border-slate-700">

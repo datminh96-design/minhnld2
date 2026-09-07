@@ -3,7 +3,7 @@ import {
   WorkSettings, WorkLog, ExpenseCategory, Transaction,
   InvestmentAsset, InvestmentTransaction, PortfolioSnapshot,
   UserSettings, CloudSyncStatus, ToastMessage, CalculatedAssetHolding,
-  MonthlySalaryData, SalaryRecord
+  MonthlySalaryData, SalaryRecord, BusinessTripExpense
 } from '../types';
 import {
   DEFAULT_WORK_SETTINGS,
@@ -14,6 +14,7 @@ import {
   getInitialInvestmentAssets,
   getInitialInvestmentTransactions,
   getInitialPortfolioSnapshots,
+  getInitialBusinessTrips,
 } from '../lib/seedData';
 import { useAuth } from './AuthContext';
 import { getSupabaseClient } from '../lib/supabase';
@@ -26,6 +27,7 @@ import { emailService, SendEmailPayload, SendEmailResponse } from '../services/e
 interface DataContextType {
   workSettings: WorkSettings;
   workLogs: WorkLog[];
+  businessTrips: BusinessTripExpense[];
   categories: ExpenseCategory[];
   transactions: Transaction[];
   investmentAssets: InvestmentAsset[];
@@ -46,6 +48,9 @@ interface DataContextType {
   saveWorkLog: (log: Omit<WorkLog, 'id'> & { id?: string }) => Promise<void>;
   deleteWorkLog: (id: string) => Promise<void>;
   getWorkLogsForMonth: (month: number, year: number) => WorkLog[];
+  saveBusinessTrip: (trip: Omit<BusinessTripExpense, 'id'> & { id?: string }) => Promise<void>;
+  deleteBusinessTrip: (id: string) => Promise<void>;
+  toggleBusinessTripPayment: (id: string) => Promise<void>;
   saveTransaction: (tx: Omit<Transaction, 'id'> & { id?: string }) => Promise<void>;
   deleteTransaction: (id: string) => Promise<void>;
   saveCategory: (cat: Omit<ExpenseCategory, 'id'> & { id?: string }) => Promise<void>;
@@ -88,6 +93,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [workLogs, setWorkLogs] = useState<WorkLog[]>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('app_work_logs') : null;
     return saved ? JSON.parse(saved) : getInitialWorkLogs();
+  });
+  const [businessTrips, setBusinessTrips] = useState<BusinessTripExpense[]>(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('app_business_trips') : null;
+    return saved ? JSON.parse(saved) : getInitialBusinessTrips();
   });
   const [categories, setCategories] = useState<ExpenseCategory[]>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('app_expense_categories') : null;
@@ -276,6 +285,26 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           overtime_hours: Number(l.overtime_hours) || 0,
           missing_hours: Number(l.missing_hours) || 0
         })));
+      }
+
+      // Load business trips
+      try {
+        const { data: btData, error: btError } = await client.from('business_trips').select('*').eq('user_id', user.id).order('trip_date', { ascending: false });
+        if (!btError && btData && Array.isArray(btData)) {
+          setBusinessTrips(btData.map((t: any) => ({
+            ...t,
+            days_count: Number(t.days_count) || 1,
+            daily_allowance_rate: Number(t.daily_allowance_rate) || 160000,
+            total_daily_allowance: Number(t.total_daily_allowance) || 0,
+            hotel_cost: Number(t.hotel_cost) || 0,
+            outbound_cost: Number(t.outbound_cost) || 0,
+            return_cost: Number(t.return_cost) || 0,
+            total_amount: Number(t.total_amount) || 0,
+            is_paid: Boolean(t.is_paid)
+          })));
+        }
+      } catch (btErr) {
+        console.warn('Tải business_trips:', btErr);
       }
 
       const { data: catData, error: catError } = await client.from('expense_categories').select('*').or(`user_id.eq.${user.id},is_default.eq.true`);
@@ -634,6 +663,83 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
   };
 
+  const saveBusinessTrip = async (tripData: Omit<BusinessTripExpense, 'id'> & { id?: string }) => {
+    const id = tripData.id || generateUUID();
+    const days = Math.max(1, Number(tripData.days_count) || 1);
+    const rate = Number(tripData.daily_allowance_rate) || 160000;
+    const hotel = Number(tripData.hotel_cost) || 0;
+    const outbound = Number(tripData.outbound_cost) || 0;
+    const returnCost = Number(tripData.return_cost) || 0;
+    const totalDaily = Number(tripData.total_daily_allowance) || (days * rate);
+    const grandTotal = Number(tripData.total_amount) || (totalDaily + hotel + outbound + returnCost);
+
+    const fullTrip: BusinessTripExpense = {
+      ...tripData,
+      id,
+      days_count: days,
+      daily_allowance_rate: rate,
+      total_daily_allowance: totalDaily,
+      hotel_cost: hotel,
+      outbound_cost: outbound,
+      return_cost: returnCost,
+      total_amount: grandTotal,
+      is_paid: Boolean(tripData.is_paid),
+      created_at: tripData.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    setBusinessTrips(prev => {
+      const idx = prev.findIndex(t => t.id === id);
+      const next = idx >= 0 ? prev.map(t => t.id === id ? fullTrip : t) : [fullTrip, ...prev];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_business_trips', JSON.stringify(next));
+      }
+      return next;
+    });
+
+    await runUpsert('business_trips', fullTrip, `Đã lưu công tác phí ngày ${fullTrip.trip_date}`);
+  };
+
+  const deleteBusinessTrip = async (id: string) => {
+    setBusinessTrips(prev => {
+      const next = prev.filter(t => t.id !== id);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_business_trips', JSON.stringify(next));
+      }
+      return next;
+    });
+    await runDelete('business_trips', id, 'Đã xóa bản ghi công tác phí');
+  };
+
+  const toggleBusinessTripPayment = async (id: string) => {
+    const target = businessTrips.find(t => t.id === id);
+    if (!target) return;
+    const updatedIsPaid = !target.is_paid;
+    const updatedTrip: BusinessTripExpense = {
+      ...target,
+      is_paid: updatedIsPaid,
+      paid_at: updatedIsPaid ? new Date().toISOString() : undefined,
+      updated_at: new Date().toISOString()
+    };
+
+    setBusinessTrips(prev => {
+      const next = prev.map(t => t.id === id ? updatedTrip : t);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_business_trips', JSON.stringify(next));
+      }
+      return next;
+    });
+
+    await runUpsert(
+      'business_trips',
+      updatedTrip,
+      updatedIsPaid
+        ? 'Đã thanh toán (Màu xanh, chuyển xuống dưới)'
+        : 'Chờ thanh toán (Chữ đỏ, đưa lên đầu)'
+    );
+  };
+
+
   const saveTransaction = async (txData: Omit<Transaction, 'id'> & { id?: string }) => {
     const id = txData.id || generateUUID();
     const isNew = !txData.id;
@@ -870,6 +976,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setWorkSettings(DEFAULT_WORK_SETTINGS);
     setUserSettings(DEFAULT_USER_SETTINGS);
     setWorkLogs([]);
+    setBusinessTrips([]);
     setCategories(DEFAULT_EXPENSE_CATEGORIES);
     setTransactions([]);
     setInvestmentAssets([]);
@@ -877,6 +984,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setPortfolioSnapshots([]);
     setSalaryRecords({});
     localStorage.removeItem('app_work_logs');
+    localStorage.removeItem('app_business_trips');
     localStorage.removeItem('app_transactions');
     localStorage.removeItem('app_investment_assets');
     localStorage.removeItem('app_investment_txs');
@@ -1004,9 +1112,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   return (
     <DataContext.Provider value={{
-      workSettings, workLogs, categories, transactions, investmentAssets, investmentTransactions, portfolioSnapshots,
+      workSettings, workLogs, businessTrips, categories, transactions, investmentAssets, investmentTransactions, portfolioSnapshots,
       salaryRecords, userSettings, calculatedHoldings, toasts, loadingData, syncStatus, lastSyncedAt, syncMessage, isRefreshingPrices,
-      updateWorkSettings, saveSalaryRecord, getSalaryRecord, saveWorkLog, deleteWorkLog, getWorkLogsForMonth, saveTransaction, deleteTransaction,
+      updateWorkSettings, saveSalaryRecord, getSalaryRecord, saveWorkLog, deleteWorkLog, getWorkLogsForMonth,
+      saveBusinessTrip, deleteBusinessTrip, toggleBusinessTripPayment,
+      saveTransaction, deleteTransaction,
       saveCategory, deleteCategory, saveInvestmentAsset, updateAssetPrice, deleteInvestmentAsset,
       saveInvestmentTransaction, deleteInvestmentTransaction, refreshMarketPrices, takeDailySnapshot, updateUserSettings,
       addToast, removeToast, clearAllData, syncWithSupabase, triggerCloudBackup,

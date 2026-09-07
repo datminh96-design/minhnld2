@@ -207,3 +207,24 @@ export interface ToastMessage {
   message: string;
   type: 'success' | 'error' | 'info' | 'warning';
 }
+
+export interface BusinessTripExpense {
+  id: string;
+  user_id?: string;
+  trip_date: string; // YYYY-MM-DD (Ngày bắt đầu/công tác)
+  end_date?: string; // YYYY-MM-DD
+  days_count: number; // Số ngày công tác
+  daily_allowance_rate: number; // 160000 hoặc 200000 hoặc số tiền khác
+  total_daily_allowance: number; // days_count * daily_allowance_rate
+  hotel_cost: number; // Tiền khách sạn
+  outbound_cost: number; // Tiền lượt đi
+  return_cost: number; // Tiền lượt về
+  total_amount: number; // Tổng tiền = Tiền phụ cấp ngày + Khách sạn + Lượt đi + Lượt về
+  is_paid: boolean; // false = Chờ thanh toán (đỏ), true = Đã thanh toán (xanh mờ, đưa xuống dưới cùng)
+  paid_at?: string; // Thời gian đánh dấu thanh toán
+  location?: string; // Địa điểm / Mục đích công tác
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+

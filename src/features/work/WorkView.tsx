@@ -13,6 +13,7 @@ import { exportWorkLogsToExcel } from '../../lib/excelExport';
 import { Modal } from '../../components/ui/Modal';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { SalaryCalculator } from './SalaryCalculator';
+import { BusinessTripView } from './BusinessTripView';
 import { 
   Clock, 
   Calendar, 
@@ -30,7 +31,8 @@ import {
   TrendingUp,
   Award,
   Table as TableIcon,
-  LayoutGrid
+  LayoutGrid,
+  Briefcase
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -89,7 +91,7 @@ export const WorkView: React.FC = () => {
   const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [viewMode, setViewMode] = useState<'simple' | 'table' | 'charts' | 'salary'>('simple');
+  const [viewMode, setViewMode] = useState<'simple' | 'table' | 'charts' | 'salary' | 'business_trip'>('simple');
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -530,6 +532,18 @@ export const WorkView: React.FC = () => {
             >
               Bảng Lương
             </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('business_trip')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                viewMode === 'business_trip'
+                  ? 'bg-amber-500 text-white shadow-xs font-bold'
+                  : 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+              }`}
+            >
+              <Briefcase className="w-3.5 h-3.5" />
+              <span>Công Tác Phí</span>
+            </button>
           </div>
 
           <button
@@ -605,7 +619,12 @@ export const WorkView: React.FC = () => {
       </div>
 
       {/* Main View Area */}
-      {viewMode === 'salary' ? (
+      {viewMode === 'business_trip' ? (
+        <BusinessTripView
+          month={selectedMonth}
+          year={selectedYear}
+        />
+      ) : viewMode === 'salary' ? (
         <SalaryCalculator 
           month={selectedMonth}
           year={selectedYear}

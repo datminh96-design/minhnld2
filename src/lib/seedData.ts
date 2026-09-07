@@ -7,7 +7,8 @@ import {
   PortfolioSnapshot,
   WorkSettings,
   UserSettings,
-  Profile
+  Profile,
+  BusinessTripExpense
 } from '../types';
 
 export const DEFAULT_PROFILE: Profile = {
@@ -76,3 +77,8 @@ export const getInitialInvestmentTransactions = (): InvestmentTransaction[] => {
 export const getInitialPortfolioSnapshots = (): PortfolioSnapshot[] => {
   return [];
 };
+
+export const getInitialBusinessTrips = (): BusinessTripExpense[] => {
+  return [];
+};
+
