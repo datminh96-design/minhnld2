@@ -24,6 +24,8 @@ interface Props {
   isLoading: boolean;
   onRefresh: () => void;
   activeModel?: string;
+  onSelectMover?: (item: AssetMoverItem) => void;
+  selectedMoverSymbol?: string;
 }
 
 type FilterTab = 'all' | 'crypto' | 'stock' | 'gainers' | 'losers';
@@ -33,6 +35,8 @@ export const MarketTopMoversView: React.FC<Props> = ({
   isLoading,
   onRefresh,
   activeModel = 'gemini-3.8-flash',
+  onSelectMover,
+  selectedMoverSymbol,
 }) => {
   const [filterTab, setFilterTab] = useState<FilterTab>('all');
 
@@ -48,6 +52,7 @@ export const MarketTopMoversView: React.FC<Props> = ({
 
   const renderMoverCard = (item: AssetMoverItem, rank: number, isGain: boolean) => {
     const isCrypto = item.category === 'crypto';
+    const isSelected = selectedMoverSymbol?.toUpperCase() === item.symbol.toUpperCase();
     const rankColor = rank === 1 
       ? isGain ? 'bg-amber-400 text-amber-950 font-black shadow-xs' : 'bg-rose-500 text-white font-black shadow-xs'
       : rank === 2 
@@ -56,14 +61,18 @@ export const MarketTopMoversView: React.FC<Props> = ({
       ? isGain ? 'bg-amber-600 text-white font-bold' : 'bg-rose-300 text-rose-950 font-bold'
       : isGain ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-bold' : 'bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300 font-bold';
 
-    const cardBorder = isGain
-      ? 'border-emerald-200/70 dark:border-emerald-900/50 bg-white dark:bg-slate-900/90 hover:border-emerald-400 dark:hover:border-emerald-700'
-      : 'border-rose-200/70 dark:border-rose-900/50 bg-white dark:bg-slate-900/90 hover:border-rose-400 dark:hover:border-rose-700';
+    const cardBorder = isSelected
+      ? 'border-purple-500 dark:border-purple-500 bg-purple-50/40 dark:bg-purple-950/40 ring-2 ring-purple-500/30'
+      : isGain
+      ? 'border-emerald-200/70 dark:border-emerald-900/50 bg-white dark:bg-slate-900/90 hover:border-emerald-400 dark:hover:border-emerald-700 hover:shadow-xs'
+      : 'border-rose-200/70 dark:border-rose-900/50 bg-white dark:bg-slate-900/90 hover:border-rose-400 dark:hover:border-rose-700 hover:shadow-xs';
 
     return (
       <div
         key={`${item.category}-${item.symbol}-${rank}`}
-        className={`p-3 rounded-2xl border transition-all duration-150 shadow-2xs hover:shadow-xs space-y-2 ${cardBorder}`}
+        onClick={() => onSelectMover && onSelectMover(item)}
+        className={`p-3 rounded-2xl border transition-all duration-150 shadow-2xs space-y-2 cursor-pointer group ${cardBorder}`}
+        title="Bấm để chạy phân tích kỹ thuật AI 4H cho mã này"
       >
         {/* Header: Rank, Symbol, Name, Price & Change */}
         <div className="flex items-center justify-between gap-2">
@@ -75,12 +84,17 @@ export const MarketTopMoversView: React.FC<Props> = ({
             </span>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="font-mono font-bold text-xs sm:text-sm text-slate-900 dark:text-white tracking-wide">
+                <span className="font-mono font-bold text-xs sm:text-sm text-slate-900 dark:text-white tracking-wide group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
                   {item.symbol}
                 </span>
                 <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 uppercase">
                   {isCrypto ? 'Crypto' : 'Cổ Phiếu VN'}
                 </span>
+                {isSelected && (
+                  <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-purple-600 text-white">
+                    Đang xem 4H
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[160px] sm:max-w-[200px]">
                 {item.name}
@@ -107,13 +121,13 @@ export const MarketTopMoversView: React.FC<Props> = ({
 
         {/* Lý do tăng / giảm */}
         <div
-          className={`p-2 rounded-xl text-[11px] leading-relaxed border ${
+          className={`p-2 rounded-xl text-[11px] leading-relaxed border flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 ${
             isGain
               ? 'bg-emerald-50/50 dark:bg-emerald-950/30 border-emerald-200/50 dark:border-emerald-900/40 text-emerald-950 dark:text-emerald-200'
               : 'bg-rose-50/50 dark:bg-rose-950/30 border-rose-200/50 dark:border-rose-900/40 text-rose-950 dark:text-rose-200'
           }`}
         >
-          <div className="flex items-start gap-1">
+          <div className="flex items-start gap-1 flex-1">
             <span className="font-bold shrink-0 text-slate-900 dark:text-white">
               {isGain ? '💡 Lý do:' : '⚠️ Lý do:'}
             </span>
@@ -121,6 +135,17 @@ export const MarketTopMoversView: React.FC<Props> = ({
               {item.reason}
             </span>
           </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelectMover && onSelectMover(item);
+            }}
+            className="shrink-0 self-end sm:self-center px-2 py-0.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-purple-600 hover:text-white dark:hover:bg-purple-600 text-purple-700 dark:text-purple-300 font-bold text-[10px] border border-purple-200 dark:border-purple-800 flex items-center gap-1 transition-all shadow-2xs cursor-pointer"
+          >
+            <Sparkles className="w-2.5 h-2.5" />
+            <span>Phân tích AI 4H</span>
+          </button>
         </div>
       </div>
     );

@@ -305,6 +305,9 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
     }
   };
 
+  // Extra market mover symbols that have been clicked and analyzed by user
+  const [extraMarketSymbols, setExtraMarketSymbols] = useState<string[]>([]);
+
   // Helper when user selects a tab - trigger AI fetch if not already enhanced
   const handleSelectAssetTab = (sym: string) => {
     setSelectedSymbol(sym);
@@ -327,6 +330,48 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
             setAiRefreshingSymbol(null);
           });
       }
+    }
+  };
+
+  // Select and analyze any Top 5 Mover coin/stock directly
+  const handleSelectMoverAsset = async (mover: AssetMoverItem) => {
+    const sym = mover.symbol.toUpperCase();
+    setSelectedSymbol(sym);
+    setViewMode('single');
+
+    if (!extraMarketSymbols.includes(sym) && !sortedHoldings.some((h) => h.asset.asset_symbol.toUpperCase() === sym)) {
+      setExtraMarketSymbols((prev) => [...prev, sym]);
+    }
+
+    // If it's already in holdings
+    const existingHolding = sortedHoldings.find((h) => h.asset.asset_symbol.toUpperCase() === sym);
+    if (existingHolding) {
+      handleSelectAssetTab(sym);
+      return;
+    }
+
+    // If already analyzed
+    if (analyses[sym] && analyses[sym].isAiEnhanced) {
+      return;
+    }
+
+    setAiRefreshingSymbol(sym);
+    try {
+      addToast(`Đang chạy phân tích kỹ thuật 4H AI cho mã ${sym}...`, 'info');
+      const moverAnalysis = await technicalAnalysisService.analyzeMoverOrCustomAsset(
+        mover,
+        25400,
+        false,
+        selectedModel,
+        true
+      );
+      setAnalyses((prev) => ({ ...prev, [sym]: moverAnalysis }));
+      addToast(`Đã hoàn tất phân tích kỹ thuật 4H cho ${sym}!`, 'success');
+    } catch (err) {
+      console.error('Failed to analyze mover asset:', err);
+      addToast(`Không thể phân tích mã ${sym}`, 'error');
+    } finally {
+      setAiRefreshingSymbol(null);
     }
   };
 
@@ -495,7 +540,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Asset Quick Switch Pills - Sorted by Highest Capital from Left */}
+        {/* Asset Quick Switch Pills - Sorted by Highest Capital from Left + Any Analyzed Market Movers */}
         <div className="flex items-center gap-1.5 mt-4 overflow-x-auto pb-1 scrollbar-none">
           {sortedHoldings.map((h) => {
             const sym = h.asset.asset_symbol.toUpperCase();
@@ -515,6 +560,44 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
                 }`}
               >
                 <span className="font-bold">{sym}</span>
+                {analysis && (
+                  <span
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                      isSelected
+                        ? 'bg-purple-800 text-white'
+                        : isBullish
+                        ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                        : 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300'
+                    }`}
+                  >
+                    {isBullish ? `↗ ${analysis.upProbability}%` : `↘ ${analysis.downProbability}%`}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+
+          {/* Extra Mover Symbols analyzed */}
+          {extraMarketSymbols.map((sym) => {
+            const analysis = analyses[sym];
+            const isSelected = selectedSymbol === sym && viewMode === 'single';
+            const isBullish = (analysis?.upProbability || 50) >= 50;
+
+            return (
+              <button
+                key={`extra-${sym}`}
+                type="button"
+                onClick={() => {
+                  setSelectedSymbol(sym);
+                  setViewMode('single');
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap border ${
+                  isSelected
+                    ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                    : 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-800 hover:border-purple-400'
+                }`}
+              >
+                <span className="font-bold">⭐ {sym}</span>
                 {analysis && (
                   <span
                     className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
@@ -598,6 +681,8 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
           isLoading={isMoversLoading}
           onRefresh={handleRefreshMoversOnly}
           activeModel={selectedModel}
+          onSelectMover={handleSelectMoverAsset}
+          selectedMoverSymbol={selectedSymbol}
         />
       </div>
 

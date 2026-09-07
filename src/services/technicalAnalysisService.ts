@@ -288,6 +288,28 @@ export function calculateBollinger(closes: number[], period: number = 20, multip
   };
 }
 
+export const CRYPTO_NAMES: Record<string, string> = {
+  BTC: 'Bitcoin', ETH: 'Ethereum', SOL: 'Solana', BNB: 'Binance Coin', SUI: 'Sui Network',
+  DOGE: 'Dogecoin', XRP: 'Ripple XRP', NEAR: 'NEAR Protocol', AVAX: 'Avalanche', LINK: 'Chainlink',
+  PEPE: 'Pepe', RENDER: 'Render Network', TON: 'Toncoin', TIA: 'Celestia', ARB: 'Arbitrum',
+  OP: 'Optimism', SHIB: 'Shiba Inu', APT: 'Aptos', FET: 'Artificial Superintelligence',
+  SEI: 'Sei Network', INJ: 'Injective', WLD: 'Worldcoin', STRK: 'Starknet', ADA: 'Cardano',
+  DOT: 'Polkadot', UNI: 'Uniswap', LTC: 'Litecoin', FIL: 'Filecoin', GALA: 'Gala',
+  FTM: 'Fantom', TRX: 'TRON', POL: 'Polygon (POL)', ICP: 'Internet Computer',
+};
+
+export const STOCK_NAMES: Record<string, string> = {
+  TPB: 'Ngân hàng Tiên Phong', VCB: 'Vietcombank', HPG: 'Tập đoàn Hòa Phát', FPT: 'Tập đoàn FPT',
+  MWG: 'Thế Giới Di Động', SSI: 'Chứng khoán SSI', TCB: 'Techcombank', MBB: 'Ngân hàng Quân Đội',
+  VHM: 'Vinhomes', VIC: 'Vingroup', STB: 'Sacombank', DGC: 'Hóa chất Đức Giang', CTG: 'VietinBank',
+  ACB: 'Ngân hàng Á Châu', VPB: 'VPBank', HDB: 'HDBank', VND: 'Chứng khoán VNDirect', GEX: 'Tập đoàn GELEX',
+  VRE: 'Vincom Retail', GAS: 'PV Gas', MSN: 'Masan Group', PLX: 'Petrolimex', PNJ: 'Vàng Phú Nhuận',
+  VNM: 'Vinamilk', KDH: 'Nhà Khang Điền', PDR: 'BĐS Phát Đạt', NVL: 'Novaland', DIG: 'DIC Corp',
+  KBC: 'Kinh Bắc City', PVD: 'PV Drilling', SHB: 'Ngân hàng SHB', LPB: 'LPBank', VIB: 'Ngân hàng VIB',
+  MSB: 'Ngân hàng Hàng Hải', VCI: 'Chứng khoán Vietcap', HCM: 'Chứng khoán HSC', DXG: 'Đất Xanh Group',
+  DBC: 'Dabaco', HSG: 'Hoa Sen Group', NKG: 'Thép Nam Kim',
+};
+
 class TechnicalAnalysisService {
   private cache: Map<string, { analysis: Asset4HAnalysis; timestamp: number }> = new Map();
   private readonly CACHE_DURATION_MS = 4 * 60 * 60 * 1000; // 4 hours
@@ -382,7 +404,7 @@ class TechnicalAnalysisService {
     const currentPriceVnd = holding.asset.current_price || 1;
     const avgCostVnd = holding.averageCost || currentPriceVnd;
     const pnlPercent = holding.profitPercentage || 0;
-    const isCrypto = holding.asset.asset_type === 'crypto' || symbol === 'BTC' || symbol === 'ETH' || symbol === 'SOL' || symbol === 'BNB';
+    const isCrypto = holding.asset.asset_type === 'crypto' || Boolean(CRYPTO_NAMES[symbol]) || symbol === 'BTC' || symbol === 'ETH' || symbol === 'SOL' || symbol === 'BNB' || symbol === 'SUI' || symbol === 'XRP';
 
     let currentPriceUsdt = isCrypto && usdtRate > 0 ? Number((currentPriceVnd / usdtRate).toFixed(2)) : undefined;
     let avgCostUsdt = isCrypto && usdtRate > 0 && avgCostVnd > 0 ? Number((avgCostVnd / usdtRate).toFixed(2)) : undefined;
@@ -809,31 +831,60 @@ class TechnicalAnalysisService {
     }
   }
 
+  // Helper method to analyze a top mover asset or custom search symbol (even if not in holdings)
+  public async analyzeMoverOrCustomAsset(
+    item: {
+      symbol: string;
+      name?: string;
+      category?: 'crypto' | 'stock' | 'fund' | 'gold';
+      priceFormatted?: string;
+      changePercent?: number;
+    },
+    usdtRate: number = 25400,
+    forceRefresh: boolean = false,
+    model: string = 'gemini-3.7-flash',
+    includeAi: boolean = true
+  ): Promise<Asset4HAnalysis> {
+    const sym = item.symbol.toUpperCase();
+    const isCrypto = item.category === 'crypto' || Boolean(CRYPTO_NAMES[sym]);
+    const name = item.name || (isCrypto ? CRYPTO_NAMES[sym] || sym : STOCK_NAMES[sym] || sym);
+    const assetType = item.category || (isCrypto ? 'crypto' : 'stock');
+
+    // Parse price if available
+    let priceVnd = 100000;
+    if (item.priceFormatted) {
+      const clean = item.priceFormatted.replace(/[^0-9.]/g, '');
+      const parsed = parseFloat(clean);
+      if (parsed > 0) {
+        if (item.priceFormatted.includes('$')) {
+          priceVnd = Math.round(parsed * usdtRate);
+        } else {
+          priceVnd = Math.round(parsed);
+        }
+      }
+    }
+
+    const mockHolding = {
+      asset: {
+        id: `mover_${sym}`,
+        asset_symbol: sym,
+        asset_name: name,
+        asset_type: assetType,
+        current_price: priceVnd,
+      },
+      averageCost: priceVnd * 0.96, // baseline hypothetical entry
+      currentQuantity: 1,
+      profitPercentage: item.changePercent || 0,
+      totalInvested: priceVnd,
+      currentValue: priceVnd,
+    };
+
+    return this.analyzeAsset(mockHolding, usdtRate, forceRefresh, model, includeAi);
+  }
+
   // Fetch real-time live crypto & stock tickers directly from market feeds
   private async fetchDirectLiveMovers(): Promise<MarketTopMoversReport> {
     const cycleInfo = get4HCycleInfo(new Date());
-
-    const CRYPTO_NAMES: Record<string, string> = {
-      BTC: 'Bitcoin', ETH: 'Ethereum', SOL: 'Solana', BNB: 'Binance Coin', SUI: 'Sui Network',
-      DOGE: 'Dogecoin', XRP: 'Ripple XRP', NEAR: 'NEAR Protocol', AVAX: 'Avalanche', LINK: 'Chainlink',
-      PEPE: 'Pepe', RENDER: 'Render Network', TON: 'Toncoin', TIA: 'Celestia', ARB: 'Arbitrum',
-      OP: 'Optimism', SHIB: 'Shiba Inu', APT: 'Aptos', FET: 'Artificial Superintelligence',
-      SEI: 'Sei Network', INJ: 'Injective', WLD: 'Worldcoin', STRK: 'Starknet', ADA: 'Cardano',
-      DOT: 'Polkadot', UNI: 'Uniswap', LTC: 'Litecoin', FIL: 'Filecoin', GALA: 'Gala',
-      FTM: 'Fantom', TRX: 'TRON', POL: 'Polygon (POL)', ICP: 'Internet Computer',
-    };
-
-    const STOCK_NAMES: Record<string, string> = {
-      TPB: 'Ngân hàng Tiên Phong', VCB: 'Vietcombank', HPG: 'Tập đoàn Hòa Phát', FPT: 'Tập đoàn FPT',
-      MWG: 'Thế Giới Di Động', SSI: 'Chứng khoán SSI', TCB: 'Techcombank', MBB: 'Ngân hàng Quân Đội',
-      VHM: 'Vinhomes', VIC: 'Vingroup', STB: 'Sacombank', DGC: 'Hóa chất Đức Giang', CTG: 'VietinBank',
-      ACB: 'Ngân hàng Á Châu', VPB: 'VPBank', HDB: 'HDBank', VND: 'Chứng khoán VNDirect', GEX: 'Tập đoàn GELEX',
-      VRE: 'Vincom Retail', GAS: 'PV Gas', MSN: 'Masan Group', PLX: 'Petrolimex', PNJ: 'Vàng Phú Nhuận',
-      VNM: 'Vinamilk', KDH: 'Nhà Khang Điền', PDR: 'BĐS Phát Đạt', NVL: 'Novaland', DIG: 'DIC Corp',
-      KBC: 'Kinh Bắc City', PVD: 'PV Drilling', SHB: 'Ngân hàng SHB', LPB: 'LPBank', VIB: 'Ngân hàng VIB',
-      MSB: 'Ngân hàng Hàng Hải', VCI: 'Chứng khoán Vietcap', HCM: 'Chứng khoán HSC', DXG: 'Đất Xanh Group',
-      DBC: 'Dabaco', HSG: 'Hoa Sen Group', NKG: 'Thép Nam Kim',
-    };
 
     let cryptoGainers: AssetMoverItem[] = [];
     let cryptoLosers: AssetMoverItem[] = [];
