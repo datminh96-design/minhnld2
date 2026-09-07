@@ -246,7 +246,7 @@ app.use(express.static(path.join(process.cwd(), 'public')));
   });
 
   // Cloudflare R2 Delete Object Endpoint
-  app.delete(['/api/r2/object', '/r2/object'], async (req, res) => {
+  const handleDeleteObject = async (req: express.Request, res: express.Response) => {
     try {
       const { key } = req.body || {};
       if (!key) {
@@ -261,13 +261,15 @@ app.use(express.static(path.join(process.cwd(), 'public')));
         error: err?.message || String(err),
       });
     }
-  });
+  };
+  app.delete('/api/r2/object', handleDeleteObject);
+  app.delete('/r2/object', handleDeleteObject);
 
   // Server-side persistent file storage in-memory cache / store
   const serverFilesStore: Map<string, any> = new Map();
 
   // 1. POST /api/upload/presign - Generate Presigned PUT Upload URL
-  app.post(['/api/upload/presign', '/upload/presign'], async (req, res) => {
+  const handleUploadPresign = async (req: express.Request, res: express.Response) => {
     try {
       const { originalFileName, mimeType = 'application/octet-stream', fileSize, folder = 'Gốc', description = '' } = req.body || {};
 
@@ -315,10 +317,12 @@ app.use(express.static(path.join(process.cwd(), 'public')));
         error: err?.message || 'Lỗi xử lý tạo link tải lên',
       });
     }
-  });
+  };
+  app.post('/api/upload/presign', handleUploadPresign);
+  app.post('/upload/presign', handleUploadPresign);
 
   // 2. POST /api/upload/complete - Verify and save metadata to database
-  app.post(['/api/upload/complete', '/upload/complete'], async (req, res) => {
+  const handleUploadComplete = async (req: express.Request, res: express.Response) => {
     try {
       const { objectKey, originalFileName, mimeType = 'application/octet-stream', fileSize = 0, folder = 'Gốc', description = '', fileId } = req.body || {};
 
@@ -372,10 +376,12 @@ app.use(express.static(path.join(process.cwd(), 'public')));
         error: err?.message || 'Lỗi lưu thông tin file',
       });
     }
-  });
+  };
+  app.post('/api/upload/complete', handleUploadComplete);
+  app.post('/upload/complete', handleUploadComplete);
 
   // 3. GET /api/files - List files with search, filtering and sorting
-  app.get(['/api/files', '/files'], async (req, res) => {
+  const handleListFiles = async (req: express.Request, res: express.Response) => {
     try {
       const { folder, category, search, sortBy = 'date_desc' } = req.query as Record<string, string>;
 
@@ -447,7 +453,9 @@ app.use(express.static(path.join(process.cwd(), 'public')));
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || String(err) });
     }
-  });
+  };
+  app.get('/api/files', handleListFiles);
+  app.get('/files', handleListFiles);
 
   // 4. GET /api/files/:id/download - Presigned GET download URL
   app.get('/api/files/:id/download', async (req, res) => {

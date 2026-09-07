@@ -9,6 +9,14 @@ import {
 } from '../types/file';
 import { getFileCategory, formatFileSize } from '../lib/file-utils';
 import { validateFileForUpload } from '../lib/file-validation';
+import {
+  getPresignedUploadUrl as directPresignedUpload,
+  getPresignedDownloadUrl as directPresignedDownload,
+  getPresignedPreviewUrl as directPresignedPreview,
+  generateR2ObjectKey,
+  deleteFromR2 as directDeleteFromR2,
+  R2_CONFIG,
+} from '../lib/r2';
 
 const LOCAL_STORAGE_KEY = 'minh_personal_files_metadata';
 const LOCAL_FOLDERS_KEY = 'minh_personal_storage_folders';
@@ -92,15 +100,45 @@ export const fileService = {
         body: JSON.stringify(payload),
       });
 
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error || `Lỗi máy chủ (${response.status}) khi tạo Presigned URL`);
+      if (response.ok) {
+        const json = await response.json();
+        if (json.success && json.uploadUrl) {
+          return json;
+        }
       }
-
-      return await response.json();
     } catch (apiError: any) {
-      console.warn('API Presign failed, checking fallback:', apiError);
-      throw apiError;
+      console.warn('API Presign server call failed, engaging direct S3 presigner fallback:', apiError);
+    }
+
+    // Direct Client-side S3 Presigner Fallback (Resilient offline & serverless architecture)
+    try {
+      const userId = 'admin123';
+      const objectKey = generateR2ObjectKey(userId, file.name);
+      const fileId = `file_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const expiresInSeconds = 3600;
+
+      const directResult = await directPresignedUpload(
+        objectKey,
+        file.type || 'application/octet-stream',
+        expiresInSeconds,
+        R2_CONFIG.defaultBucket
+      );
+
+      if (directResult.success && directResult.url) {
+        const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
+        return {
+          success: true,
+          uploadUrl: directResult.url,
+          objectKey,
+          fileId,
+          expiresAt,
+          bucket: directResult.bucket || R2_CONFIG.defaultBucket,
+        };
+      }
+      throw new Error(directResult.error || 'Không thể tạo liên kết tải lên');
+    } catch (fallbackErr: any) {
+      console.error('Direct fallback presign error:', fallbackErr);
+      throw new Error(fallbackErr.message || 'Lỗi tạo liên kết tải lên Cloudflare R2');
     }
   },
 
@@ -366,8 +404,30 @@ export const fileService = {
         }
       }
     } catch (err) {
-      console.error('Download file error:', err);
+      console.warn('API Download error, trying direct presigned download:', err);
     }
+
+    // Direct fallback
+    const local = getStoredLocalFiles();
+    const targetFile = local.find((f) => f.id === fileId || f.object_key === fileId);
+    const objectKey = targetFile ? targetFile.object_key : fileId;
+    const downloadName = fileName || targetFile?.file_name || 'download';
+
+    try {
+      const direct = await directPresignedDownload(objectKey, downloadName, 300, R2_CONFIG.defaultBucket);
+      if (direct.success && direct.url) {
+        const a = document.createElement('a');
+        a.href = direct.url;
+        a.download = downloadName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        return direct.url;
+      }
+    } catch (directErr) {
+      console.error('Direct download error:', directErr);
+    }
+
     throw new Error('Không thể tạo liên kết tải xuống file từ Cloudflare R2.');
   },
 
@@ -382,8 +442,24 @@ export const fileService = {
         if (data.url) return data.url;
       }
     } catch (err) {
-      console.error('Get preview URL error:', err);
+      console.warn('API Preview error, trying direct presigned preview:', err);
     }
+
+    // Direct fallback
+    const local = getStoredLocalFiles();
+    const targetFile = local.find((f) => f.id === fileId || f.object_key === fileId);
+    const objectKey = targetFile ? targetFile.object_key : fileId;
+    const mimeType = targetFile?.mime_type || 'application/octet-stream';
+
+    try {
+      const direct = await directPresignedPreview(objectKey, mimeType, 600, R2_CONFIG.defaultBucket);
+      if (direct.success && direct.url) {
+        return direct.url;
+      }
+    } catch (directErr) {
+      console.error('Direct preview error:', directErr);
+    }
+
     throw new Error('Không thể tải URL xem trước từ Cloudflare R2.');
   },
 
@@ -391,23 +467,31 @@ export const fileService = {
    * Delete file from Cloudflare R2 & Database (ADMIN role)
    */
   async deleteFile(fileId: string): Promise<boolean> {
+    const local = getStoredLocalFiles();
+    const targetFile = local.find((f) => f.id === fileId || f.object_key === fileId);
+
     try {
       const response = await fetch(`/api/files/${fileId}`, {
         method: 'DELETE',
       });
       if (response.ok) {
-        const local = getStoredLocalFiles();
         saveLocalFiles(local.filter((f) => f.id !== fileId));
         return true;
       }
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error || 'Xóa file thất bại');
     } catch (err: any) {
-      console.warn('API Delete error, updating local store:', err);
-      const local = getStoredLocalFiles();
-      saveLocalFiles(local.filter((f) => f.id !== fileId));
-      return true;
+      console.warn('API Delete error, proceeding with direct R2 deletion and local sync:', err);
     }
+
+    // Direct S3 deletion fallback
+    if (targetFile) {
+      try {
+        await directDeleteFromR2(targetFile.object_key, R2_CONFIG.defaultBucket);
+      } catch (r2Err) {
+        console.warn('Direct R2 delete warning:', r2Err);
+      }
+    }
+    saveLocalFiles(local.filter((f) => f.id !== fileId));
+    return true;
   },
 
   /**
