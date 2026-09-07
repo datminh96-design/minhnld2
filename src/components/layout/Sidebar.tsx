@@ -9,13 +9,14 @@ import {
   ChevronLeft, 
   ChevronRight,
   Database,
+  HardDrive,
   Sparkles,
   ShieldCheck,
   Zap
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
-export type NavTab = 'dashboard' | 'work' | 'expenses' | 'investments' | 'reports' | 'settings';
+export type NavTab = 'dashboard' | 'work' | 'expenses' | 'investments' | 'storage' | 'reports' | 'settings';
 
 interface SidebarProps {
   activeTab: NavTab;
@@ -66,6 +67,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: TrendingUp,
       badge: 'Live',
       color: 'text-purple-500',
+    },
+    {
+      id: 'storage' as NavTab,
+      label: 'Lưu Trữ',
+      icon: HardDrive,
+      badge: 'R2',
+      color: 'text-pink-500',
     },
     {
       id: 'reports' as NavTab,

@@ -9,6 +9,11 @@ import {
   listR2Objects,
   deleteFromR2,
   updateR2Config,
+  generateR2ObjectKey,
+  getPresignedUploadUrl,
+  getPresignedDownloadUrl,
+  getPresignedPreviewUrl,
+  headObjectInR2,
   R2_CONFIG,
 } from './src/lib/r2.ts';
 import {
@@ -255,6 +260,320 @@ app.use(express.static(path.join(process.cwd(), 'public')));
         success: false,
         error: err?.message || String(err),
       });
+    }
+  });
+
+  // Server-side persistent file storage in-memory cache / store
+  const serverFilesStore: Map<string, any> = new Map();
+
+  // 1. POST /api/upload/presign - Generate Presigned PUT Upload URL
+  app.post(['/api/upload/presign', '/upload/presign'], async (req, res) => {
+    try {
+      const { originalFileName, mimeType = 'application/octet-stream', fileSize, folder = 'Gốc', description = '' } = req.body || {};
+
+      if (!originalFileName) {
+        return res.status(400).json({ success: false, error: 'Thiếu tên file gốc (originalFileName)' });
+      }
+
+      if (fileSize && fileSize > 500 * 1024 * 1024) {
+        return res.status(400).json({ success: false, error: 'File vượt quá dung lượng cho phép (500MB)' });
+      }
+
+      const userId = 'admin123';
+      const objectKey = generateR2ObjectKey(userId, originalFileName);
+      const fileId = `file_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const expiresInSeconds = 3600; // 1 hour
+
+      const presignResult = await getPresignedUploadUrl(
+        objectKey,
+        mimeType,
+        expiresInSeconds,
+        R2_CONFIG.defaultBucket
+      );
+
+      if (!presignResult.success || !presignResult.url) {
+        return res.status(500).json({
+          success: false,
+          error: presignResult.error || 'Không thể tạo Presigned Upload URL từ Cloudflare R2',
+        });
+      }
+
+      const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
+
+      res.json({
+        success: true,
+        uploadUrl: presignResult.url,
+        objectKey,
+        fileId,
+        expiresAt,
+        bucket: presignResult.bucket || R2_CONFIG.defaultBucket,
+      });
+    } catch (err: any) {
+      console.error('[Upload Presign] Error:', err);
+      res.status(500).json({
+        success: false,
+        error: err?.message || 'Lỗi xử lý tạo link tải lên',
+      });
+    }
+  });
+
+  // 2. POST /api/upload/complete - Verify and save metadata to database
+  app.post(['/api/upload/complete', '/upload/complete'], async (req, res) => {
+    try {
+      const { objectKey, originalFileName, mimeType = 'application/octet-stream', fileSize = 0, folder = 'Gốc', description = '', fileId } = req.body || {};
+
+      if (!objectKey || !originalFileName) {
+        return res.status(400).json({ success: false, error: 'Thiếu objectKey hoặc originalFileName' });
+      }
+
+      // Check if file exists in R2
+      const headCheck = await headObjectInR2(objectKey, R2_CONFIG.defaultBucket);
+      const actualSize = headCheck.size || fileSize || 0;
+
+      const ext = originalFileName.split('.').pop()?.toLowerCase() || '';
+      let category = 'other';
+      if (mimeType.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'].includes(ext)) category = 'image';
+      else if (mimeType.startsWith('video/') || ['mp4', 'mov', 'webm', 'mkv'].includes(ext)) category = 'video';
+      else if (mimeType.startsWith('audio/') || ['mp3', 'wav', 'aac', 'm4a', 'ogg'].includes(ext)) category = 'audio';
+      else if (['xlsx', 'xls', 'csv'].includes(ext)) category = 'spreadsheet';
+      else if (['pptx', 'ppt'].includes(ext)) category = 'presentation';
+      else if (['pdf', 'docx', 'doc', 'txt'].includes(ext)) category = 'document';
+      else if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) category = 'archive';
+      else if (['json', 'sql', 'md', 'ts', 'js', 'html', 'css', 'xml'].includes(ext)) category = 'code';
+
+      const finalId = fileId || `file_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const fileRecord = {
+        id: finalId,
+        user_id: 'admin123',
+        user_email: 'datminh96@gmail.com',
+        file_name: originalFileName,
+        original_name: originalFileName,
+        object_key: objectKey,
+        mime_type: mimeType,
+        file_size: actualSize,
+        folder: folder || 'Gốc',
+        category,
+        description: description || '',
+        extension: ext,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      serverFilesStore.set(finalId, fileRecord);
+
+      res.json({
+        success: true,
+        file: fileRecord,
+      });
+    } catch (err: any) {
+      console.error('[Upload Complete] Error:', err);
+      res.status(500).json({
+        success: false,
+        error: err?.message || 'Lỗi lưu thông tin file',
+      });
+    }
+  });
+
+  // 3. GET /api/files - List files with search, filtering and sorting
+  app.get(['/api/files', '/files'], async (req, res) => {
+    try {
+      const { folder, category, search, sortBy = 'date_desc' } = req.query as Record<string, string>;
+
+      let files = Array.from(serverFilesStore.values());
+
+      // If server store is empty, sync from R2 objects
+      if (files.length === 0) {
+        const r2List = await listR2Objects('uploads/', R2_CONFIG.defaultBucket);
+        if (r2List.success && r2List.objects.length > 0) {
+          r2List.objects.forEach((obj, idx) => {
+            const parts = obj.key.split('/');
+            const rawName = parts[parts.length - 1] || 'file';
+            const ext = rawName.split('.').pop()?.toLowerCase() || '';
+            const id = `r2_file_${idx}_${Date.now()}`;
+            const record = {
+              id,
+              user_id: 'admin123',
+              user_email: 'datminh96@gmail.com',
+              file_name: rawName,
+              original_name: rawName,
+              object_key: obj.key,
+              mime_type: 'application/octet-stream',
+              file_size: obj.size,
+              folder: 'Gốc',
+              category: 'document',
+              description: '',
+              extension: ext,
+              created_at: obj.lastModified?.toISOString() || new Date().toISOString(),
+              updated_at: obj.lastModified?.toISOString() || new Date().toISOString(),
+            };
+            serverFilesStore.set(id, record);
+          });
+          files = Array.from(serverFilesStore.values());
+        }
+      }
+
+      if (folder && folder !== 'all') {
+        files = files.filter((f) => (f.folder || 'Gốc').toLowerCase() === folder.toLowerCase());
+      }
+
+      if (category && category !== 'all') {
+        files = files.filter((f) => f.category === category);
+      }
+
+      if (search && search.trim()) {
+        const q = search.toLowerCase().trim();
+        files = files.filter(
+          (f) =>
+            f.file_name.toLowerCase().includes(q) ||
+            f.original_name.toLowerCase().includes(q) ||
+            (f.description && f.description.toLowerCase().includes(q))
+        );
+      }
+
+      files.sort((a, b) => {
+        if (sortBy === 'date_asc') return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        if (sortBy === 'name_asc') return a.file_name.localeCompare(b.file_name);
+        if (sortBy === 'name_desc') return b.file_name.localeCompare(a.file_name);
+        if (sortBy === 'size_desc') return b.file_size - a.file_size;
+        if (sortBy === 'size_asc') return a.file_size - b.file_size;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+
+      res.json({
+        success: true,
+        files,
+        total: files.length,
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  // 4. GET /api/files/:id/download - Presigned GET download URL
+  app.get('/api/files/:id/download', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const file = serverFilesStore.get(id);
+
+      if (!file && !id.includes('uploads/')) {
+        // Search by object_key if id is key
+        const found = Array.from(serverFilesStore.values()).find((f) => f.id === id || f.object_key === id);
+        if (!found) {
+          return res.status(404).json({ success: false, error: 'Không tìm thấy thông tin file' });
+        }
+      }
+
+      const targetFile = file || Array.from(serverFilesStore.values()).find((f) => f.id === id || f.object_key === id);
+      const objectKey = targetFile ? targetFile.object_key : decodeURIComponent(id);
+      const fileName = targetFile ? targetFile.file_name : 'download';
+
+      const presigned = await getPresignedDownloadUrl(objectKey, fileName, 300, R2_CONFIG.defaultBucket);
+      if (!presigned.success || !presigned.url) {
+        return res.status(500).json({ success: false, error: presigned.error || 'Không thể tạo link tải' });
+      }
+
+      res.json({
+        success: true,
+        url: presigned.url,
+        fileName,
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  // 5. GET /api/files/:id/preview - Presigned GET preview URL
+  app.get('/api/files/:id/preview', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const file = serverFilesStore.get(id) || Array.from(serverFilesStore.values()).find((f) => f.id === id || f.object_key === id);
+
+      if (!file) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy file' });
+      }
+
+      const presigned = await getPresignedPreviewUrl(file.object_key, file.mime_type, 600, R2_CONFIG.defaultBucket);
+      if (!presigned.success || !presigned.url) {
+        return res.status(500).json({ success: false, error: presigned.error || 'Không thể tạo link xem trước' });
+      }
+
+      res.json({
+        success: true,
+        url: presigned.url,
+        mimeType: file.mime_type,
+        fileName: file.file_name,
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  // 6. DELETE /api/files/:id - Delete from Cloudflare R2 & Database (Admin only)
+  app.delete('/api/files/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const file = serverFilesStore.get(id) || Array.from(serverFilesStore.values()).find((f) => f.id === id || f.object_key === id);
+
+      if (file) {
+        // Delete object in Cloudflare R2
+        await deleteFromR2(file.object_key, R2_CONFIG.defaultBucket);
+        serverFilesStore.delete(file.id);
+      }
+
+      res.json({
+        success: true,
+        message: 'Đã xóa file thành công khỏi Cloudflare R2 và cơ sở dữ liệu',
+      });
+    } catch (err: any) {
+      console.error('[Delete File] Error:', err);
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  // 7. PATCH /api/files/:id - Update metadata
+  app.patch('/api/files/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { file_name, folder, description } = req.body || {};
+      const file = serverFilesStore.get(id) || Array.from(serverFilesStore.values()).find((f) => f.id === id);
+
+      if (!file) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy file' });
+      }
+
+      if (file_name) file.file_name = file_name;
+      if (folder) file.folder = folder;
+      if (description !== undefined) file.description = description;
+      file.updated_at = new Date().toISOString();
+
+      serverFilesStore.set(file.id, file);
+
+      res.json({ success: true, file });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  // 8. GET /api/storage/stats - Storage usage breakdown
+  app.get('/api/storage/stats', async (req, res) => {
+    try {
+      const conn = await testR2Connection();
+      const files = Array.from(serverFilesStore.values());
+      let totalBytes = 0;
+      files.forEach((f) => {
+        totalBytes += f.file_size || 0;
+      });
+
+      res.json({
+        success: true,
+        connected: conn.connected,
+        bucket: R2_CONFIG.defaultBucket,
+        endpoint: R2_CONFIG.endpoint,
+        totalFiles: files.length,
+        totalSizeBytes: totalBytes,
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
     }
   });
 

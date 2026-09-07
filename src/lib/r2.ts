@@ -7,8 +7,10 @@ import {
   DeleteObjectCommand,
   CreateBucketCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { sanitizeFileName, getFileExtension } from './file-utils';
 
 // Cloudflare R2 S3 credentials configuration
 export const R2_CONFIG = {
@@ -24,6 +26,7 @@ export const R2_CONFIG = {
 };
 
 let r2ClientInstance: S3Client | null = null;
+let cachedResolvedBucket: string | null = null;
 
 /**
  * Dynamically update R2 configuration
@@ -33,7 +36,10 @@ export function updateR2Config(newConfig: Partial<typeof R2_CONFIG>) {
   if (newConfig.accessKeyId) R2_CONFIG.accessKeyId = newConfig.accessKeyId.trim();
   if (newConfig.secretAccessKey) R2_CONFIG.secretAccessKey = newConfig.secretAccessKey.trim();
   if (newConfig.endpoint) R2_CONFIG.endpoint = newConfig.endpoint.trim();
-  if (newConfig.defaultBucket) R2_CONFIG.defaultBucket = newConfig.defaultBucket.trim();
+  if (newConfig.defaultBucket) {
+    R2_CONFIG.defaultBucket = newConfig.defaultBucket.trim();
+    cachedResolvedBucket = R2_CONFIG.defaultBucket;
+  }
   r2ClientInstance = null; // Reset cached client instance to apply new credentials
 }
 
@@ -60,6 +66,63 @@ export function getR2Client(): S3Client {
 }
 
 /**
+ * Auto-discover existing buckets and ensure an active valid bucket is selected
+ */
+export async function ensureBucketExists(bucketName?: string): Promise<string> {
+  const client = getR2Client();
+  const target = bucketName || cachedResolvedBucket || R2_CONFIG.defaultBucket || 'minhnld2';
+  
+  try {
+    await client.send(new HeadBucketCommand({ Bucket: target }));
+    cachedResolvedBucket = target;
+    return target;
+  } catch (error: any) {
+    // If target bucket does not exist, query ListBuckets to auto-detect valid bucket
+    try {
+      const listRes = await client.send(new ListBucketsCommand({}));
+      const buckets = (listRes.Buckets || []).map((b) => b.Name || '').filter(Boolean);
+      
+      if (buckets.length > 0) {
+        // If current configured is in list, use it; otherwise use the first available bucket
+        const matched = buckets.find((b) => b.toLowerCase() === target.toLowerCase()) || buckets[0];
+        R2_CONFIG.defaultBucket = matched;
+        cachedResolvedBucket = matched;
+        return matched;
+      }
+      
+      // If no buckets found, attempt to create the target bucket
+      await client.send(new CreateBucketCommand({ Bucket: target }));
+      cachedResolvedBucket = target;
+      return target;
+    } catch (createOrListError: any) {
+      console.warn('[Cloudflare R2] Auto-bucket resolution note:', createOrListError?.message || createOrListError);
+      cachedResolvedBucket = target;
+      return target;
+    }
+  }
+}
+
+/**
+ * Generate a safe unique R2 object key according to architecture:
+ * uploads/{user_id}/{year}/{month}/{timestamp}-{random}-{sanitized_name}
+ */
+export function generateR2ObjectKey(userId: string = 'admin123', originalFileName: string): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const timestamp = Math.floor(now.getTime() / 1000);
+  const randomSuffix = Math.random().toString(36).substring(2, 6);
+  
+  const ext = getFileExtension(originalFileName);
+  const baseName = originalFileName.substring(0, originalFileName.lastIndexOf('.')) || originalFileName;
+  const safeBase = sanitizeFileName(baseName);
+  const uniqueName = `${timestamp}-${randomSuffix}-${safeBase}${ext ? `.${ext}` : ''}`;
+  
+  const safeUserId = sanitizeFileName(userId || 'anonymous');
+  return `uploads/${safeUserId}/${year}/${month}/${uniqueName}`;
+}
+
+/**
  * Test R2 connection and list available buckets
  */
 export async function testR2Connection(): Promise<{
@@ -67,6 +130,7 @@ export async function testR2Connection(): Promise<{
   buckets: string[];
   endpoint: string;
   accountId: string;
+  defaultBucket: string;
   error?: string;
 }> {
   try {
@@ -77,19 +141,14 @@ export async function testR2Connection(): Promise<{
       const command = new ListBucketsCommand({});
       const response = await client.send(command);
       buckets = (response.Buckets || []).map((b) => b.Name || '').filter(Boolean);
-    } catch (listErr) {
-      // If ListBuckets is restricted to specific bucket, test specific default bucket
-      try {
-        await client.send(
-          new ListObjectsV2Command({
-            Bucket: R2_CONFIG.defaultBucket,
-            MaxKeys: 1,
-          })
-        );
-        buckets = [R2_CONFIG.defaultBucket];
-      } catch (bucketErr) {
-        throw listErr;
+      
+      if (buckets.length > 0 && (!R2_CONFIG.defaultBucket || !buckets.includes(R2_CONFIG.defaultBucket))) {
+        R2_CONFIG.defaultBucket = buckets[0];
+        cachedResolvedBucket = buckets[0];
       }
+    } catch (listErr) {
+      const activeBucket = await ensureBucketExists();
+      buckets = [activeBucket];
     }
 
     if (buckets.length === 0 && R2_CONFIG.defaultBucket) {
@@ -101,6 +160,7 @@ export async function testR2Connection(): Promise<{
       buckets,
       endpoint: R2_CONFIG.endpoint,
       accountId: R2_CONFIG.accountId,
+      defaultBucket: R2_CONFIG.defaultBucket,
     };
   } catch (error: any) {
     console.error('[Cloudflare R2] Connection test failed:', error);
@@ -109,53 +169,148 @@ export async function testR2Connection(): Promise<{
       buckets: [],
       endpoint: R2_CONFIG.endpoint,
       accountId: R2_CONFIG.accountId,
+      defaultBucket: R2_CONFIG.defaultBucket,
       error: error?.message || String(error),
     };
   }
 }
 
 /**
- * Ensure default bucket exists or select first available bucket
+ * Check if object exists in R2
  */
-export async function ensureBucketExists(bucketName: string = R2_CONFIG.defaultBucket): Promise<string> {
-  const client = getR2Client();
+export async function headObjectInR2(
+  key: string,
+  bucketName?: string
+): Promise<{ exists: boolean; size?: number; contentType?: string; error?: string }> {
   try {
-    // Check if bucket exists
-    await client.send(new HeadBucketCommand({ Bucket: bucketName }));
-    return bucketName;
-  } catch (error: any) {
-    // If not found, try to create it or fall back to any existing bucket
-    try {
-      await client.send(new CreateBucketCommand({ Bucket: bucketName }));
-      return bucketName;
-    } catch (createError: any) {
-      // List existing buckets and use the first one if available
-      try {
-        const listRes = await client.send(new ListBucketsCommand({}));
-        const existing = listRes.Buckets?.[0]?.Name;
-        if (existing) {
-          return existing;
-        }
-      } catch (listError) {
-        // ignore
-      }
-      return bucketName;
-    }
+    const client = getR2Client();
+    const targetBucket = await ensureBucketExists(bucketName);
+    const response = await client.send(
+      new HeadObjectCommand({
+        Bucket: targetBucket,
+        Key: key,
+      })
+    );
+    return {
+      exists: true,
+      size: response.ContentLength,
+      contentType: response.ContentType,
+    };
+  } catch (err: any) {
+    return { exists: false, error: err?.message || String(err) };
   }
 }
 
 /**
- * Upload object to Cloudflare R2
+ * Generate Presigned Upload PUT URL for direct browser upload
+ */
+export async function getPresignedUploadUrl(
+  key: string,
+  contentType: string = 'application/octet-stream',
+  expiresInSeconds: number = 3600,
+  bucketName?: string
+): Promise<{ success: boolean; url?: string; key?: string; bucket?: string; error?: string }> {
+  try {
+    const client = getR2Client();
+    const targetBucket = await ensureBucketExists(bucketName);
+    
+    const command = new PutObjectCommand({
+      Bucket: targetBucket,
+      Key: key,
+      ContentType: contentType,
+    });
+
+    const url = await getSignedUrl(client, command, { expiresIn: expiresInSeconds });
+    return {
+      success: true,
+      url,
+      key,
+      bucket: targetBucket,
+    };
+  } catch (error: any) {
+    console.error('[Cloudflare R2] Presigned Upload URL error:', error);
+    return {
+      success: false,
+      error: error?.message || String(error),
+    };
+  }
+}
+
+/**
+ * Generate Presigned Download GET URL with attachment filename
+ */
+export async function getPresignedDownloadUrl(
+  key: string,
+  downloadFileName?: string,
+  expiresInSeconds: number = 300,
+  bucketName?: string
+): Promise<{ success: boolean; url?: string; error?: string }> {
+  try {
+    const client = getR2Client();
+    const targetBucket = await ensureBucketExists(bucketName);
+
+    const command = new GetObjectCommand({
+      Bucket: targetBucket,
+      Key: key,
+      ResponseContentDisposition: downloadFileName
+        ? `attachment; filename="${encodeURIComponent(downloadFileName)}"`
+        : 'attachment',
+    });
+
+    const url = await getSignedUrl(client, command, { expiresIn: expiresInSeconds });
+    return { success: true, url };
+  } catch (error: any) {
+    console.error('[Cloudflare R2] Presigned Download URL error:', error);
+    return {
+      success: false,
+      error: error?.message || String(error),
+    };
+  }
+}
+
+/**
+ * Generate Presigned Preview GET URL for inline viewing
+ */
+export async function getPresignedPreviewUrl(
+  key: string,
+  contentType?: string,
+  expiresInSeconds: number = 600,
+  bucketName?: string
+): Promise<{ success: boolean; url?: string; error?: string }> {
+  try {
+    const client = getR2Client();
+    const targetBucket = await ensureBucketExists(bucketName);
+
+    const command = new GetObjectCommand({
+      Bucket: targetBucket,
+      Key: key,
+      ResponseContentType: contentType || undefined,
+      ResponseContentDisposition: 'inline',
+    });
+
+    const url = await getSignedUrl(client, command, { expiresIn: expiresInSeconds });
+    return { success: true, url };
+  } catch (error: any) {
+    console.error('[Cloudflare R2] Presigned Preview URL error:', error);
+    return {
+      success: false,
+      error: error?.message || String(error),
+    };
+  }
+}
+
+/**
+ * Upload object to Cloudflare R2 (Server-side upload)
  */
 export async function uploadToR2(
   key: string,
   data: string | Buffer | Uint8Array,
   contentType: string = 'application/json',
-  bucketName: string = R2_CONFIG.defaultBucket
+  bucketName?: string
 ): Promise<{ success: boolean; key: string; bucket: string; error?: string }> {
   try {
     const client = getR2Client();
-    const targetBucket = bucketName || R2_CONFIG.defaultBucket || 'minhnld2';
+    const targetBucket = await ensureBucketExists(bucketName);
     
     const command = new PutObjectCommand({
       Bucket: targetBucket,
@@ -190,7 +345,7 @@ export async function uploadToR2(
  */
 export async function listR2Objects(
   prefix: string = '',
-  bucketName: string = R2_CONFIG.defaultBucket
+  bucketName?: string
 ): Promise<{
   success: boolean;
   bucket: string;
@@ -199,26 +354,54 @@ export async function listR2Objects(
 }> {
   try {
     const client = getR2Client();
-    const targetBucket = bucketName || R2_CONFIG.defaultBucket || 'minhnld2';
+    let targetBucket = await ensureBucketExists(bucketName);
     
-    const command = new ListObjectsV2Command({
+    let command = new ListObjectsV2Command({
       Bucket: targetBucket,
       Prefix: prefix,
-      MaxKeys: 100,
+      MaxKeys: 500,
     });
 
-    const response = await client.send(command);
-    const objects = (response.Contents || []).map((item) => ({
-      key: item.Key || '',
-      size: item.Size || 0,
-      lastModified: item.LastModified,
-    })).filter((item) => Boolean(item.key));
+    try {
+      const response = await client.send(command);
+      const objects = (response.Contents || []).map((item) => ({
+        key: item.Key || '',
+        size: item.Size || 0,
+        lastModified: item.LastModified,
+      })).filter((item) => Boolean(item.key));
 
-    return {
-      success: true,
-      bucket: targetBucket,
-      objects,
-    };
+      return {
+        success: true,
+        bucket: targetBucket,
+        objects,
+      };
+    } catch (listErr: any) {
+      if (listErr?.name === 'NoSuchBucket' || String(listErr).includes('NoSuchBucket')) {
+        // Force refresh bucket list and retry
+        const discovered = await ensureBucketExists();
+        if (discovered && discovered !== targetBucket) {
+          targetBucket = discovered;
+          command = new ListObjectsV2Command({
+            Bucket: targetBucket,
+            Prefix: prefix,
+            MaxKeys: 500,
+          });
+          const retryRes = await client.send(command);
+          const objects = (retryRes.Contents || []).map((item) => ({
+            key: item.Key || '',
+            size: item.Size || 0,
+            lastModified: item.LastModified,
+          })).filter((item) => Boolean(item.key));
+
+          return {
+            success: true,
+            bucket: targetBucket,
+            objects,
+          };
+        }
+      }
+      throw listErr;
+    }
   } catch (error: any) {
     console.error('[Cloudflare R2] List objects error:', error);
     return {
@@ -235,11 +418,11 @@ export async function listR2Objects(
  */
 export async function getFromR2(
   key: string,
-  bucketName: string = R2_CONFIG.defaultBucket
+  bucketName?: string
 ): Promise<{ success: boolean; data?: string; error?: string }> {
   try {
     const client = getR2Client();
-    const targetBucket = bucketName || R2_CONFIG.defaultBucket || 'minhnld2';
+    const targetBucket = await ensureBucketExists(bucketName);
     
     const command = new GetObjectCommand({
       Bucket: targetBucket,
@@ -270,11 +453,11 @@ export async function getFromR2(
  */
 export async function deleteFromR2(
   key: string,
-  bucketName: string = R2_CONFIG.defaultBucket
+  bucketName?: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const client = getR2Client();
-    const targetBucket = bucketName || R2_CONFIG.defaultBucket || 'minhnld2';
+    const targetBucket = await ensureBucketExists(bucketName);
     
     const command = new DeleteObjectCommand({
       Bucket: targetBucket,
@@ -285,40 +468,6 @@ export async function deleteFromR2(
     return { success: true };
   } catch (error: any) {
     console.error('[Cloudflare R2] Delete object error:', error);
-    return {
-      success: false,
-      error: error?.message || String(error),
-    };
-  }
-}
-
-/**
- * Generate Presigned Upload URL for direct client upload
- */
-export async function getPresignedUploadUrl(
-  key: string,
-  contentType: string = 'application/json',
-  expiresInSeconds: number = 3600,
-  bucketName: string = R2_CONFIG.defaultBucket
-): Promise<{ success: boolean; url?: string; key?: string; error?: string }> {
-  try {
-    const client = getR2Client();
-    const targetBucket = await ensureBucketExists(bucketName);
-    
-    const command = new PutObjectCommand({
-      Bucket: targetBucket,
-      Key: key,
-      ContentType: contentType,
-    });
-
-    const url = await getSignedUrl(client, command, { expiresIn: expiresInSeconds });
-    return {
-      success: true,
-      url,
-      key,
-    };
-  } catch (error: any) {
-    console.error('[Cloudflare R2] Presigned URL error:', error);
     return {
       success: false,
       error: error?.message || String(error),

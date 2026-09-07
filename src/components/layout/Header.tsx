@@ -61,6 +61,8 @@ export const Header: React.FC<HeaderProps> = ({
         return { title: 'Quản Lý Thu Chi Cá Nhân', subtitle: 'Kiểm soát dòng tiền, phân loại danh mục và biểu đồ chi tiêu' };
       case 'investments':
         return { title: 'Danh Mục & Quản Lý Đầu Tư', subtitle: 'Theo dõi Crypto, Cổ phiếu, Quỹ, Vàng và lợi nhuận danh mục' };
+      case 'storage':
+        return { title: 'Kho Lưu Trữ & Quản Lý Tập Tin Cloudflare R2', subtitle: 'Lưu trữ an toàn tài liệu, hợp đồng, chứng từ, Excel và media trên đám mây' };
       case 'reports':
         return { title: 'Báo Cáo & Phân Tích Tổng Hợp', subtitle: 'Báo cáo hiệu suất công việc, sức khỏe tài chính và tăng trưởng tài sản' };
       case 'settings':
