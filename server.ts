@@ -321,6 +321,79 @@ app.use(express.static(path.join(process.cwd(), 'public')));
   app.post('/api/upload/presign', handleUploadPresign);
   app.post('/upload/presign', handleUploadPresign);
 
+  // 1.5 POST /api/upload/direct - Server-side direct proxy upload with raw buffer to bypass any client-side CORS issues
+  const handleDirectUpload = async (req: express.Request, res: express.Response) => {
+    try {
+      const fileNameHeader = req.headers['x-file-name'] as string;
+      const originalFileName = fileNameHeader ? decodeURIComponent(fileNameHeader) : 'uploaded_file';
+      const objectKeyHeader = req.headers['x-object-key'] as string;
+      const objectKey = objectKeyHeader || generateR2ObjectKey('admin123', originalFileName);
+      const mimeType = (req.headers['x-mime-type'] as string) || (req.headers['content-type'] as string) || 'application/octet-stream';
+      const folderHeader = req.headers['x-folder'] as string;
+      const folder = folderHeader ? decodeURIComponent(folderHeader) : 'Gốc';
+      const descHeader = req.headers['x-description'] as string;
+      const description = descHeader ? decodeURIComponent(descHeader) : '';
+      const fileId = (req.headers['x-file-id'] as string) || `file_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+
+      const buffer = req.body instanceof Buffer ? req.body : Buffer.from(req.body || '');
+      if (!buffer || buffer.length === 0) {
+        return res.status(400).json({ success: false, error: 'Dữ liệu file trống hoặc không hợp lệ' });
+      }
+
+      // Upload directly to Cloudflare R2
+      const uploadResult = await uploadToR2(objectKey, buffer, mimeType, R2_CONFIG.defaultBucket);
+      if (!uploadResult.success) {
+        return res.status(500).json({ success: false, error: uploadResult.error || 'Lỗi tải lên R2 từ server' });
+      }
+
+      const ext = originalFileName.split('.').pop()?.toLowerCase() || '';
+      let category = 'other';
+      if (mimeType.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'].includes(ext)) category = 'image';
+      else if (mimeType.startsWith('video/') || ['mp4', 'mov', 'webm', 'mkv'].includes(ext)) category = 'video';
+      else if (mimeType.startsWith('audio/') || ['mp3', 'wav', 'aac', 'm4a', 'ogg'].includes(ext)) category = 'audio';
+      else if (['xlsx', 'xls', 'csv'].includes(ext)) category = 'spreadsheet';
+      else if (['pptx', 'ppt'].includes(ext)) category = 'presentation';
+      else if (['pdf', 'docx', 'doc', 'txt'].includes(ext)) category = 'document';
+      else if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) category = 'archive';
+      else if (['json', 'sql', 'md', 'ts', 'js', 'html', 'css', 'xml'].includes(ext)) category = 'code';
+
+      const fileRecord = {
+        id: fileId,
+        user_id: 'admin123',
+        user_email: 'datminh96@gmail.com',
+        file_name: originalFileName,
+        original_name: originalFileName,
+        object_key: objectKey,
+        mime_type: mimeType,
+        file_size: buffer.length,
+        folder: folder || 'Gốc',
+        category,
+        description: description || '',
+        extension: ext,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      serverFilesStore.set(fileId, fileRecord);
+
+      res.json({
+        success: true,
+        file: fileRecord,
+        objectKey,
+      });
+    } catch (err: any) {
+      console.error('[Direct Upload Proxy] Error:', err);
+      res.status(500).json({
+        success: false,
+        error: err?.message || 'Lỗi tải lên file qua máy chủ',
+      });
+    }
+  };
+
+  const rawMiddleware = express.raw({ limit: '100mb', type: '*/*' });
+  app.post('/api/upload/direct', rawMiddleware, handleDirectUpload);
+  app.post('/upload/direct', rawMiddleware, handleDirectUpload);
+
   // 2. POST /api/upload/complete - Verify and save metadata to database
   const handleUploadComplete = async (req: express.Request, res: express.Response) => {
     try {

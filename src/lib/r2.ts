@@ -8,6 +8,7 @@ import {
   CreateBucketCommand,
   HeadBucketCommand,
   HeadObjectCommand,
+  PutBucketCorsCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { sanitizeFileName, getFileExtension } from './file-utils';
@@ -27,6 +28,7 @@ export const R2_CONFIG = {
 
 let r2ClientInstance: S3Client | null = null;
 let cachedResolvedBucket: string | null = null;
+let corsConfiguredBuckets = new Set<string>();
 
 /**
  * Dynamically update R2 configuration
@@ -41,6 +43,7 @@ export function updateR2Config(newConfig: Partial<typeof R2_CONFIG>) {
     cachedResolvedBucket = R2_CONFIG.defaultBucket;
   }
   r2ClientInstance = null; // Reset cached client instance to apply new credentials
+  corsConfiguredBuckets.clear();
 }
 
 /**
@@ -66,6 +69,35 @@ export function getR2Client(): S3Client {
 }
 
 /**
+ * Ensure CORS configuration is active on target bucket to allow browser direct uploads
+ */
+export async function ensureBucketCors(bucketName: string): Promise<void> {
+  if (corsConfiguredBuckets.has(bucketName)) return;
+  try {
+    const client = getR2Client();
+    await client.send(
+      new PutBucketCorsCommand({
+        Bucket: bucketName,
+        CORSConfiguration: {
+          CORSRules: [
+            {
+              AllowedOrigins: ['*'],
+              AllowedMethods: ['GET', 'PUT', 'POST', 'DELETE', 'HEAD'],
+              AllowedHeaders: ['*'],
+              ExposeHeaders: ['ETag', 'Content-Length', 'Content-Type', 'x-amz-request-id'],
+              MaxAgeSeconds: 3600,
+            },
+          ],
+        },
+      })
+    );
+    corsConfiguredBuckets.add(bucketName);
+  } catch (corsErr: any) {
+    console.warn(`[Cloudflare R2] CORS set warning for ${bucketName}:`, corsErr?.message || corsErr);
+  }
+}
+
+/**
  * Auto-discover existing buckets and ensure an active valid bucket is selected
  */
 export async function ensureBucketExists(bucketName?: string): Promise<string> {
@@ -75,6 +107,8 @@ export async function ensureBucketExists(bucketName?: string): Promise<string> {
   try {
     await client.send(new HeadBucketCommand({ Bucket: target }));
     cachedResolvedBucket = target;
+    // Ensure CORS is set for seamless browser uploads
+    ensureBucketCors(target).catch(() => {});
     return target;
   } catch (error: any) {
     // If target bucket does not exist, query ListBuckets to auto-detect valid bucket
@@ -87,12 +121,14 @@ export async function ensureBucketExists(bucketName?: string): Promise<string> {
         const matched = buckets.find((b) => b.toLowerCase() === target.toLowerCase()) || buckets[0];
         R2_CONFIG.defaultBucket = matched;
         cachedResolvedBucket = matched;
+        ensureBucketCors(matched).catch(() => {});
         return matched;
       }
       
       // If no buckets found, attempt to create the target bucket
       await client.send(new CreateBucketCommand({ Bucket: target }));
       cachedResolvedBucket = target;
+      ensureBucketCors(target).catch(() => {});
       return target;
     } catch (createOrListError: any) {
       console.warn('[Cloudflare R2] Auto-bucket resolution note:', createOrListError?.message || createOrListError);

@@ -181,12 +181,12 @@ export const fileService = {
           onProgress(100, file.size, 0);
           resolve();
         } else {
-          reject(new Error(`Tải lên Cloudflare R2 thất bại với mã lỗi HTTP ${xhr.status}. Vui lòng kiểm tra cấu hình CORS R2.`));
+          reject(new Error(`Tải lên Cloudflare R2 thất bại với mã lỗi HTTP ${xhr.status}.`));
         }
       });
 
       xhr.addEventListener('error', () => {
-        reject(new Error('Lỗi mạng hoặc kết nối đến Cloudflare R2 bị gián đoạn. Vui lòng kiểm tra Internet và cấu hình CORS.'));
+        reject(new Error('Lỗi mạng hoặc kết nối đến Cloudflare R2 bị gián đoạn.'));
       });
 
       xhr.addEventListener('abort', () => {
@@ -195,6 +195,78 @@ export const fileService = {
 
       xhr.open('PUT', uploadUrl, true);
       xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+      xhr.send(file);
+    });
+  },
+
+  /**
+   * Server-side Proxy Upload (Ultra resilient fallback when direct browser S3 PUT is blocked by CORS/firewall)
+   */
+  uploadViaServerProxy(
+    file: File,
+    folder: string = 'Gốc',
+    description: string = '',
+    objectKey?: string,
+    fileId?: string,
+    onProgress?: (progress: number, bytesUploaded: number, speedBps: number) => void,
+    onXhrCreated?: (xhr: XMLHttpRequest) => void
+  ): Promise<FileMetadata> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      if (onXhrCreated) {
+        onXhrCreated(xhr);
+      }
+
+      let lastTime = Date.now();
+      let lastLoaded = 0;
+
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable && onProgress) {
+          const now = Date.now();
+          const timeDiffSec = (now - lastTime) / 1000;
+          let speed = 0;
+          if (timeDiffSec > 0.2) {
+            speed = (e.loaded - lastLoaded) / timeDiffSec;
+            lastTime = now;
+            lastLoaded = e.loaded;
+          }
+
+          const percent = Math.min(Math.round((e.loaded / e.total) * 100), 99);
+          onProgress(percent, e.loaded, speed);
+        }
+      });
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            if (data.success && data.file) {
+              const localFiles = getStoredLocalFiles();
+              const filtered = localFiles.filter((f) => f.id !== data.file.id);
+              saveLocalFiles([data.file, ...filtered]);
+              if (onProgress) onProgress(100, file.size, 0);
+              resolve(data.file);
+              return;
+            }
+          } catch (jsonErr) {
+            // fallback handled below
+          }
+        }
+        reject(new Error(`Máy chủ proxy tải lên trả về lỗi ${xhr.status}`));
+      });
+
+      xhr.addEventListener('error', () => {
+        reject(new Error('Lỗi kết nối máy chủ khi tải lên file'));
+      });
+
+      xhr.open('POST', '/api/upload/direct', true);
+      xhr.setRequestHeader('x-file-name', encodeURIComponent(file.name));
+      xhr.setRequestHeader('x-mime-type', file.type || 'application/octet-stream');
+      xhr.setRequestHeader('x-folder', encodeURIComponent(folder || 'Gốc'));
+      xhr.setRequestHeader('x-description', encodeURIComponent(description || ''));
+      if (objectKey) xhr.setRequestHeader('x-object-key', objectKey);
+      if (fileId) xhr.setRequestHeader('x-file-id', fileId);
+
       xhr.send(file);
     });
   },
@@ -264,7 +336,7 @@ export const fileService = {
   },
 
   /**
-   * Execute full upload pipeline for a single file
+   * Execute full upload pipeline for a single file with automatic fallback
    */
   async uploadFileItem(
     item: FileUploadItem,
@@ -272,47 +344,85 @@ export const fileService = {
   ): Promise<FileMetadata> {
     onUpdate({ status: 'presigning', progress: 5 });
 
-    // Step 1: Request presigned URL
-    const presign = await this.getPresignedUploadUrl(item.file, item.folder, item.description);
-    onUpdate({
-      status: 'uploading',
-      progress: 10,
-      objectKey: presign.objectKey,
-    });
+    let presignResult: PresignedUploadResponse | null = null;
+    try {
+      presignResult = await this.getPresignedUploadUrl(item.file, item.folder, item.description);
+      onUpdate({
+        status: 'uploading',
+        progress: 10,
+        objectKey: presignResult.objectKey,
+      });
 
-    // Step 2: Direct upload to R2
-    await this.uploadDirectToR2(
-      presign.uploadUrl,
-      item.file,
-      (progress, bytes, speed) => {
+      // Attempt 1: Direct client-to-R2 upload (Fastest)
+      await this.uploadDirectToR2(
+        presignResult.uploadUrl,
+        item.file,
+        (progress, bytes, speed) => {
+          onUpdate({
+            progress: Math.max(10, Math.min(progress, 98)),
+            bytesUploaded: bytes,
+            uploadSpeedBps: speed,
+          });
+        },
+        (xhr) => {
+          onUpdate({ xhr });
+        }
+      );
+
+      // Step 3: Complete upload
+      onUpdate({ status: 'completing', progress: 99 });
+      const metadata = await this.completeUpload(
+        presignResult.objectKey,
+        item.file,
+        item.folder,
+        item.description,
+        presignResult.fileId
+      );
+
+      onUpdate({
+        status: 'completed',
+        progress: 100,
+        resultFile: metadata,
+      });
+
+      return metadata;
+    } catch (directUploadError: any) {
+      console.warn('Direct R2 upload encountered error, initiating seamless server proxy upload:', directUploadError);
+
+      onUpdate({ status: 'uploading', progress: 15 });
+
+      // Attempt 2: Server-side streaming proxy (100% resilient, immune to browser CORS restrictions)
+      try {
+        const metadata = await this.uploadViaServerProxy(
+          item.file,
+          item.folder,
+          item.description,
+          presignResult?.objectKey,
+          presignResult?.fileId,
+          (progress, bytes, speed) => {
+            onUpdate({
+              progress: Math.max(15, Math.min(progress, 98)),
+              bytesUploaded: bytes,
+              uploadSpeedBps: speed,
+            });
+          },
+          (xhr) => {
+            onUpdate({ xhr });
+          }
+        );
+
         onUpdate({
-          progress: Math.max(10, Math.min(progress, 98)),
-          bytesUploaded: bytes,
-          uploadSpeedBps: speed,
+          status: 'completed',
+          progress: 100,
+          resultFile: metadata,
         });
-      },
-      (xhr) => {
-        onUpdate({ xhr });
+
+        return metadata;
+      } catch (proxyError: any) {
+        console.error('All upload methods failed:', proxyError);
+        throw new Error(proxyError.message || directUploadError.message || 'Tải lên tập tin thất bại');
       }
-    );
-
-    // Step 3: Complete upload
-    onUpdate({ status: 'completing', progress: 99 });
-    const metadata = await this.completeUpload(
-      presign.objectKey,
-      item.file,
-      item.folder,
-      item.description,
-      presign.fileId
-    );
-
-    onUpdate({
-      status: 'completed',
-      progress: 100,
-      resultFile: metadata,
-    });
-
-    return metadata;
+    }
   },
 
   /**
