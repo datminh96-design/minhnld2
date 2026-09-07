@@ -39,6 +39,7 @@ import {
   fileService,
   getCustomFolders,
   saveCustomFolders,
+  getStoredLocalFiles,
 } from '../../services/fileService';
 import { formatFileSize } from '../../lib/file-utils';
 import { UploadDropzone } from './UploadDropzone';
@@ -52,8 +53,8 @@ export const StorageView: React.FC = () => {
   const { isAdmin } = useAuth();
   const { addToast } = useData();
 
-  // Storage data states
-  const [files, setFiles] = useState<FileMetadata[]>([]);
+  // Storage data states with initial local cache to prevent blank flicker
+  const [files, setFiles] = useState<FileMetadata[]>(getStoredLocalFiles);
   const [folders, setFolders] = useState<FolderItem[]>(getCustomFolders);
   const [selectedFolder, setSelectedFolder] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<FileCategory>('all');
@@ -78,9 +79,11 @@ export const StorageView: React.FC = () => {
   // Storage stats
   const [stats, setStats] = useState<StorageStats | null>(null);
 
-  // Load files from service
-  const loadFiles = useCallback(async () => {
-    setIsLoading(true);
+  // Load files from service quietly without wiping out existing list
+  const loadFiles = useCallback(async (forceSkeleton = false) => {
+    if (forceSkeleton) {
+      setIsLoading(true);
+    }
     try {
       const result = await fileService.listFiles({
         folder: selectedFolder,
@@ -93,19 +96,18 @@ export const StorageView: React.FC = () => {
       setFolders(result.stats.folders);
     } catch (err: any) {
       console.error('Failed to load files:', err);
-      addToast('Không thể kết nối đến Cloudflare R2 để nạp danh sách file.', 'error');
     } finally {
       setIsLoading(false);
     }
-  }, [selectedFolder, selectedCategory, searchQuery, sortBy, addToast]);
+  }, [selectedFolder, selectedCategory, searchQuery, sortBy]);
 
   useEffect(() => {
-    loadFiles();
+    loadFiles(false);
   }, [loadFiles]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await loadFiles();
+    await loadFiles(false);
     setIsRefreshing(false);
     addToast('Đã làm mới danh sách dữ liệu từ Cloudflare R2', 'success');
   };

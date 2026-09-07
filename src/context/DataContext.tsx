@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useRef, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef, useMemo, useCallback } from 'react';
 import {
   WorkSettings, WorkLog, ExpenseCategory, Transaction,
   InvestmentAsset, InvestmentTransaction, PortfolioSnapshot,
@@ -177,12 +177,17 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return calculateInvestmentHoldings(investmentAssets, investmentTransactions, userSettings.cost_calculation_method);
   }, [investmentAssets, investmentTransactions, userSettings.cost_calculation_method]);
 
-  const addToast = (message: string, type: ToastMessage['type'] = 'success', title?: string) => {
+  const removeToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const addToast = useCallback((message: string, type: ToastMessage['type'] = 'success', title?: string) => {
     const id = Date.now().toString() + Math.random().toString(36).substring(2, 5);
     setToasts((prev) => [...prev, { id, message, type, title }]);
-    setTimeout(() => removeToast(id), 4500);
-  };
-  const removeToast = (id: string) => setToasts((prev) => prev.filter((t) => t.id !== id));
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4500);
+  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {

@@ -31,7 +31,7 @@ const DEFAULT_FOLDERS: FolderItem[] = [
   { id: 'media', name: 'Hình ảnh & Media', fileCount: 0, totalSizeBytes: 0, color: 'text-rose-500' },
 ];
 
-function getStoredLocalFiles(): FileMetadata[] {
+export function getStoredLocalFiles(): FileMetadata[] {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (raw) {
