@@ -12,6 +12,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { priceService, KNOWN_ASSET_NAMES } from '../../services/priceService';
 import { AddAssetQuickSection } from './AddAssetQuickSection';
 import { TechnicalAnalysis4HSection } from './TechnicalAnalysis4HSection';
+import { InvestmentTxModalForm } from './InvestmentTxModalForm';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -87,19 +88,6 @@ export const InvestmentsView: React.FC = () => {
   const [assetType, setAssetType] = useState<AssetType>('crypto');
   const [assetPrice, setAssetPrice] = useState('');
   const [assetCurrency, setAssetCurrency] = useState('VND');
-
-  // Tx Form States
-  const [txAssetId, setTxAssetId] = useState('');
-  const [txType, setTxType] = useState<InvestmentTxType>('buy');
-  const [txDate, setTxDate] = useState(new Date().toISOString().substring(0, 10));
-  const [txQuantity, setTxQuantity] = useState('');
-  const [txPrice, setTxPrice] = useState('');
-  const [txPriceCurrency, setTxPriceCurrency] = useState<'VND' | 'USDT'>('VND');
-  const [txFee, setTxFee] = useState('0');
-  const [txFeeCurrency, setTxFeeCurrency] = useState<'VND' | 'BNB' | 'USDT'>('VND');
-  const [usdtRate, setUsdtRate] = useState<number>(25400); // 1 USDT = 25,400 VND
-  const [bnbPriceUsdt, setBnbPriceUsdt] = useState<number>(580); // 1 BNB = 580 USDT
-  const [txNotes, setTxNotes] = useState('');
 
   const handleManualRefresh = async () => {
     await refreshMarketPrices(false);
@@ -256,7 +244,7 @@ export const InvestmentsView: React.FC = () => {
   };
 
   // Open Add Transaction Modal
-  const handleOpenAddTx = async (asset?: InvestmentAsset) => {
+  const handleOpenAddTx = (asset?: InvestmentAsset) => {
     const defaultAsset = asset || investmentAssets[0];
     if (!defaultAsset) {
       addToast('Vui lòng tạo tài sản đầu tư trước khi thêm giao dịch', 'warning');
@@ -265,96 +253,12 @@ export const InvestmentsView: React.FC = () => {
     }
 
     setSelectedAssetForTx(defaultAsset);
-    setTxAssetId(defaultAsset.id);
-    setTxType('buy');
-    setTxDate(new Date().toISOString().substring(0, 10));
-    setTxQuantity('');
-    
-    // Default currency logic based on asset type
-    const isCrypto = defaultAsset.asset_type === 'crypto' || defaultAsset.asset_symbol === 'BTC' || defaultAsset.asset_symbol === 'ETH';
-    setTxPriceCurrency(isCrypto ? 'USDT' : 'VND');
-    setTxFeeCurrency(isCrypto ? 'BNB' : 'VND');
-    setTxFee('0');
-    setTxNotes('');
-
-    // Fetch live rates if crypto
-    if (isCrypto) {
-      try {
-        const [liveUsdtPrice, liveBnbPrice] = await Promise.all([
-          priceService.fetchCryptoPriceUSDT(defaultAsset.asset_symbol),
-          priceService.fetchCryptoPriceUSDT('BNB'),
-        ]);
-        if (liveUsdtPrice) {
-          setTxPrice(liveUsdtPrice.toString());
-        } else {
-          // If asset stored in VND, estimate USDT price
-          const estUsdt = defaultAsset.current_price > 1000000 ? defaultAsset.current_price / 25400 : defaultAsset.current_price;
-          setTxPrice(estUsdt.toString());
-        }
-        if (liveBnbPrice) {
-          setBnbPriceUsdt(liveBnbPrice);
-        }
-      } catch {
-        setTxPrice(defaultAsset.current_price.toString());
-      }
-    } else {
-      setTxPrice(defaultAsset.current_price.toString());
-    }
-
     setIsTxModalOpen(true);
   };
 
   // Save Transaction Form
-  const handleSaveTx = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const numQty = parseFloat(txQuantity);
-    const rawPrice = parseFloat(txPrice.replace(/,/g, ''));
-    const rawFee = parseFloat(txFee.replace(/,/g, '') || '0');
-
-    if (isNaN(numQty) || numQty <= 0 || isNaN(rawPrice) || rawPrice < 0) {
-      addToast('Vui lòng nhập số lượng và giá hợp lệ', 'warning');
-      return;
-    }
-
-    const targetAsset = investmentAssets.find((a) => a.id === txAssetId);
-    if (!targetAsset) return;
-
-    // Convert price to VND for standard portfolio accounting
-    let priceInVnd = rawPrice;
-    if (txPriceCurrency === 'USDT') {
-      priceInVnd = rawPrice * usdtRate;
-    }
-
-    // Convert fee to VND
-    let feeInVnd = rawFee;
-    if (txFeeCurrency === 'USDT') {
-      feeInVnd = rawFee * usdtRate;
-    } else if (txFeeCurrency === 'BNB') {
-      feeInVnd = rawFee * bnbPriceUsdt * usdtRate;
-    }
-
-    const totalVndAmount = numQty * priceInVnd + feeInVnd;
-
-    await saveInvestmentTransaction({
-      asset_id: txAssetId,
-      transaction_type: txType,
-      transaction_date: txDate,
-      quantity: numQty,
-      price: priceInVnd,
-      price_per_unit: priceInVnd,
-      original_price: rawPrice,
-      price_currency: txPriceCurrency,
-      fee: feeInVnd,
-      original_fee: rawFee,
-      fee_currency: txFeeCurrency,
-      usdt_rate: usdtRate,
-      bnb_price_usdt: bnbPriceUsdt,
-      total_amount: totalVndAmount,
-      note: txNotes,
-      notes: txNotes,
-    });
-
-    setIsTxModalOpen(false);
+  const handleSaveTx = async (txData: Partial<InvestmentTransaction>) => {
+    await saveInvestmentTransaction(txData);
   };
 
   return (
@@ -1115,347 +1019,14 @@ export const InvestmentsView: React.FC = () => {
         </form>
       </Modal>
 
-      {/* Modal Add Investment Transaction (Buy / Sell / Dividend) */}
-      <Modal
+      {/* Modal Add Investment Transaction (Component form độc lập siêu mượt) */}
+      <InvestmentTxModalForm
         isOpen={isTxModalOpen}
         onClose={() => setIsTxModalOpen(false)}
-        title="Thêm Lệnh Giao Dịch Đầu Tư"
-        subtitle="Ghi nhận lệnh Mua, Bán hoặc Cổ tức để hệ thống tự tính giá vốn (DCA)"
-        maxWidth="md"
-      >
-        <form onSubmit={handleSaveTx} className="space-y-4">
-          {/* Tx Type Selector */}
-          <div className="grid grid-cols-3 gap-2 p-1 rounded-xl bg-slate-100 dark:bg-slate-800">
-            <button
-              type="button"
-              onClick={() => setTxType('buy')}
-              className={`py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1 ${
-                txType === 'buy' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400'
-              }`}
-            >
-              <ArrowDownLeft className="w-3.5 h-3.5" /> Mua (Buy)
-            </button>
-            <button
-              type="button"
-              onClick={() => setTxType('sell')}
-              className={`py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1 ${
-                txType === 'sell' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400'
-              }`}
-            >
-              <ArrowUpRight className="w-3.5 h-3.5" /> Bán (Sell)
-            </button>
-            <button
-              type="button"
-              onClick={() => setTxType('dividend')}
-              className={`py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1 ${
-                txType === 'dividend' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5" /> Cổ tức
-            </button>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Chọn tài sản
-              </label>
-              <select
-                value={txAssetId}
-                onChange={async (e) => {
-                  const newAssetId = e.target.value;
-                  setTxAssetId(newAssetId);
-                  const selected = investmentAssets.find(a => a.id === newAssetId);
-                  if (selected) {
-                    const isCrypto = selected.asset_type === 'crypto' || selected.asset_symbol === 'BTC' || selected.asset_symbol === 'ETH';
-                    setTxPriceCurrency(isCrypto ? 'USDT' : 'VND');
-                    setTxFeeCurrency(isCrypto ? 'BNB' : 'VND');
-                    if (isCrypto) {
-                      try {
-                        const [liveUsdt, liveBnb] = await Promise.all([
-                          priceService.fetchCryptoPriceUSDT(selected.asset_symbol),
-                          priceService.fetchCryptoPriceUSDT('BNB')
-                        ]);
-                        if (liveUsdt) setTxPrice(liveUsdt.toString());
-                        if (liveBnb) setBnbPriceUsdt(liveBnb);
-                      } catch {
-                        setTxPrice(selected.current_price.toString());
-                      }
-                    } else {
-                      setTxPrice(selected.current_price.toString());
-                    }
-                  }
-                }}
-                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-              >
-                {investmentAssets.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.asset_symbol} - {a.asset_name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Ngày giao dịch
-              </label>
-              <input
-                type="date"
-                required
-                value={txDate}
-                onChange={(e) => setTxDate(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Khối lượng / Số lượng
-              </label>
-              <input
-                type="number"
-                required
-                step="any"
-                min="0.00000001"
-                placeholder="VD: 0.5 hoặc 100"
-                value={txQuantity}
-                onChange={(e) => setTxQuantity(e.target.value)}
-                className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-              />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Đơn giá khớp lệnh
-                </label>
-                <div className="flex items-center gap-1 bg-slate-200 dark:bg-slate-700/80 p-0.5 rounded-lg text-[10px] font-bold">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (txPriceCurrency === 'VND' && parseFloat(txPrice) > 0) {
-                        setTxPrice((parseFloat(txPrice) / usdtRate).toFixed(2));
-                      }
-                      setTxPriceCurrency('USDT');
-                    }}
-                    className={`px-1.5 py-0.5 rounded-md transition-all ${
-                      txPriceCurrency === 'USDT'
-                        ? 'bg-purple-600 text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
-                    }`}
-                  >
-                    USDT
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (txPriceCurrency === 'USDT' && parseFloat(txPrice) > 0) {
-                        setTxPrice(Math.round(parseFloat(txPrice) * usdtRate).toString());
-                      }
-                      setTxPriceCurrency('VND');
-                    }}
-                    className={`px-1.5 py-0.5 rounded-md transition-all ${
-                      txPriceCurrency === 'VND'
-                        ? 'bg-purple-600 text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
-                    }`}
-                  >
-                    VND
-                  </button>
-                </div>
-              </div>
-              <div className="relative">
-                <input
-                  type="number"
-                  required
-                  step="any"
-                  min="0"
-                  placeholder={txPriceCurrency === 'USDT' ? 'VD: 68500' : 'VD: 1740000000'}
-                  value={txPrice}
-                  onChange={(e) => setTxPrice(e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">
-                  {txPriceCurrency}
-                </span>
-              </div>
-              {txPriceCurrency === 'USDT' && parseFloat(txPrice) > 0 && (
-                <span className="text-[10px] text-slate-400 mt-1 block">
-                  ≈ {formatCurrency((parseFloat(txPrice) || 0) * usdtRate, 'VND')} (Tỷ giá: {usdtRate.toLocaleString('vi-VN')} đ)
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Phí giao dịch
-                </label>
-                <div className="flex items-center gap-1 bg-slate-200 dark:bg-slate-700/80 p-0.5 rounded-lg text-[10px] font-bold">
-                  <button
-                    type="button"
-                    onClick={() => setTxFeeCurrency('BNB')}
-                    className={`px-1.5 py-0.5 rounded-md transition-all ${
-                      txFeeCurrency === 'BNB'
-                        ? 'bg-amber-500 text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
-                    }`}
-                    title="Phí trả bằng BNB (giảm 25% trên Binance)"
-                  >
-                    BNB
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTxFeeCurrency('USDT')}
-                    className={`px-1.5 py-0.5 rounded-md transition-all ${
-                      txFeeCurrency === 'USDT'
-                        ? 'bg-purple-600 text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
-                    }`}
-                  >
-                    USDT
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTxFeeCurrency('VND')}
-                    className={`px-1.5 py-0.5 rounded-md transition-all ${
-                      txFeeCurrency === 'VND'
-                        ? 'bg-blue-600 text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
-                    }`}
-                  >
-                    VND
-                  </button>
-                </div>
-              </div>
-              <div className="relative">
-                <input
-                  type="number"
-                  step="any"
-                  min="0"
-                  placeholder={txFeeCurrency === 'BNB' ? 'VD: 0.0015' : txFeeCurrency === 'USDT' ? 'VD: 1.5' : 'VD: 15000'}
-                  value={txFee}
-                  onChange={(e) => setTxFee(e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">
-                  {txFeeCurrency}
-                </span>
-              </div>
-              {txFeeCurrency === 'BNB' && parseFloat(txFee) > 0 && (
-                <span className="text-[10px] text-amber-600 dark:text-amber-400 mt-1 block">
-                  ≈ ${(parseFloat(txFee) * bnbPriceUsdt).toFixed(2)} USDT ≈ {formatCurrency(parseFloat(txFee) * bnbPriceUsdt * usdtRate, 'VND')} (BNB: ${bnbPriceUsdt})
-                </span>
-              )}
-              {txFeeCurrency === 'USDT' && parseFloat(txFee) > 0 && (
-                <span className="text-[10px] text-purple-600 dark:text-purple-400 mt-1 block">
-                  ≈ {formatCurrency(parseFloat(txFee) * usdtRate, 'VND')}
-                </span>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Ghi chú
-              </label>
-              <input
-                type="text"
-                placeholder="Giao dịch sàn Binance / SSI..."
-                value={txNotes}
-                onChange={(e) => setTxNotes(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-              />
-            </div>
-          </div>
-
-          {/* Optional Exchange Rate Config for Crypto */}
-          {(txPriceCurrency === 'USDT' || txFeeCurrency === 'USDT' || txFeeCurrency === 'BNB') && (
-            <div className="p-2.5 rounded-xl bg-slate-100/80 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-              <span className="text-slate-600 dark:text-slate-300 flex items-center gap-1">
-                <Coins className="w-3.5 h-3.5 text-amber-500" />
-                Tỷ giá quy đổi quy về VNĐ:
-              </span>
-              <div className="flex flex-wrap items-center gap-2.5">
-                <span className="text-slate-700 dark:text-slate-300 font-mono flex items-center gap-1">
-                  1 USDT = <input
-                    type="number"
-                    value={usdtRate}
-                    onChange={(e) => setUsdtRate(parseFloat(e.target.value) || 25400)}
-                    className="w-16 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-slate-200 text-right"
-                  /> đ
-                </span>
-                {txFeeCurrency === 'BNB' && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-mono font-bold text-[11px] border border-amber-200 dark:border-amber-800">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    1 BNB = ${bnbPriceUsdt.toLocaleString('en-US', { maximumFractionDigits: 2 })} USDT (Live Binance)
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const p = await priceService.fetchCryptoPriceUSDT('BNB');
-                        if (p) setBnbPriceUsdt(p);
-                      }}
-                      className="p-0.5 text-amber-600 hover:text-amber-800 dark:text-amber-400"
-                      title="Làm mới giá BNB trực tiếp"
-                    >
-                      <RefreshCw className="w-2.5 h-2.5" />
-                    </button>
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Live total calculated */}
-          {(() => {
-            const rawQty = parseFloat(txQuantity) || 0;
-            const rawP = parseFloat(txPrice) || 0;
-            const rawF = parseFloat(txFee) || 0;
-            const priceVnd = txPriceCurrency === 'USDT' ? rawP * usdtRate : rawP;
-            let feeVnd = rawF;
-            if (txFeeCurrency === 'USDT') feeVnd = rawF * usdtRate;
-            else if (txFeeCurrency === 'BNB') feeVnd = rawF * bnbPriceUsdt * usdtRate;
-            const totalVnd = rawQty * priceVnd + feeVnd;
-            const totalUsdt = totalVnd / usdtRate;
-
-            return (
-              <div className="p-3.5 rounded-xl bg-purple-50/70 dark:bg-purple-950/40 border border-purple-200/80 dark:border-purple-900/60 space-y-1.5 text-xs">
-                <div className="flex items-center justify-between font-bold text-slate-800 dark:text-slate-200">
-                  <span>Tổng thanh toán (VNĐ):</span>
-                  <span className="text-base text-purple-700 dark:text-purple-300 font-display">
-                    {formatCurrency(totalVnd, 'VND')}
-                  </span>
-                </div>
-                {txPriceCurrency === 'USDT' && (
-                  <div className="flex items-center justify-between text-[11px] text-purple-600 dark:text-purple-400 font-medium">
-                    <span>Quy đổi USDT:</span>
-                    <span>≈ ${totalUsdt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT</span>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-
-          <div className="pt-2 flex items-center justify-end gap-2.5">
-            <button
-              type="button"
-              onClick={() => setIsTxModalOpen(false)}
-              className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-medium"
-            >
-              Hủy
-            </button>
-            <button
-              type="submit"
-              className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold shadow-xs"
-            >
-              Ghi Nhận Lệnh
-            </button>
-          </div>
-        </form>
-      </Modal>
+        selectedAsset={selectedAssetForTx}
+        investmentAssets={investmentAssets}
+        onSave={handleSaveTx}
+      />
     </div>
   );
 };
