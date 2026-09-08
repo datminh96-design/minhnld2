@@ -15,13 +15,15 @@ import {
   getPresignedPreviewUrl as directPresignedPreview,
   generateR2ObjectKey,
   deleteFromR2 as directDeleteFromR2,
+  listR2Objects,
   R2_CONFIG,
 } from '../lib/r2';
+import { getSupabaseClient } from '../lib/supabase';
 
 const LOCAL_STORAGE_KEY = 'minh_personal_files_metadata';
 const LOCAL_FOLDERS_KEY = 'minh_personal_storage_folders';
 
-const DEFAULT_FOLDERS: FolderItem[] = [
+export const DEFAULT_FOLDERS: FolderItem[] = [
   { id: 'all', name: 'Tất cả thư mục', fileCount: 0, totalSizeBytes: 0, color: 'text-slate-500' },
   { id: 'root', name: 'Gốc', fileCount: 0, totalSizeBytes: 0, color: 'text-blue-500' },
   { id: 'documents', name: 'Tài liệu & Hợp đồng', fileCount: 0, totalSizeBytes: 0, color: 'text-indigo-500' },
@@ -43,7 +45,7 @@ export function getStoredLocalFiles(): FileMetadata[] {
   return [];
 }
 
-function saveLocalFiles(files: FileMetadata[]): void {
+export function saveLocalFiles(files: FileMetadata[]): void {
   try {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(files));
   } catch (err) {
@@ -55,7 +57,10 @@ export function getCustomFolders(): FolderItem[] {
   try {
     const raw = localStorage.getItem(LOCAL_FOLDERS_KEY);
     if (raw) {
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
     }
   } catch (err) {
     console.warn('Error reading local folders:', err);
@@ -69,15 +74,226 @@ export function saveCustomFolders(folders: FolderItem[]): void {
   } catch (err) {
     console.warn('Error saving local folders:', err);
   }
+  // Đồng bộ cấu trúc thư mục lên Supabase để tất cả các máy đều nhận được
+  syncFoldersToSupabase(folders).catch((err) => {
+    console.warn('Sync folders to Supabase warning:', err);
+  });
+}
+
+/**
+ * Lấy User ID hiện tại hoặc fallback sang định danh admin chung
+ */
+async function getCurrentUserId(): Promise<string> {
+  try {
+    const { client } = getSupabaseClient();
+    if (client) {
+      const { data } = await client.auth.getUser();
+      if (data?.user?.id) return data.user.id;
+    }
+  } catch (e) {
+    // Ignore
+  }
+  return 'admin123';
+}
+
+/**
+ * Trích xuất tên file gốc thân thiện từ R2 Object Key
+ * Ví dụ: "uploads/admin123/2026/09/1725791234-abcd-IMG_9446.png" -> "IMG_9446.png"
+ */
+function extractFileNameFromKey(key: string): string {
+  const parts = key.split('/');
+  const rawLastPart = parts[parts.length - 1] || 'file';
+  // Regex kiểm tra tiền tố timestamp-random: ^\d{8,14}-[a-z0-9]+-(.+)$
+  const match = rawLastPart.match(/^\d+-[a-z0-9]+-(.+)$/i);
+  if (match && match[1]) {
+    return decodeURIComponent(match[1]);
+  }
+  return decodeURIComponent(rawLastPart);
+}
+
+/**
+ * Đồng bộ danh sách file lên Supabase Cloud Database (storage_files + work_settings JSON backup)
+ */
+async function syncFilesToSupabase(files: FileMetadata[]): Promise<void> {
+  const { client, isConfigured } = getSupabaseClient();
+  if (!client || !isConfigured || files.length === 0) return;
+
+  const userId = await getCurrentUserId();
+
+  // 1. Cố gắng ghi vào bảng `storage_files`
+  try {
+    const payload = files.map((f) => ({
+      id: f.id,
+      user_id: f.user_id || userId,
+      file_name: f.file_name,
+      original_name: f.original_name,
+      object_key: f.object_key,
+      mime_type: f.mime_type,
+      file_size: f.file_size,
+      folder: f.folder || 'Gốc',
+      category: f.category || 'other',
+      description: f.description || '',
+      extension: f.extension || '',
+      created_at: f.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }));
+
+    await client.from('storage_files').upsert(payload, { onConflict: 'id' });
+  } catch (err) {
+    // Bảng storage_files có thể chưa tồn tại trong Supabase, tiếp tục lưu vào JSON backup
+  }
+
+  // 2. Lưu vào JSON backup trong `work_settings` hoặc `user_settings` để đảm bảo 100% mọi thiết bị đều đọc được
+  try {
+    const { data: existingWs } = await client
+      .from('work_settings')
+      .select('id, salary_data')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    const existingSalaryData = existingWs?.salary_data || {};
+    const updatedSalaryData = {
+      ...existingSalaryData,
+      storage_files_backup: files,
+    };
+
+    await client.from('work_settings').upsert({
+      user_id: userId,
+      salary_data: updatedSalaryData,
+      updated_at: new Date().toISOString(),
+    });
+  } catch (errWs) {
+    console.warn('Backup files to work_settings warning:', errWs);
+  }
+}
+
+/**
+ * Đồng bộ danh sách thư mục lên Supabase
+ */
+async function syncFoldersToSupabase(folders: FolderItem[]): Promise<void> {
+  const { client, isConfigured } = getSupabaseClient();
+  if (!client || !isConfigured) return;
+
+  const userId = await getCurrentUserId();
+  try {
+    const { data: existingWs } = await client
+      .from('work_settings')
+      .select('id, salary_data')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    const existingSalaryData = existingWs?.salary_data || {};
+    const updatedSalaryData = {
+      ...existingSalaryData,
+      storage_folders_backup: folders,
+    };
+
+    await client.from('work_settings').upsert({
+      user_id: userId,
+      salary_data: updatedSalaryData,
+      updated_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.warn('Sync folders to Supabase warning:', err);
+  }
+}
+
+/**
+ * Tải danh sách file từ Supabase Cloud Database
+ */
+async function fetchFilesFromSupabase(): Promise<FileMetadata[]> {
+  const { client, isConfigured } = getSupabaseClient();
+  if (!client || !isConfigured) return [];
+
+  const foundFiles: FileMetadata[] = [];
+  const userId = await getCurrentUserId();
+
+  // 1. Thử lấy từ bảng `storage_files`
+  try {
+    const { data, error } = await client
+      .from('storage_files')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (!error && Array.isArray(data) && data.length > 0) {
+      data.forEach((row: any) => {
+        foundFiles.push({
+          id: row.id,
+          user_id: row.user_id,
+          file_name: row.file_name || row.original_name,
+          original_name: row.original_name || row.file_name,
+          object_key: row.object_key,
+          mime_type: row.mime_type || 'application/octet-stream',
+          file_size: Number(row.file_size) || 0,
+          folder: row.folder || 'Gốc',
+          category: row.category || getFileCategory(row.mime_type, row.extension),
+          description: row.description || '',
+          extension: row.extension || '',
+          created_at: row.created_at || new Date().toISOString(),
+          updated_at: row.updated_at || new Date().toISOString(),
+        });
+      });
+      return foundFiles;
+    }
+  } catch (err) {
+    // Ignore and fallback to JSON backup
+  }
+
+  // 2. Thử lấy từ JSON backup trong `work_settings`
+  try {
+    const { data: wsData, error: wsError } = await client
+      .from('work_settings')
+      .select('salary_data')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (!wsError && wsData?.salary_data?.storage_files_backup) {
+      const backupFiles = wsData.salary_data.storage_files_backup;
+      if (Array.isArray(backupFiles)) {
+        return backupFiles;
+      }
+    }
+  } catch (errWs) {
+    console.warn('Fetch files from work_settings backup warning:', errWs);
+  }
+
+  return foundFiles;
+}
+
+/**
+ * Tải danh sách thư mục từ Supabase
+ */
+async function fetchFoldersFromSupabase(): Promise<FolderItem[] | null> {
+  const { client, isConfigured } = getSupabaseClient();
+  if (!client || !isConfigured) return null;
+
+  try {
+    const userId = await getCurrentUserId();
+    const { data: wsData, error: wsError } = await client
+      .from('work_settings')
+      .select('salary_data')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (!wsError && wsData?.salary_data?.storage_folders_backup) {
+      const folders = wsData.salary_data.storage_folders_backup;
+      if (Array.isArray(folders) && folders.length > 0) {
+        return folders;
+      }
+    }
+  } catch (err) {
+    // Ignore
+  }
+  return null;
 }
 
 export const fileService = {
   /**
-   * Request a Presigned PUT Upload URL from server
+   * Request a Presigned PUT Upload URL from server or direct S3
    */
   async getPresignedUploadUrl(
     file: File,
-    folder: string = 'Tài liệu chung',
+    folder: string = 'Gốc',
     description?: string
   ): Promise<PresignedUploadResponse> {
     const validation = validateFileForUpload(file.name, file.size, file.type);
@@ -110,9 +326,9 @@ export const fileService = {
       console.warn('API Presign server call failed, engaging direct S3 presigner fallback:', apiError);
     }
 
-    // Direct Client-side S3 Presigner Fallback (Resilient offline & serverless architecture)
+    // Direct Client-side S3 Presigner Fallback (Hoạt động 100% trên Vercel và mọi thiết bị)
     try {
-      const userId = 'admin123';
+      const userId = await getCurrentUserId();
       const objectKey = generateR2ObjectKey(userId, file.name);
       const fileId = `file_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
       const expiresInSeconds = 3600;
@@ -135,7 +351,7 @@ export const fileService = {
           bucket: directResult.bucket || R2_CONFIG.defaultBucket,
         };
       }
-      throw new Error(directResult.error || 'Không thể tạo liên kết tải lên');
+      throw new Error(directResult.error || 'Không thể tạo liên kết tải lên Cloudflare R2');
     } catch (fallbackErr: any) {
       console.error('Direct fallback presign error:', fallbackErr);
       throw new Error(fallbackErr.message || 'Lỗi tạo liên kết tải lên Cloudflare R2');
@@ -143,7 +359,7 @@ export const fileService = {
   },
 
   /**
-   * Upload file directly to Cloudflare R2 via XMLHttpRequest with accurate Progress Event (0% - 100%)
+   * Upload file directly to Cloudflare R2 via XMLHttpRequest with Progress
    */
   uploadDirectToR2(
     uploadUrl: string,
@@ -200,7 +416,7 @@ export const fileService = {
   },
 
   /**
-   * Server-side Proxy Upload (Ultra resilient fallback when direct browser S3 PUT is blocked by CORS/firewall)
+   * Server-side Proxy Upload Fallback
    */
   uploadViaServerProxy(
     file: File,
@@ -236,20 +452,23 @@ export const fileService = {
         }
       });
 
-      xhr.addEventListener('load', () => {
+      xhr.addEventListener('load', async () => {
         if (xhr.status >= 200 && xhr.status < 300) {
           try {
             const data = JSON.parse(xhr.responseText);
             if (data.success && data.file) {
               const localFiles = getStoredLocalFiles();
               const filtered = localFiles.filter((f) => f.id !== data.file.id);
-              saveLocalFiles([data.file, ...filtered]);
+              const updatedList = [data.file, ...filtered];
+              saveLocalFiles(updatedList);
+              // Đồng bộ lên Supabase Cloud
+              syncFilesToSupabase(updatedList).catch(() => {});
               if (onProgress) onProgress(100, file.size, 0);
               resolve(data.file);
               return;
             }
           } catch (jsonErr) {
-            // fallback handled below
+            // fallback below
           }
         }
         reject(new Error(`Máy chủ proxy tải lên trả về lỗi ${xhr.status}`));
@@ -272,7 +491,7 @@ export const fileService = {
   },
 
   /**
-   * Complete the upload by recording metadata in database
+   * Complete the upload by recording metadata in Supabase + Local Cache
    */
   async completeUpload(
     objectKey: string,
@@ -281,42 +500,13 @@ export const fileService = {
     description?: string,
     fileId?: string
   ): Promise<FileMetadata> {
-    const payload = {
-      fileId,
-      objectKey,
-      originalFileName: file.name,
-      mimeType: file.type || 'application/octet-stream',
-      fileSize: file.size,
-      folder: folder || 'Gốc',
-      description: description || '',
-    };
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    const userId = await getCurrentUserId();
+    const finalId = fileId || `file_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
-    try {
-      const response = await fetch('/api/upload/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (response.ok) {
-        const data: CompleteUploadResponse = await response.json();
-        if (data.success && data.file) {
-          // Sync with local store
-          const localFiles = getStoredLocalFiles();
-          const filtered = localFiles.filter((f) => f.id !== data.file.id);
-          saveLocalFiles([data.file, ...filtered]);
-          return data.file;
-        }
-      }
-    } catch (err) {
-      console.warn('API Complete failed, creating local fallback record:', err);
-    }
-
-    // Fallback: construct record locally
-    const ext = file.name.split('.').pop() || '';
-    const fallbackRecord: FileMetadata = {
-      id: fileId || `file_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      user_id: 'admin123',
+    const metadataRecord: FileMetadata = {
+      id: finalId,
+      user_id: userId,
       file_name: file.name,
       original_name: file.name,
       object_key: objectKey,
@@ -330,13 +520,42 @@ export const fileService = {
       updated_at: new Date().toISOString(),
     };
 
+    // 1. Thử gửi lên API server (nếu đang chạy full-stack)
+    try {
+      fetch('/api/upload/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileId: finalId,
+          objectKey,
+          originalFileName: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          fileSize: file.size,
+          folder: folder || 'Gốc',
+          description: description || '',
+        }),
+      }).catch(() => {});
+    } catch (e) {
+      // Ignore API server fail on serverless/Vercel
+    }
+
+    // 2. Lưu vào Local Cache
     const localFiles = getStoredLocalFiles();
-    saveLocalFiles([fallbackRecord, ...localFiles.filter((f) => f.id !== fallbackRecord.id)]);
-    return fallbackRecord;
+    const updatedList = [metadataRecord, ...localFiles.filter((f) => f.id !== finalId && f.object_key !== objectKey)];
+    saveLocalFiles(updatedList);
+
+    // 3. ĐỒNG BỘ TRỰC TIẾP LÊN SUPABASE CLOUD ĐỂ TẤT CẢ CÁC THIẾT BỊ ĐỀU THẤY
+    try {
+      await syncFilesToSupabase(updatedList);
+    } catch (supabaseErr) {
+      console.warn('Lỗi khi đồng bộ metadata lên Supabase:', supabaseErr);
+    }
+
+    return metadataRecord;
   },
 
   /**
-   * Execute full upload pipeline for a single file with automatic fallback
+   * Execute full upload pipeline for a single file with automatic fallback & multi-device cloud sync
    */
   async uploadFileItem(
     item: FileUploadItem,
@@ -353,7 +572,7 @@ export const fileService = {
         objectKey: presignResult.objectKey,
       });
 
-      // Attempt 1: Direct client-to-R2 upload (Fastest)
+      // Thử tải trực tiếp lên Cloudflare R2
       await this.uploadDirectToR2(
         presignResult.uploadUrl,
         item.file,
@@ -369,7 +588,7 @@ export const fileService = {
         }
       );
 
-      // Step 3: Complete upload
+      // Hoàn tất lưu thông tin lên Supabase và Cloud
       onUpdate({ status: 'completing', progress: 99 });
       const metadata = await this.completeUpload(
         presignResult.objectKey,
@@ -387,11 +606,11 @@ export const fileService = {
 
       return metadata;
     } catch (directUploadError: any) {
-      console.warn('Direct R2 upload encountered error, initiating seamless server proxy upload:', directUploadError);
+      console.warn('Direct R2 upload encountered error, initiating server proxy fallback:', directUploadError);
 
       onUpdate({ status: 'uploading', progress: 15 });
 
-      // Attempt 2: Server-side streaming proxy (100% resilient, immune to browser CORS restrictions)
+      // Fallback 2: Server proxy
       try {
         const metadata = await this.uploadViaServerProxy(
           item.file,
@@ -426,7 +645,7 @@ export const fileService = {
   },
 
   /**
-   * List files with filtering and search
+   * List files with multi-device cloud sync: Supabase + Cloudflare R2 Auto-discovery
    */
   async listFiles(options?: {
     folder?: string;
@@ -434,36 +653,96 @@ export const fileService = {
     search?: string;
     sortBy?: 'date_desc' | 'date_asc' | 'name_asc' | 'name_desc' | 'size_desc' | 'size_asc';
   }): Promise<{ files: FileMetadata[]; total: number; stats: StorageStats }> {
-    let files: FileMetadata[] = [];
+    // 1. Khởi tạo từ Local Storage trước để hiển thị ngay lập tức không bị giật màn hình
+    let fileMap = new Map<string, FileMetadata>();
+    const localFiles = getStoredLocalFiles();
+    localFiles.forEach((f) => fileMap.set(f.object_key || f.id, f));
 
+    // 2. Lấy dữ liệu file từ Supabase Cloud Database (Đảm bảo các máy khác mở app sẽ thấy ngay)
     try {
-      const params = new URLSearchParams();
-      if (options?.folder && options.folder !== 'all') params.set('folder', options.folder);
-      if (options?.category && options.category !== 'all') params.set('category', options.category);
-      if (options?.search) params.set('search', options.search);
-      if (options?.sortBy) params.set('sortBy', options.sortBy);
+      const supabaseFiles = await fetchFilesFromSupabase();
+      if (supabaseFiles.length > 0) {
+        supabaseFiles.forEach((sf) => {
+          fileMap.set(sf.object_key || sf.id, {
+            ...fileMap.get(sf.object_key || sf.id),
+            ...sf,
+          });
+        });
+      }
+    } catch (sbErr) {
+      console.warn('Supabase fetch files warning:', sbErr);
+    }
 
-      const res = await fetch(`/api/files?${params.toString()}`);
+    // 3. Gọi thêm API server nếu có backend chạy
+    try {
+      const res = await fetch('/api/files');
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.files)) {
-          files = data.files;
-          saveLocalFiles(files);
+          data.files.forEach((apiFile: FileMetadata) => {
+            fileMap.set(apiFile.object_key || apiFile.id, {
+              ...fileMap.get(apiFile.object_key || apiFile.id),
+              ...apiFile,
+            });
+          });
         }
       }
-    } catch (err) {
-      console.warn('Failed to fetch files from API, using cached records:', err);
-      files = getStoredLocalFiles();
+    } catch (apiErr) {
+      // Ignore API server fail on serverless
     }
 
-    if (files.length === 0) {
-      files = getStoredLocalFiles();
+    // 4. Khám phá trực tiếp các file đã upload trong Cloudflare R2 Bucket (Auto-Discovery từ S3)
+    try {
+      const r2List = await listR2Objects('uploads/', R2_CONFIG.defaultBucket);
+      if (r2List.success && Array.isArray(r2List.objects) && r2List.objects.length > 0) {
+        r2List.objects.forEach((obj, idx) => {
+          if (!obj.key || obj.key.endsWith('/')) return;
+
+          // Nếu file trên R2 chưa có trong metadata, tự động khôi phục thông tin
+          if (!fileMap.has(obj.key)) {
+            const fileName = extractFileNameFromKey(obj.key);
+            const ext = fileName.split('.').pop()?.toLowerCase() || '';
+            const recoveredFile: FileMetadata = {
+              id: `r2_${idx}_${obj.key.replace(/[^a-zA-Z0-9]/g, '_')}`,
+              user_id: 'admin123',
+              file_name: fileName,
+              original_name: fileName,
+              object_key: obj.key,
+              mime_type: 'application/octet-stream',
+              file_size: obj.size || 0,
+              folder: 'Gốc',
+              category: getFileCategory('', ext),
+              description: 'Đồng bộ tự động từ Cloudflare R2',
+              extension: ext,
+              created_at: obj.lastModified?.toISOString() || new Date().toISOString(),
+              updated_at: obj.lastModified?.toISOString() || new Date().toISOString(),
+            };
+            fileMap.set(obj.key, recoveredFile);
+          }
+        });
+      }
+    } catch (r2Err) {
+      console.warn('Direct R2 listing warning:', r2Err);
     }
 
-    // Apply client-side filters if needed
-    let filtered = [...files];
+    // 5. Cập nhật lại danh sách hợp nhất vào LocalStorage và Supabase Cloud
+    const allFiles = Array.from(fileMap.values());
+    saveLocalFiles(allFiles);
+    
+    // Background sync to Supabase
+    syncFilesToSupabase(allFiles).catch(() => {});
+
+    // Đồng bộ danh mục thư mục từ Supabase nếu có
+    fetchFoldersFromSupabase().then((sbFolders) => {
+      if (sbFolders && sbFolders.length > 0) {
+        saveCustomFolders(sbFolders);
+      }
+    }).catch(() => {});
+
+    // 6. Lọc và tìm kiếm phía Client
+    let filtered = [...allFiles];
     if (options?.folder && options.folder !== 'all') {
-      filtered = filtered.filter((f) => f.folder.toLowerCase() === options.folder?.toLowerCase());
+      filtered = filtered.filter((f) => (f.folder || 'Gốc').toLowerCase() === options.folder?.toLowerCase());
     }
     if (options?.category && options.category !== 'all') {
       filtered = filtered.filter((f) => f.category === options.category);
@@ -475,11 +754,11 @@ export const fileService = {
           f.file_name.toLowerCase().includes(q) ||
           f.original_name.toLowerCase().includes(q) ||
           f.description?.toLowerCase().includes(q) ||
-          f.folder.toLowerCase().includes(q)
+          (f.folder || 'Gốc').toLowerCase().includes(q)
       );
     }
 
-    // Sort
+    // 7. Sắp xếp
     const sortBy = options?.sortBy || 'date_desc';
     filtered.sort((a, b) => {
       if (sortBy === 'date_desc') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
@@ -491,7 +770,7 @@ export const fileService = {
       return 0;
     });
 
-    const stats = this.computeStats(files);
+    const stats = this.computeStats(allFiles);
     return { files: filtered, total: filtered.length, stats };
   },
 
@@ -499,14 +778,19 @@ export const fileService = {
    * Request Presigned GET Download URL and trigger download
    */
   async downloadFile(fileId: string, fileName?: string): Promise<string> {
+    const local = getStoredLocalFiles();
+    const targetFile = local.find((f) => f.id === fileId || f.object_key === fileId);
+    const objectKey = targetFile ? targetFile.object_key : fileId;
+    const downloadName = fileName || targetFile?.file_name || 'download';
+
     try {
-      const response = await fetch(`/api/files/${fileId}/download`);
+      const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/download`);
       if (response.ok) {
         const data = await response.json();
         if (data.url) {
           const a = document.createElement('a');
           a.href = data.url;
-          a.download = fileName || data.fileName || 'download';
+          a.download = downloadName;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
@@ -517,12 +801,7 @@ export const fileService = {
       console.warn('API Download error, trying direct presigned download:', err);
     }
 
-    // Direct fallback
-    const local = getStoredLocalFiles();
-    const targetFile = local.find((f) => f.id === fileId || f.object_key === fileId);
-    const objectKey = targetFile ? targetFile.object_key : fileId;
-    const downloadName = fileName || targetFile?.file_name || 'download';
-
+    // Direct S3 presigned download fallback
     try {
       const direct = await directPresignedDownload(objectKey, downloadName, 300, R2_CONFIG.defaultBucket);
       if (direct.success && direct.url) {
@@ -545,8 +824,13 @@ export const fileService = {
    * Request Presigned GET Preview URL for inline preview modal
    */
   async getPreviewUrl(fileId: string): Promise<string> {
+    const local = getStoredLocalFiles();
+    const targetFile = local.find((f) => f.id === fileId || f.object_key === fileId);
+    const objectKey = targetFile ? targetFile.object_key : fileId;
+    const mimeType = targetFile?.mime_type || 'application/octet-stream';
+
     try {
-      const response = await fetch(`/api/files/${fileId}/preview`);
+      const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/preview`);
       if (response.ok) {
         const data = await response.json();
         if (data.url) return data.url;
@@ -555,12 +839,7 @@ export const fileService = {
       console.warn('API Preview error, trying direct presigned preview:', err);
     }
 
-    // Direct fallback
-    const local = getStoredLocalFiles();
-    const targetFile = local.find((f) => f.id === fileId || f.object_key === fileId);
-    const objectKey = targetFile ? targetFile.object_key : fileId;
-    const mimeType = targetFile?.mime_type || 'application/octet-stream';
-
+    // Direct S3 presigned preview fallback
     try {
       const direct = await directPresignedPreview(objectKey, mimeType, 600, R2_CONFIG.defaultBucket);
       if (direct.success && direct.url) {
@@ -574,78 +853,107 @@ export const fileService = {
   },
 
   /**
-   * Delete file from Cloudflare R2 & Database (ADMIN role)
+   * Delete file from Cloudflare R2 & Database (Supabase + Local)
    */
   async deleteFile(fileId: string): Promise<boolean> {
     const local = getStoredLocalFiles();
     const targetFile = local.find((f) => f.id === fileId || f.object_key === fileId);
+    const remainingFiles = local.filter((f) => f.id !== fileId && f.object_key !== fileId);
 
+    // 1. Thử gọi API Server
     try {
-      const response = await fetch(`/api/files/${fileId}`, {
-        method: 'DELETE',
-      });
-      if (response.ok) {
-        saveLocalFiles(local.filter((f) => f.id !== fileId));
-        return true;
-      }
-    } catch (err: any) {
-      console.warn('API Delete error, proceeding with direct R2 deletion and local sync:', err);
+      fetch(`/api/files/${encodeURIComponent(fileId)}`, { method: 'DELETE' }).catch(() => {});
+    } catch (e) {
+      // Ignore
     }
 
-    // Direct S3 deletion fallback
-    if (targetFile) {
+    // 2. Xóa trực tiếp từ Cloudflare R2
+    if (targetFile?.object_key) {
       try {
         await directDeleteFromR2(targetFile.object_key, R2_CONFIG.defaultBucket);
       } catch (r2Err) {
         console.warn('Direct R2 delete warning:', r2Err);
       }
     }
-    saveLocalFiles(local.filter((f) => f.id !== fileId));
+
+    // 3. Xóa từ Supabase Cloud Database
+    try {
+      const { client } = getSupabaseClient();
+      if (client) {
+        if (targetFile?.id) {
+          await client.from('storage_files').delete().eq('id', targetFile.id);
+        }
+        if (targetFile?.object_key) {
+          await client.from('storage_files').delete().eq('object_key', targetFile.object_key);
+        }
+      }
+    } catch (sbErr) {
+      console.warn('Supabase delete warning:', sbErr);
+    }
+
+    // 4. Lưu lại Local & Supabase Backup
+    saveLocalFiles(remainingFiles);
+    syncFilesToSupabase(remainingFiles).catch(() => {});
+
     return true;
   },
 
   /**
-   * Update file metadata (Rename, Move folder, Edit description)
+   * Update file metadata (Rename, Move folder, Edit description) across Supabase & Local
    */
   async updateFileMetadata(
     fileId: string,
     updates: { file_name?: string; folder?: string; description?: string }
   ): Promise<FileMetadata> {
+    const local = getStoredLocalFiles();
+    const idx = local.findIndex((f) => f.id === fileId || f.object_key === fileId);
+
+    if (idx < 0) {
+      throw new Error('Không tìm thấy file để cập nhật');
+    }
+
+    const updatedItem: FileMetadata = {
+      ...local[idx],
+      ...updates,
+      updated_at: new Date().toISOString(),
+    };
+
+    local[idx] = updatedItem;
+    saveLocalFiles(local);
+
+    // 1. Thử gửi lên API server
     try {
-      const response = await fetch(`/api/files/${fileId}`, {
+      fetch(`/api/files/${encodeURIComponent(fileId)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
-      });
+      }).catch(() => {});
+    } catch (e) {
+      // Ignore
+    }
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data.file) {
-          const local = getStoredLocalFiles();
-          const idx = local.findIndex((f) => f.id === fileId);
-          if (idx >= 0) {
-            local[idx] = { ...local[idx], ...data.file };
-            saveLocalFiles(local);
-          }
-          return data.file;
-        }
+    // 2. Cập nhật vào Supabase Cloud
+    try {
+      const { client } = getSupabaseClient();
+      if (client) {
+        await client
+          .from('storage_files')
+          .update({
+            file_name: updatedItem.file_name,
+            folder: updatedItem.folder,
+            description: updatedItem.description,
+            updated_at: updatedItem.updated_at,
+          })
+          .eq('id', updatedItem.id);
       }
-    } catch (err) {
-      console.warn('API update failed, applying locally:', err);
+    } catch (sbErr) {
+      console.warn('Supabase update file metadata warning:', sbErr);
     }
 
-    const local = getStoredLocalFiles();
-    const idx = local.findIndex((f) => f.id === fileId);
-    if (idx >= 0) {
-      local[idx] = {
-        ...local[idx],
-        ...updates,
-        updated_at: new Date().toISOString(),
-      };
-      saveLocalFiles(local);
-      return local[idx];
-    }
-    throw new Error('Không tìm thấy file để cập nhật');
+    // Đồng bộ lại toàn bộ backup
+    syncFilesToSupabase(local).catch(() => {});
+
+    return updatedItem;
   },
 
   /**

@@ -109,7 +109,7 @@ export const StorageView: React.FC = () => {
     setIsRefreshing(true);
     await loadFiles(false);
     setIsRefreshing(false);
-    addToast('Đã làm mới danh sách dữ liệu từ Cloudflare R2', 'success');
+    addToast('Đã làm mới và đồng bộ danh sách tệp từ Supabase Cloud & Cloudflare R2', 'success');
   };
 
   // Handle files chosen for upload
