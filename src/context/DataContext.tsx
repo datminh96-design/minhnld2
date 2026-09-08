@@ -43,7 +43,7 @@ interface DataContextType {
   syncMessage: string;
   isRefreshingPrices: boolean;
   updateWorkSettings: (newSettings: Partial<WorkSettings>) => Promise<void>;
-  saveSalaryRecord: (month: number, year: number, data: MonthlySalaryData, totalWorkedMinutes?: number, totalOvertimeMinutes?: number) => Promise<void>;
+  saveSalaryRecord: (month: number, year: number, data: MonthlySalaryData, totalWorkedMinutes?: number, totalOvertimeMinutes?: number, silent?: boolean) => Promise<void>;
   getSalaryRecord: (month: number, year: number) => MonthlySalaryData;
   saveWorkLog: (log: Omit<WorkLog, 'id'> & { id?: string }) => Promise<void>;
   deleteWorkLog: (id: string) => Promise<void>;
@@ -298,13 +298,37 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (user?.id) queryWl = queryWl.or(`user_id.eq.${user.id},user_id.eq.admin123`);
         const { data: wlData, error: wlError } = await queryWl.order('work_date', { ascending: false });
         if (!wlError && wlData && wlData.length > 0) {
-          setWorkLogs(wlData.map(l => ({
-            ...l, 
-            break_duration_hours: Number(l.break_duration_hours) || 0,
-            total_hours: Number(l.total_hours) || 0,
-            overtime_hours: Number(l.overtime_hours) || 0,
-            missing_hours: Number(l.missing_hours) || 0
-          })));
+          const actualLogs: any[] = [];
+          const foundSalaryFromLogs: Record<string, MonthlySalaryData> = {};
+
+          wlData.forEach((l: any) => {
+            if (l.notes && typeof l.notes === 'string' && l.notes.includes('[SALARY_SYNC]:')) {
+              try {
+                const jsonPart = l.notes.substring(l.notes.indexOf('[SALARY_SYNC]:') + 14);
+                const parsed = JSON.parse(jsonPart);
+                if (parsed && typeof parsed === 'object') {
+                  Object.assign(foundSalaryFromLogs, parsed);
+                }
+              } catch (e) {
+                // ignore
+              }
+              if (l.id && String(l.id).startsWith('salary_meta_')) {
+                return;
+              }
+            }
+            actualLogs.push({
+              ...l, 
+              break_duration_hours: Number(l.break_duration_hours) || 0,
+              total_hours: Number(l.total_hours) || 0,
+              overtime_hours: Number(l.overtime_hours) || 0,
+              missing_hours: Number(l.missing_hours) || 0
+            });
+          });
+
+          setWorkLogs(actualLogs);
+          if (Object.keys(foundSalaryFromLogs).length > 0) {
+            setSalaryRecords(prev => ({ ...prev, ...foundSalaryFromLogs }));
+          }
         }
       } catch (wlErr) {
         console.warn('Lỗi tải work_logs:', wlErr);
@@ -354,68 +378,83 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         console.warn('Tải transactions:', txErr);
       }
 
-      const { data: assetData, error: assetError } = await client.from('investment_assets').select('*').eq('user_id', user.id);
-      if (assetError) {
-         console.error('Lỗi tải assets:', assetError);
-      } else if (assetData) {
-         setInvestmentAssets(prev => {
-           const prevMap = new Map<string, InvestmentAsset>(prev.map(p => [p.id, p]));
-           return assetData.map((serverAsset: InvestmentAsset) => {
-             const existing = prevMap.get(serverAsset.id);
-             const serverPrice = Number(serverAsset.current_price) || 0;
-             const existingPrice = Number(existing?.current_price) || 0;
-             
-             let finalPrice = serverPrice;
-             let finalUpdatedAt = serverAsset.price_updated_at;
+      // 8. Tải investment_assets
+      try {
+        let queryAssets = client.from('investment_assets').select('*');
+        if (user?.id) queryAssets = queryAssets.or(`user_id.eq.${user.id},user_id.eq.admin123`);
+        const { data: assetData, error: assetError } = await queryAssets;
+        if (!assetError && assetData) {
+          setInvestmentAssets(prev => {
+            const prevMap = new Map<string, InvestmentAsset>(prev.map(p => [p.id, p]));
+            return assetData.map((serverAsset: InvestmentAsset) => {
+              const existing = prevMap.get(serverAsset.id);
+              const serverPrice = Number(serverAsset.current_price) || 0;
+              const existingPrice = Number(existing?.current_price) || 0;
+              
+              let finalPrice = serverPrice;
+              let finalUpdatedAt = serverAsset.price_updated_at;
 
-             if (existingPrice > 0) {
-               if (!serverPrice) {
-                 finalPrice = existingPrice;
-                 finalUpdatedAt = existing?.price_updated_at;
-               } else if (existing?.price_updated_at && serverAsset.price_updated_at) {
-                 const localTime = new Date(existing.price_updated_at).getTime();
-                 const serverTime = new Date(serverAsset.price_updated_at).getTime();
-                 if (localTime >= serverTime) {
-                   finalPrice = existingPrice;
-                   finalUpdatedAt = existing.price_updated_at;
-                 }
-               } else {
-                 finalPrice = existingPrice;
-               }
-             }
+              if (existingPrice > 0) {
+                if (!serverPrice) {
+                  finalPrice = existingPrice;
+                  finalUpdatedAt = existing?.price_updated_at;
+                } else if (existing?.price_updated_at && serverAsset.price_updated_at) {
+                  const localTime = new Date(existing.price_updated_at).getTime();
+                  const serverTime = new Date(serverAsset.price_updated_at).getTime();
+                  if (localTime >= serverTime) {
+                    finalPrice = existingPrice;
+                    finalUpdatedAt = existing.price_updated_at;
+                  }
+                } else {
+                  finalPrice = existingPrice;
+                }
+              }
 
-             return {
-               ...serverAsset,
-               current_price: finalPrice,
-               price_updated_at: finalUpdatedAt
-             };
-           });
-         });
+              return {
+                ...serverAsset,
+                current_price: finalPrice,
+                price_updated_at: finalUpdatedAt
+              };
+            });
+          });
+        }
+      } catch (assetErr) {
+        console.warn('Lỗi tải investment_assets:', assetErr);
       }
 
-      const { data: itxData, error: itxError } = await client.from('investment_transactions').select('*').eq('user_id', user.id).order('transaction_date', { ascending: false });
-      if (itxError) {
-         console.error('Lỗi tải investment_transactions:', itxError);
-      } else if (itxData) {
-         setInvestmentTransactions(itxData.map(t => ({ 
-          ...t, 
-          quantity: Number(t.quantity) || 0, 
-          price: Number(t.price) || 0, 
-          fee: Number(t.fee) || 0 
-        })));
+      // 9. Tải investment_transactions
+      try {
+        let queryItx = client.from('investment_transactions').select('*');
+        if (user?.id) queryItx = queryItx.or(`user_id.eq.${user.id},user_id.eq.admin123`);
+        const { data: itxData, error: itxError } = await queryItx.order('transaction_date', { ascending: false });
+        if (!itxError && itxData) {
+          setInvestmentTransactions(itxData.map(t => ({ 
+            ...t, 
+            quantity: Number(t.quantity) || 0, 
+            price: Number(t.price) || 0, 
+            fee: Number(t.fee) || 0 
+          })));
+        }
+      } catch (itxErr) {
+        console.warn('Lỗi tải investment_transactions:', itxErr);
       }
 
-      const { data: snapData, error: snapError } = await client.from('portfolio_snapshots').select('*').eq('user_id', user.id).order('snapshot_date', { ascending: true });
-      if (snapError) {
-         console.error('Lỗi tải snapshots:', snapError);
-      } else if (snapData) {
-         setPortfolioSnapshots(snapData.map(s => ({
-          ...s,
-          total_value: Number(s.total_value) || 0,
-          total_cost: Number(s.total_cost) || 0,
-          total_profit: Number(s.total_profit) || 0,
-          profit_percentage: Number(s.profit_percentage) || 0
-        })));
+      // 10. Tải portfolio_snapshots
+      try {
+        let querySnap = client.from('portfolio_snapshots').select('*');
+        if (user?.id) querySnap = querySnap.or(`user_id.eq.${user.id},user_id.eq.admin123`);
+        const { data: snapData, error: snapError } = await querySnap.order('snapshot_date', { ascending: true });
+        if (!snapError && snapData) {
+          setPortfolioSnapshots(snapData.map(s => ({
+            ...s,
+            total_value: Number(s.total_value) || 0,
+            total_cost: Number(s.total_cost) || 0,
+            total_profit: Number(s.total_profit) || 0,
+            profit_percentage: Number(s.profit_percentage) || 0
+          })));
+        }
+      } catch (snapErr) {
+        console.warn('Lỗi tải portfolio_snapshots:', snapErr);
       }
 
       setSyncStatus('synced');
@@ -442,7 +481,24 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     // Setup Supabase Realtime channel for instant cross-device updates
     const channel = client
-      .channel(`realtime-sync-${effectiveUserId}`)
+      .channel('app_global_realtime_sync')
+      .on(
+        'broadcast',
+        { event: 'salary_sync' },
+        (payload: any) => {
+          const item = payload?.payload;
+          if (item?.key && item?.data) {
+            setSalaryRecords(prev => {
+              const updated = { ...prev, [item.key]: item.data };
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('app_salary_records', JSON.stringify(updated));
+                localStorage.setItem(`app_salary_${item.key}`, JSON.stringify(item.data));
+              }
+              return updated;
+            });
+          }
+        }
+      )
       .on(
         'postgres_changes',
         {
@@ -454,7 +510,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
           syncTimeoutRef.current = setTimeout(() => {
             syncWithSupabase(false);
-          }, 100);
+          }, 150);
         }
       )
       .subscribe((status) => {
@@ -615,7 +671,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     year: number,
     data: MonthlySalaryData,
     totalWorkedMinutes: number = 0,
-    totalOvertimeMinutes: number = 0
+    totalOvertimeMinutes: number = 0,
+    silent: boolean = false
   ) => {
     const key = `${year}_${month}`;
     const newMap = { ...salaryRecords, [key]: data };
@@ -623,6 +680,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (typeof window !== 'undefined') {
       localStorage.setItem('app_salary_records', JSON.stringify(newMap));
       localStorage.setItem(`app_salary_${year}_${month}`, JSON.stringify(data));
+      window.dispatchEvent(new CustomEvent('app_salary_updated', { detail: { key, month, year, data } }));
     }
 
     // Calculations for cloud summary based on 208 standard hours
@@ -647,7 +705,19 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       triggerCloudBackup();
       const effectiveUserId = user?.id || 'admin123';
 
-      // 1. Lưu vào bảng chuyên dụng salary_records
+      // 1. Broadcast Realtime message to all devices instantly
+      try {
+        const channel = client.channel('app_global_realtime_sync');
+        channel.send({
+          type: 'broadcast',
+          event: 'salary_sync',
+          payload: { key, month, year, data, updated_at: new Date().toISOString() }
+        });
+      } catch (bcErr) {
+        console.warn('Realtime broadcast error:', bcErr);
+      }
+
+      // 2. Lưu vào bảng chuyên dụng salary_records
       try {
         const recordId = `sal_${effectiveUserId.slice(0, 16)}_${year}_${month}`.toLowerCase().replace(/[^a-z0-9_]/g, '_');
         await client.from('salary_records').upsert({
@@ -669,7 +739,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         console.warn('Lỗi lưu bảng salary_records trên Cloud:', err);
       }
 
-      // 2. Lưu trực tiếp vào work_settings (có trường salary_data để đồng bộ chắc chắn)
+      // 3. Lưu trực tiếp vào work_settings (có trường salary_data để đồng bộ chắc chắn)
       try {
         const updatedWorkSettings = {
           ...workSettings,
@@ -691,9 +761,28 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       } catch (wsErr: any) {
         console.warn('Lỗi lưu work_settings fallback trên Cloud:', wsErr);
       }
+
+      // 4. Lưu bản ghi dự phòng vào work_logs (bảo đảm 100% đồng bộ vì bảng work_logs luôn tồn tại)
+      try {
+        const salaryLogId = `salary_meta_${effectiveUserId.slice(0, 12)}_${year}_${month}`.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+        const monthDateStr = `${year}-${String(month).padStart(2, '0')}-01`;
+        await client.from('work_logs').upsert({
+          id: salaryLogId,
+          user_id: effectiveUserId,
+          work_date: monthDateStr,
+          work_status: 'Làm việc',
+          total_hours: 8,
+          notes: `[SALARY_SYNC]:${JSON.stringify({ [key]: data })}`,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'id' });
+      } catch (logErr) {
+        // ignore
+      }
     }
 
-    addToast(`Đã lưu và đồng bộ Bảng Lương Tháng ${month}/${year} lên Supabase Cloud!`, 'success');
+    if (!silent) {
+      addToast(`Đã lưu và đồng bộ Bảng Lương Tháng ${month}/${year} lên Supabase Cloud!`, 'success');
+    }
   };
 
   const updateUserSettings = async (newSettings: Partial<UserSettings>) => {

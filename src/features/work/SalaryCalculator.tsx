@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
 import { formatCurrency } from '../../lib/utils';
-import { Save, Calculator, Cloud, CheckCircle2, Loader2, Briefcase, Clock, AlertCircle, TrendingUp, Info } from 'lucide-react';
+import { Save, Calculator, Cloud, CheckCircle2, Loader2, Briefcase, Clock, AlertCircle, TrendingUp, Info, RefreshCw } from 'lucide-react';
 import { MonthlySalaryData } from '../../types';
 
 interface SalaryCalculatorProps {
@@ -17,12 +17,14 @@ export const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({
   totalWorkedMinutes = 0,
   totalOvertimeMinutes = 0 
 }) => {
-  const { workSettings, salaryRecords, getSalaryRecord, saveSalaryRecord, businessTrips } = useData();
+  const { workSettings, salaryRecords, getSalaryRecord, saveSalaryRecord, syncWithSupabase, businessTrips } = useData();
 
   const [data, setData] = useState<MonthlySalaryData>(() => getSalaryRecord(month, year));
   const [isSaved, setIsSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const isInitialMount = useRef(true);
+  const lastSavedDataStr = useRef(JSON.stringify(getSalaryRecord(month, year)));
 
   // Business Trips for this month
   const monthPrefix = `${year}-${String(month).padStart(2, '0')}`;
@@ -46,9 +48,34 @@ export const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({
   useEffect(() => {
     const record = getSalaryRecord(month, year);
     setData(record);
+    lastSavedDataStr.current = JSON.stringify(record);
     setIsSaved(false);
-    isInitialMount.current = true;
   }, [month, year, salaryRecords, workSettings]);
+
+  // Auto-save with debounce whenever user types any field
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    const currentStr = JSON.stringify(data);
+    if (currentStr === lastSavedDataStr.current) {
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        lastSavedDataStr.current = currentStr;
+        await saveSalaryRecord(month, year, data, totalWorkedMinutes, totalOvertimeMinutes, true);
+        setIsSaved(true);
+        setTimeout(() => setIsSaved(false), 2000);
+      } catch (err) {
+        console.warn('Auto-save salary error:', err);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [data, month, year, totalWorkedMinutes, totalOvertimeMinutes]);
 
   const handleChange = (field: keyof MonthlySalaryData, value: string) => {
     const num = parseInt(value.replace(/\D/g, ''), 10);
@@ -63,13 +90,26 @@ export const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await saveSalaryRecord(month, year, data, totalWorkedMinutes, totalOvertimeMinutes);
+      lastSavedDataStr.current = JSON.stringify(data);
+      await saveSalaryRecord(month, year, data, totalWorkedMinutes, totalOvertimeMinutes, false);
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 2500);
     } catch (err) {
       console.error('Lỗi khi lưu bảng lương:', err);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleManualSync = async () => {
+    setIsSyncing(true);
+    try {
+      await syncWithSupabase(true);
+      const record = getSalaryRecord(month, year);
+      setData(record);
+      lastSavedDataStr.current = JSON.stringify(record);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -126,7 +166,7 @@ export const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({
               </h3>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/80">
                 <Cloud className="w-3 h-3" />
-                <span>Supabase Cloud</span>
+                <span>Supabase Realtime Cloud</span>
               </span>
             </div>
             <p className="text-xs text-slate-500">
@@ -138,10 +178,21 @@ export const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({
         <div className="flex items-center gap-2">
           <button
             type="button"
+            onClick={handleManualSync}
+            disabled={isSyncing}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs transition-all cursor-pointer disabled:opacity-50"
+            title="Đồng bộ dữ liệu bảng lương mới nhất từ Supabase Cloud"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-emerald-500' : ''}`} />
+            <span>{isSyncing ? 'Đang tải Cloud...' : 'Đồng bộ lại'}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleSave}
             disabled={isSaving}
             className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white font-semibold text-xs transition-all shadow-xs disabled:opacity-70 cursor-pointer"
-            title="Lưu trữ và đồng bộ hóa toàn bộ dữ liệu bảng lương lên Supabase Cloud"
+            title="Lưu trữ và đồng bộ hóa tức thì toàn bộ bảng lương lên mọi thiết bị qua Supabase Cloud"
           >
             {isSaving ? (
               <>
@@ -151,7 +202,7 @@ export const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({
             ) : isSaved ? (
               <>
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>Đã Lưu Cloud</span>
+                <span>Đã Đồng Bộ Cloud</span>
               </>
             ) : (
               <>
