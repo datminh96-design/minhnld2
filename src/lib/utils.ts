@@ -164,7 +164,20 @@ export function calculateWorkHours(
 ) {
   const standardMinutes = Math.round(standardHours * 60);
 
-  if (workStatus === 'Nghỉ phép' || workStatus === 'Nghỉ lễ') {
+  if (workStatus === 'Nghỉ phép năm' || workStatus === 'Nghỉ lễ') {
+    return {
+      breakDurationMinutes: 0,
+      breakDurationHours: 0,
+      totalMinutes: standardMinutes,
+      totalHours: standardHours,
+      overtimeMinutes: 0,
+      overtimeHours: 0,
+      missingMinutes: 0,
+      missingHours: 0,
+    };
+  }
+
+  if (workStatus === 'Nghỉ phép' || workStatus === 'Nghỉ không lương') {
     return {
       breakDurationMinutes: 0,
       breakDurationHours: 0,
@@ -174,19 +187,6 @@ export function calculateWorkHours(
       overtimeHours: 0,
       missingMinutes: 0,
       missingHours: 0,
-    };
-  }
-
-  if (workStatus === 'Nghỉ không lương') {
-    return {
-      breakDurationMinutes: 0,
-      breakDurationHours: 0,
-      totalMinutes: 0,
-      totalHours: 0,
-      overtimeMinutes: 0,
-      overtimeHours: 0,
-      missingMinutes: standardMinutes,
-      missingHours: standardHours,
     };
   }
 

@@ -70,9 +70,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       totalOvertime += l.overtime_hours;
       totalMissing += l.missing_hours;
 
-      if (l.work_status === 'Làm việc' || l.work_status === 'Tăng ca' || l.work_status === 'Làm nửa ngày') {
-        workDaysCount += 1;
-      } else if (l.work_status === 'Nghỉ phép' || l.work_status === 'Nghỉ không lương' || l.work_status === 'Nghỉ lễ') {
+      if (['Làm việc', 'Tăng ca', 'Làm nửa ngày', 'Nghỉ phép năm', 'Nghỉ lễ'].includes(l.work_status)) {
+        workDaysCount += (l.work_status === 'Làm nửa ngày' ? 0.5 : 1);
+      } else if (l.work_status === 'Nghỉ phép' || l.work_status === 'Nghỉ không lương') {
         leaveDaysCount += 1;
       }
     });

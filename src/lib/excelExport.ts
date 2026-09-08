@@ -123,8 +123,9 @@ export async function exportWorkLogsToExcel(
 
     if (log) {
       const status = log.work_status || 'Làm việc';
-      const isOff = status === 'Nghỉ phép' || status === 'Nghỉ không lương' || (log.notes && /\b(off|nghỉ không lương|nghỉ phép)\b/i.test(log.notes));
+      const isOff = status === 'Nghỉ phép' || status === 'Nghỉ không lương' || (log.notes && /\b(off|nghỉ không lương)\b/i.test(log.notes));
       const isHoliday = status === 'Nghỉ lễ' || (log.notes && /\b(lễ|nghỉ lễ)\b/i.test(log.notes));
+      const isAnnualLeave = status === 'Nghỉ phép năm' || (log.notes && /\b(phép năm|nghỉ phép năm)\b/i.test(log.notes));
 
       if (isOff) {
         vaoCaSang = 'N';
@@ -132,11 +133,14 @@ export async function exportWorkLogsToExcel(
         ngayNghi = 1;
         totalOffDays += 1;
         lyDo = log.notes || 'Off';
-      } else if (isHoliday) {
-        vaoCaSang = 'Nghỉ Lễ';
-        vaoCaChieu = 'Nghỉ Lễ';
-        ngayNghi = 0; // Nghỉ lễ vẫn được hưởng lương hoặc theo mẫu hiển thị 0
-        lyDo = log.notes || 'Nghỉ Lễ';
+      } else if (isHoliday || isAnnualLeave) {
+        const label = isAnnualLeave ? 'Nghỉ Phép Năm' : 'Nghỉ Lễ';
+        vaoCaSang = label;
+        vaoCaChieu = label;
+        tongSoGioLam = '8:00';
+        phutDuThieu = 0;
+        ngayNghi = 0; // Được tính 8h công đủ lương
+        lyDo = log.notes || label;
       } else {
         // Working day
         vaoCaSang = log.check_in || '08:00';

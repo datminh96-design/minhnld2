@@ -43,7 +43,7 @@ interface DataContextType {
   syncMessage: string;
   isRefreshingPrices: boolean;
   updateWorkSettings: (newSettings: Partial<WorkSettings>) => Promise<void>;
-  saveSalaryRecord: (month: number, year: number, data: MonthlySalaryData, totalOvertimeMinutes?: number) => Promise<void>;
+  saveSalaryRecord: (month: number, year: number, data: MonthlySalaryData, totalWorkedMinutes?: number, totalOvertimeMinutes?: number) => Promise<void>;
   getSalaryRecord: (month: number, year: number) => MonthlySalaryData;
   saveWorkLog: (log: Omit<WorkLog, 'id'> & { id?: string }) => Promise<void>;
   deleteWorkLog: (id: string) => Promise<void>;
@@ -481,9 +481,26 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const { client } = getSupabaseClient();
         if (client) {
           const { error } = await client.from(table).upsert({ ...data, user_id: user.id });
-          if (error) throw error;
+          if (error) {
+            // If table doesn't exist yet on remote Supabase instance
+            if (error.message?.includes('schema cache') || error.message?.includes('Could not find the table') || error.code === 'PGRST205' || error.code === '42P01') {
+              console.warn(`[Supabase Sync] Bảng '${table}' chưa được tạo trên Supabase:`, error.message);
+              if (successMsg) {
+                addToast(`${successMsg} (Đã lưu an toàn trên máy - Vui lòng chạy SQL tạo bảng '${table}' trên Supabase để đồng bộ Cloud)`, 'info');
+              }
+              return { success: true, localOnly: true };
+            }
+            throw error;
+          }
         }
       } catch (err: any) {
+        if (err.message?.includes('schema cache') || err.message?.includes('Could not find the table') || err.code === 'PGRST205' || err.code === '42P01') {
+          console.warn(`[Supabase Sync] Bảng '${table}' chưa tồn tại:`, err.message);
+          if (successMsg) {
+            addToast(`${successMsg} (Đã lưu máy - Chạy SQL để đồng bộ Cloud)`, 'info');
+          }
+          return { success: true, localOnly: true };
+        }
         addToast(`Lỗi lưu Cloud: ${err.message || JSON.stringify(err)}`, 'error');
         return { success: false, error: err };
       }
@@ -503,9 +520,20 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const { client } = getSupabaseClient();
         if (client) {
           const { error } = await client.from(table).delete().eq('id', id);
-          if (error) throw error;
+          if (error) {
+            if (error.message?.includes('schema cache') || error.message?.includes('Could not find the table') || error.code === 'PGRST205' || error.code === '42P01') {
+              console.warn(`[Supabase Sync] Bảng '${table}' chưa tồn tại khi xóa:`, error.message);
+              if (successMsg) addToast(successMsg, 'success');
+              return;
+            }
+            throw error;
+          }
         }
       } catch (err: any) {
+        if (err.message?.includes('schema cache') || err.message?.includes('Could not find the table') || err.code === 'PGRST205' || err.code === '42P01') {
+          if (successMsg) addToast(successMsg, 'success');
+          return;
+        }
         addToast(`Lỗi xóa Cloud: ${err.message || JSON.stringify(err)}`, 'error');
         return;
       }
@@ -544,7 +572,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
   };
 
-  const saveSalaryRecord = async (month: number, year: number, data: MonthlySalaryData, totalOvertimeMinutes: number = 0) => {
+  const saveSalaryRecord = async (
+    month: number,
+    year: number,
+    data: MonthlySalaryData,
+    totalWorkedMinutes: number = 0,
+    totalOvertimeMinutes: number = 0
+  ) => {
     const key = `${year}_${month}`;
     const newMap = { ...salaryRecords, [key]: data };
     setSalaryRecords(newMap);
@@ -553,13 +587,22 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       localStorage.setItem(`app_salary_${year}_${month}`, JSON.stringify(data));
     }
 
-    // Calculations for cloud summary
+    // Calculations for cloud summary based on 208 standard hours
     const standardDays = workSettings.standard_days_per_month || 26;
     const standardHours = workSettings.standard_hours_per_day || 8;
-    const standardMinutes = standardDays * standardHours * 60;
+    const standardMinutes = standardDays * standardHours * 60; // 26 * 8 * 60 = 12480 phút (208h)
     const perMinuteRate = data.baseSalary > 0 && standardMinutes > 0 ? (data.baseSalary / standardMinutes) : 0;
-    const overtimePay = totalOvertimeMinutes > 0 ? (perMinuteRate * totalOvertimeMinutes) : 0;
-    const totalSalary = data.baseSalary + data.kpiBonus + data.salesBonus + data.otherAllowance - data.insuranceDeduction + overtimePay;
+
+    // Giờ làm thực tế tính lương: tối đa 208h (12480 phút)
+    const workedMinutes = totalWorkedMinutes > 0 ? totalWorkedMinutes : standardMinutes;
+    const regularMinutes = Math.min(workedMinutes, standardMinutes);
+    const regularSalary = regularMinutes * perMinuteRate;
+
+    // Giờ tăng ca: Phần vượt mốc 208h hoặc tổng số phút OT
+    const excessMinutes = Math.max(0, workedMinutes - standardMinutes);
+    const effectiveOTMinutes = Math.max(excessMinutes, totalOvertimeMinutes);
+    const overtimePay = effectiveOTMinutes > 0 ? (perMinuteRate * effectiveOTMinutes) : 0;
+    const totalSalary = regularSalary + data.kpiBonus + data.salesBonus + data.otherAllowance - data.insuranceDeduction + overtimePay;
 
     if (!isDemoUser && user) {
       triggerCloudBackup();

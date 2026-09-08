@@ -60,15 +60,20 @@ const STATUS_CONFIG: Record<WorkStatus, { label: string; badgeClass: string; row
     badgeClass: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800',
     rowBg: '',
   },
-  'Nghỉ phép': {
-    label: 'Nghỉ phép',
-    badgeClass: 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800',
-    rowBg: 'bg-purple-50/20 dark:bg-purple-950/10',
+  'Nghỉ phép năm': {
+    label: 'Nghỉ phép năm (8h)',
+    badgeClass: 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800',
+    rowBg: 'bg-teal-50/20 dark:bg-teal-950/10',
   },
   'Nghỉ lễ': {
-    label: 'Nghỉ lễ',
+    label: 'Nghỉ lễ (8h)',
     badgeClass: 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800',
     rowBg: 'bg-rose-50/20 dark:bg-rose-950/10',
+  },
+  'Nghỉ phép': {
+    label: 'Nghỉ phép (Off)',
+    badgeClass: 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800',
+    rowBg: 'bg-purple-50/20 dark:bg-purple-950/10',
   },
   'Nghỉ không lương': {
     label: 'Nghỉ không lương',
@@ -158,8 +163,8 @@ export const WorkView: React.FC = () => {
       totalMissingMinutes += l.missing_minutes ?? Math.round((l.missing_hours || 0) * 60);
       totalBreakMinutes += l.break_duration_minutes ?? Math.round((l.break_duration_hours || 0) * 60);
 
-      if (['Làm việc', 'Tăng ca', 'Làm nửa ngày'].includes(l.work_status)) {
-        workDaysCount += 1;
+      if (['Làm việc', 'Tăng ca', 'Làm nửa ngày', 'Nghỉ phép năm', 'Nghỉ lễ'].includes(l.work_status)) {
+        workDaysCount += (l.work_status === 'Làm nửa ngày' ? 0.5 : 1);
       } else {
         leaveDaysCount += 1;
       }
@@ -208,8 +213,9 @@ export const WorkView: React.FC = () => {
 
       if (log) {
         const status = log.work_status;
-        const isOff = status === 'Nghỉ phép' || status === 'Nghỉ không lương' || (log.notes && /\b(off|nghỉ không|nghỉ phép)\b/i.test(log.notes));
+        const isOff = status === 'Nghỉ phép' || status === 'Nghỉ không lương' || (log.notes && /\b(off|nghỉ không)\b/i.test(log.notes));
         const isHoliday = status === 'Nghỉ lễ' || (log.notes && /\b(lễ|nghỉ lễ)\b/i.test(log.notes));
+        const isAnnualLeave = status === 'Nghỉ phép năm' || (log.notes && /\b(phép năm|nghỉ phép năm)\b/i.test(log.notes));
 
         if (isOff) {
           totalOff += 1;
@@ -228,19 +234,20 @@ export const WorkView: React.FC = () => {
             isOff: true,
             isHoliday: false,
           });
-        } else if (isHoliday) {
+        } else if (isHoliday || isAnnualLeave) {
+          const label = isAnnualLeave ? 'Nghỉ Phép Năm' : 'Nghỉ Lễ';
           rows.push({
             day,
             fullDate,
             log,
-            vaoCaSang: 'Nghỉ Lễ',
+            vaoCaSang: label,
             nghiTrua: '',
-            vaoCaChieu: 'Nghỉ Lễ',
+            vaoCaChieu: label,
             hetCa: '',
-            tongGioLam: '',
-            phutDuThieu: '',
+            tongGioLam: '8:00',
+            phutDuThieu: 0,
             ngayNghi: 0,
-            lyDo: log.notes || 'Nghỉ Lễ',
+            lyDo: log.notes || label,
             isOff: false,
             isHoliday: true,
           });
@@ -628,6 +635,7 @@ export const WorkView: React.FC = () => {
         <SalaryCalculator 
           month={selectedMonth}
           year={selectedYear}
+          totalWorkedMinutes={summary.totalMinutes}
           totalOvertimeMinutes={summary.totalOvertimeMinutes}
         />
       ) : viewMode === 'simple' ? (
@@ -826,9 +834,10 @@ export const WorkView: React.FC = () => {
                 <option value="Làm việc">Làm việc</option>
                 <option value="Tăng ca">Tăng ca</option>
                 <option value="Làm nửa ngày">Làm nửa ngày</option>
-                <option value="Nghỉ phép">Nghỉ phép</option>
-                <option value="Nghỉ lễ">Nghỉ lễ</option>
-                <option value="Nghỉ không lương">Nghỉ không lương</option>
+                <option value="Nghỉ phép năm">Nghỉ phép năm (8h công)</option>
+                <option value="Nghỉ lễ">Nghỉ lễ (8h công)</option>
+                <option value="Nghỉ phép">Nghỉ phép (Off)</option>
+                <option value="Nghỉ không lương">Nghỉ không lương (Off)</option>
               </select>
             </div>
           </div>
@@ -1054,8 +1063,9 @@ export const WorkView: React.FC = () => {
                 <option value="Làm việc">Làm việc</option>
                 <option value="Tăng ca">Tăng ca</option>
                 <option value="Làm nửa ngày">Làm nửa ngày</option>
+                <option value="Nghỉ phép năm">Nghỉ phép năm (Tính 8h công)</option>
+                <option value="Nghỉ lễ">Nghỉ lễ (Tính 8h công)</option>
                 <option value="Nghỉ phép">Nghỉ phép (Off)</option>
-                <option value="Nghỉ lễ">Nghỉ lễ</option>
                 <option value="Nghỉ không lương">Nghỉ không lương (Off)</option>
               </select>
             </div>
@@ -1116,10 +1126,14 @@ export const WorkView: React.FC = () => {
             <div className="flex items-center justify-between font-bold text-slate-800 dark:text-slate-200">
               <span className="flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-amber-500" />
-                <span>Tính toán tự động theo phút:</span>
+                <span>
+                  {formStatus === 'Nghỉ phép năm' || formStatus === 'Nghỉ lễ'
+                    ? `Hưởng nguyên lương (${formStatus}):`
+                    : 'Tính toán tự động theo phút:'}
+                </span>
               </span>
               <span className="text-amber-800 dark:text-amber-300 font-display">
-                {modalCalculated.totalMinutes} phút ({modalCalculated.totalHours} giờ)
+                {modalCalculated.totalMinutes} phút ({modalCalculated.totalHours} giờ công)
               </span>
             </div>
 

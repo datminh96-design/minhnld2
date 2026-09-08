@@ -23,7 +23,10 @@ import {
   MapPin,
   ArrowRight,
   TrendingUp,
-  Tag
+  Tag,
+  Database,
+  Copy,
+  Check
 } from 'lucide-react';
 
 interface BusinessTripViewProps {
@@ -48,6 +51,43 @@ export const BusinessTripView: React.FC<BusinessTripViewProps> = ({ month, year 
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [copiedSql, setCopiedSql] = useState(false);
+
+  const copyTripSql = () => {
+    const sqlText = `-- Chạy câu lệnh này trong Supabase -> SQL Editor -> Run:
+CREATE TABLE IF NOT EXISTS public.business_trips (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    trip_date DATE NOT NULL,
+    end_date DATE,
+    days_count NUMERIC(4,1) NOT NULL DEFAULT 1,
+    daily_allowance_rate NUMERIC(18,2) NOT NULL DEFAULT 160000,
+    total_daily_allowance NUMERIC(18,2) NOT NULL DEFAULT 0,
+    hotel_cost NUMERIC(18,2) NOT NULL DEFAULT 0,
+    outbound_cost NUMERIC(18,2) NOT NULL DEFAULT 0,
+    return_cost NUMERIC(18,2) NOT NULL DEFAULT 0,
+    total_amount NUMERIC(18,2) NOT NULL DEFAULT 0,
+    is_paid BOOLEAN NOT NULL DEFAULT FALSE,
+    paid_at TIMESTAMPTZ,
+    location TEXT,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()) NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_business_trips_user_date ON public.business_trips(user_id, trip_date DESC);
+CREATE INDEX IF NOT EXISTS idx_business_trips_user_paid ON public.business_trips(user_id, is_paid);
+
+ALTER TABLE public.business_trips ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "business_trips_all_policy" ON public.business_trips;
+CREATE POLICY "business_trips_all_policy" ON public.business_trips FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);`;
+
+    navigator.clipboard.writeText(sqlText);
+    setCopiedSql(true);
+    setTimeout(() => setCopiedSql(false), 2000);
+    addToast('Đã sao chép câu lệnh SQL tạo bảng Supabase!', 'success');
+  };
   const [editingTrip, setEditingTrip] = useState<BusinessTripExpense | null>(null);
 
   // Form Fields
@@ -334,6 +374,16 @@ export const BusinessTripView: React.FC<BusinessTripViewProps> = ({ month, year 
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={copyTripSql}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-purple-50 dark:bg-purple-950/50 hover:bg-purple-100 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 font-semibold text-xs border border-purple-200 dark:border-purple-800 transition-all shadow-xs cursor-pointer"
+            title="Sao chép câu lệnh SQL để tạo bảng trên Supabase"
+          >
+            {copiedSql ? <Check className="w-4 h-4 text-emerald-500" /> : <Database className="w-4 h-4 text-purple-600 dark:text-purple-400" />}
+            <span>{copiedSql ? 'Đã sao chép SQL' : 'SQL Supabase'}</span>
+          </button>
+
           <button
             type="button"
             onClick={handleExport}

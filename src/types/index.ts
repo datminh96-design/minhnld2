@@ -4,11 +4,12 @@ export type CloudSyncStatus = 'idle' | 'syncing' | 'synced' | 'error';
 
 export type WorkStatus = 
   | 'Làm việc'
-  | 'Nghỉ phép'
-  | 'Nghỉ không lương'
-  | 'Nghỉ lễ'
+  | 'Tăng ca'
   | 'Làm nửa ngày'
-  | 'Tăng ca';
+  | 'Nghỉ phép năm'
+  | 'Nghỉ lễ'
+  | 'Nghỉ phép'
+  | 'Nghỉ không lương';
 
 export interface Profile {
   id: string;

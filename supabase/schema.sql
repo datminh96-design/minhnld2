@@ -179,10 +179,33 @@ CREATE TABLE IF NOT EXISTS public.email_logs (
     created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()) NOT NULL
 );
 
+-- 2.12 BẢNG QUẢN LÝ CÔNG TÁC PHÍ (BUSINESS TRIPS)
+CREATE TABLE IF NOT EXISTS public.business_trips (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    trip_date DATE NOT NULL,
+    end_date DATE,
+    days_count NUMERIC(4,1) NOT NULL DEFAULT 1,
+    daily_allowance_rate NUMERIC(18,2) NOT NULL DEFAULT 160000,
+    total_daily_allowance NUMERIC(18,2) NOT NULL DEFAULT 0,
+    hotel_cost NUMERIC(18,2) NOT NULL DEFAULT 0,
+    outbound_cost NUMERIC(18,2) NOT NULL DEFAULT 0,
+    return_cost NUMERIC(18,2) NOT NULL DEFAULT 0,
+    total_amount NUMERIC(18,2) NOT NULL DEFAULT 0,
+    is_paid BOOLEAN NOT NULL DEFAULT FALSE,
+    paid_at TIMESTAMPTZ,
+    location TEXT,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()) NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()) NOT NULL
+);
+
 -- ==============================================================================
 -- 3. TỐI ƯU HÓA HIỆU NĂNG - CHỈ MỤC TÌM KIẾM (INDEXES)
 -- ==============================================================================
 CREATE INDEX IF NOT EXISTS idx_work_logs_user_date ON public.work_logs(user_id, work_date DESC);
+CREATE INDEX IF NOT EXISTS idx_business_trips_user_date ON public.business_trips(user_id, trip_date DESC);
+CREATE INDEX IF NOT EXISTS idx_business_trips_user_paid ON public.business_trips(user_id, is_paid);
 CREATE INDEX IF NOT EXISTS idx_transactions_user_date ON public.transactions(user_id, transaction_date DESC);
 CREATE INDEX IF NOT EXISTS idx_transactions_user_type ON public.transactions(user_id, transaction_type);
 CREATE INDEX IF NOT EXISTS idx_transactions_category ON public.transactions(user_id, category_id);
@@ -260,6 +283,10 @@ BEGIN
     DROP POLICY IF EXISTS "portfolio_snapshots_all_policy" ON public.portfolio_snapshots;
     CREATE POLICY "portfolio_snapshots_all_policy" ON public.portfolio_snapshots FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
+    -- BUSINESS TRIPS (CÔNG TÁC PHÍ)
+    DROP POLICY IF EXISTS "business_trips_all_policy" ON public.business_trips;
+    CREATE POLICY "business_trips_all_policy" ON public.business_trips FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
     -- SYSTEM BACKUPS
     DROP POLICY IF EXISTS "system_backups_all_policy" ON public.system_backups;
     CREATE POLICY "system_backups_all_policy" ON public.system_backups FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
@@ -299,6 +326,9 @@ CREATE TRIGGER trg_transactions_updated_at BEFORE UPDATE ON public.transactions 
 
 DROP TRIGGER IF EXISTS trg_investment_assets_updated_at ON public.investment_assets;
 CREATE TRIGGER trg_investment_assets_updated_at BEFORE UPDATE ON public.investment_assets FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+DROP TRIGGER IF EXISTS trg_business_trips_updated_at ON public.business_trips;
+CREATE TRIGGER trg_business_trips_updated_at BEFORE UPDATE ON public.business_trips FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
 -- 5.2 TRIGGER TỰ ĐỘNG KHỞI TẠO TÀI KHOẢN VÀ DỮ LIỆU BAN ĐẦU KHI CÓ USER ĐĂNG KÝ MỚI
 CREATE OR REPLACE FUNCTION public.handle_new_user()
