@@ -50,7 +50,25 @@ export const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({
     setData(record);
     lastSavedDataStr.current = JSON.stringify(record);
     setIsSaved(false);
+
+    // If local record is empty, quietly pull from Supabase Cloud
+    if (!record.baseSalary) {
+      syncWithSupabase(false);
+    }
   }, [month, year, salaryRecords, workSettings]);
+
+  // Listen to custom window events for instant sync
+  useEffect(() => {
+    const handleSalaryUpdated = (e: any) => {
+      const key = `${year}_${month}`;
+      if (e.detail?.key === key && e.detail?.data) {
+        setData(e.detail.data);
+        lastSavedDataStr.current = JSON.stringify(e.detail.data);
+      }
+    };
+    window.addEventListener('app_salary_updated', handleSalaryUpdated);
+    return () => window.removeEventListener('app_salary_updated', handleSalaryUpdated);
+  }, [month, year]);
 
   // Auto-save with debounce whenever user types any field
   useEffect(() => {

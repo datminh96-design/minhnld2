@@ -18,7 +18,7 @@ import {
 } from '../lib/seedData';
 import { useAuth } from './AuthContext';
 import { getSupabaseClient } from '../lib/supabase';
-import { calculateWorkHours, generateUUID } from '../lib/utils';
+import { calculateWorkHours, generateUUID, toValidUUID } from '../lib/utils';
 import { calculateInvestmentHoldings } from '../lib/utils';
 import { priceService } from '../services/priceService';
 import { r2Service, R2BackupPayload } from '../services/r2Service';
@@ -245,7 +245,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (!wsError && wsData) {
           setWorkSettings(prev => ({ ...DEFAULT_WORK_SETTINGS, ...prev, ...wsData }));
           if (wsData.salary_data && typeof wsData.salary_data === 'object') {
-            setSalaryRecords(prev => ({ ...prev, ...wsData.salary_data }));
+            setSalaryRecords(prev => {
+              const merged = { ...prev, ...wsData.salary_data };
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('app_salary_records', JSON.stringify(merged));
+                Object.entries(wsData.salary_data).forEach(([k, v]) => {
+                  localStorage.setItem(`app_salary_${k}`, JSON.stringify(v));
+                });
+              }
+              return merged;
+            });
           }
         }
       } catch (wsErr) {
@@ -274,7 +283,18 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               };
             }
           });
-          setSalaryRecords(prev => ({ ...prev, ...salMap }));
+          if (Object.keys(salMap).length > 0) {
+            setSalaryRecords(prev => {
+              const merged = { ...prev, ...salMap };
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('app_salary_records', JSON.stringify(merged));
+                Object.entries(salMap).forEach(([k, v]) => {
+                  localStorage.setItem(`app_salary_${k}`, JSON.stringify(v));
+                });
+              }
+              return merged;
+            });
+          }
         }
       } catch (salErr) {
         console.warn('Tải salary_records:', salErr);
@@ -292,7 +312,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         console.warn('Lỗi tải user_settings:', usErr);
       }
 
-      // 4. Tải work_logs
+      // 4. Tải work_logs (bao gồm quét các bản ghi đồng bộ lương an toàn)
       try {
         let queryWl = client.from('work_logs').select('*');
         if (user?.id) queryWl = queryWl.or(`user_id.eq.${user.id},user_id.eq.admin123`);
@@ -302,9 +322,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           const foundSalaryFromLogs: Record<string, MonthlySalaryData> = {};
 
           wlData.forEach((l: any) => {
-            if (l.notes && typeof l.notes === 'string' && l.notes.includes('[SALARY_SYNC]:')) {
+            // Nhận diện bản ghi đồng bộ lương đặc biệt
+            if (l.notes && typeof l.notes === 'string' && (l.notes.includes('[SALARY_SYNC]:') || l.notes.includes('[SALARY_DATA]:'))) {
               try {
-                const jsonPart = l.notes.substring(l.notes.indexOf('[SALARY_SYNC]:') + 14);
+                const keyword = l.notes.includes('[SALARY_SYNC]:') ? '[SALARY_SYNC]:' : '[SALARY_DATA]:';
+                const jsonPart = l.notes.substring(l.notes.indexOf(keyword) + keyword.length);
                 const parsed = JSON.parse(jsonPart);
                 if (parsed && typeof parsed === 'object') {
                   Object.assign(foundSalaryFromLogs, parsed);
@@ -312,10 +334,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               } catch (e) {
                 // ignore
               }
-              if (l.id && String(l.id).startsWith('salary_meta_')) {
-                return;
-              }
+              return; // Bỏ qua không đưa vào danh sách chấm công hàng ngày
             }
+
+            if (l.work_date === '1970-01-01' || l.work_status === 'Lương tháng') {
+              return;
+            }
+
             actualLogs.push({
               ...l, 
               break_duration_hours: Number(l.break_duration_hours) || 0,
@@ -327,7 +352,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
           setWorkLogs(actualLogs);
           if (Object.keys(foundSalaryFromLogs).length > 0) {
-            setSalaryRecords(prev => ({ ...prev, ...foundSalaryFromLogs }));
+            setSalaryRecords(prev => {
+              const merged = { ...prev, ...foundSalaryFromLogs };
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('app_salary_records', JSON.stringify(merged));
+                Object.entries(foundSalaryFromLogs).forEach(([k, v]) => {
+                  localStorage.setItem(`app_salary_${k}`, JSON.stringify(v));
+                });
+              }
+              return merged;
+            });
           }
         }
       } catch (wlErr) {
@@ -717,12 +751,49 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         console.warn('Realtime broadcast error:', bcErr);
       }
 
-      // 2. Lưu vào bảng chuyên dụng salary_records
+      // 2. Lưu bản ghi dự phòng vào work_logs qua runUpsert (Kênh đồng bộ 100% hoạt động chắc chắn nhất vì work_logs luôn tồn tại)
       try {
-        const recordId = `sal_${effectiveUserId.slice(0, 16)}_${year}_${month}`.toLowerCase().replace(/[^a-z0-9_]/g, '_');
-        await client.from('salary_records').upsert({
+        const salaryLogId = toValidUUID(`salary_meta_${effectiveUserId}_${year}_${month}`);
+        await runUpsert('work_logs', {
+          id: salaryLogId,
+          work_date: '1970-01-01',
+          work_status: 'Lương tháng',
+          total_hours: 0,
+          break_duration_hours: 0,
+          overtime_hours: 0,
+          missing_hours: 0,
+          notes: `[SALARY_SYNC]:${JSON.stringify({ [key]: data })}`
+        }, '');
+      } catch (logErr) {
+        console.warn('Lỗi lưu work_logs sync salary:', logErr);
+      }
+
+      // 3. Lưu vào work_settings (có trường salary_data để đồng bộ)
+      try {
+        const updatedWorkSettings = {
+          ...workSettings,
+          salary_data: { ...(workSettings.salary_data || {}), [key]: data }
+        };
+        setWorkSettings(updatedWorkSettings);
+        await runUpsert('work_settings', {
+          id: workSettings.id ? toValidUUID(workSettings.id) : toValidUUID(`ws_${effectiveUserId}`),
+          default_check_in: updatedWorkSettings.default_check_in,
+          default_check_out: updatedWorkSettings.default_check_out,
+          default_break_start: updatedWorkSettings.default_break_start,
+          default_break_end: updatedWorkSettings.default_break_end,
+          standard_hours_per_day: updatedWorkSettings.standard_hours_per_day,
+          standard_days_per_month: updatedWorkSettings.standard_days_per_month,
+          salary_data: updatedWorkSettings.salary_data,
+        }, '');
+      } catch (wsErr: any) {
+        console.warn('Lỗi lưu work_settings fallback trên Cloud:', wsErr);
+      }
+
+      // 4. Lưu vào bảng chuyên dụng salary_records
+      try {
+        const recordId = toValidUUID(`sal_${effectiveUserId}_${year}_${month}`);
+        await runUpsert('salary_records', {
           id: recordId,
-          user_id: effectiveUserId,
           month,
           year,
           base_salary: data.baseSalary,
@@ -733,50 +804,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           total_overtime_minutes: totalOvertimeMinutes,
           overtime_pay: Math.round(overtimePay),
           total_salary: Math.round(totalSalary),
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'id' });
+        }, '');
       } catch (err: any) {
         console.warn('Lỗi lưu bảng salary_records trên Cloud:', err);
-      }
-
-      // 3. Lưu trực tiếp vào work_settings (có trường salary_data để đồng bộ chắc chắn)
-      try {
-        const updatedWorkSettings = {
-          ...workSettings,
-          salary_data: { ...(workSettings.salary_data || {}), [key]: data }
-        };
-        setWorkSettings(updatedWorkSettings);
-        await client.from('work_settings').upsert({
-          id: updatedWorkSettings.id || `ws_${effectiveUserId}`,
-          user_id: effectiveUserId,
-          default_check_in: updatedWorkSettings.default_check_in,
-          default_check_out: updatedWorkSettings.default_check_out,
-          default_break_start: updatedWorkSettings.default_break_start,
-          default_break_end: updatedWorkSettings.default_break_end,
-          standard_hours_per_day: updatedWorkSettings.standard_hours_per_day,
-          standard_days_per_month: updatedWorkSettings.standard_days_per_month,
-          salary_data: updatedWorkSettings.salary_data,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'id' });
-      } catch (wsErr: any) {
-        console.warn('Lỗi lưu work_settings fallback trên Cloud:', wsErr);
-      }
-
-      // 4. Lưu bản ghi dự phòng vào work_logs (bảo đảm 100% đồng bộ vì bảng work_logs luôn tồn tại)
-      try {
-        const salaryLogId = `salary_meta_${effectiveUserId.slice(0, 12)}_${year}_${month}`.toLowerCase().replace(/[^a-z0-9_]/g, '_');
-        const monthDateStr = `${year}-${String(month).padStart(2, '0')}-01`;
-        await client.from('work_logs').upsert({
-          id: salaryLogId,
-          user_id: effectiveUserId,
-          work_date: monthDateStr,
-          work_status: 'Làm việc',
-          total_hours: 8,
-          notes: `[SALARY_SYNC]:${JSON.stringify({ [key]: data })}`,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'id' });
-      } catch (logErr) {
-        // ignore
       }
     }
 

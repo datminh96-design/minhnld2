@@ -16,6 +16,31 @@ export function generateUUID(): string {
   });
 }
 
+export function toValidUUID(str: string): string {
+  if (!str) return generateUUID();
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (uuidRegex.test(str)) {
+    return str;
+  }
+  // Deterministic UUID from input string
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  
+  const hex1 = (h1 >>> 0).toString(16).padStart(8, '0');
+  const hex2 = (h2 >>> 0).toString(16).padStart(8, '0');
+  const hex3 = Math.abs((h1 ^ h2) >>> 0).toString(16).padStart(8, '0');
+  const hex4 = Math.abs((h1 + h2) >>> 0).toString(16).padStart(8, '0');
+  const combined = (hex1 + hex2 + hex3 + hex4).slice(0, 32);
+
+  return `${combined.slice(0, 8)}-${combined.slice(8, 12)}-4${combined.slice(13, 16)}-a${combined.slice(17, 20)}-${combined.slice(20, 32)}`;
+}
+
 export function formatCurrency(
   amount: number | undefined | null,
   currency: 'VND' | 'USD' = 'VND',

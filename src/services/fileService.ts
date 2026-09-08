@@ -143,25 +143,28 @@ async function syncFilesToSupabase(files: FileMetadata[]): Promise<void> {
     // Bảng storage_files có thể chưa tồn tại trong Supabase, tiếp tục lưu vào JSON backup
   }
 
-  // 2. Lưu vào JSON backup trong `work_settings` hoặc `user_settings` để đảm bảo 100% mọi thiết bị đều đọc được
+  // 2. Lưu vào JSON backup an toàn
   try {
     const { data: existingWs } = await client
       .from('work_settings')
-      .select('id, salary_data')
+      .select('*')
       .eq('user_id', userId)
+      .order('updated_at', { ascending: false })
+      .limit(1)
       .maybeSingle();
 
-    const existingSalaryData = existingWs?.salary_data || {};
+    const existingSalaryData = (existingWs?.salary_data && typeof existingWs.salary_data === 'object') ? existingWs.salary_data : {};
     const updatedSalaryData = {
       ...existingSalaryData,
       storage_files_backup: files,
     };
 
-    await client.from('work_settings').upsert({
-      user_id: userId,
-      salary_data: updatedSalaryData,
-      updated_at: new Date().toISOString(),
-    });
+    if (existingWs?.id) {
+      await client.from('work_settings').update({
+        salary_data: updatedSalaryData,
+        updated_at: new Date().toISOString(),
+      }).eq('id', existingWs.id);
+    }
   } catch (errWs) {
     console.warn('Backup files to work_settings warning:', errWs);
   }
@@ -178,21 +181,24 @@ async function syncFoldersToSupabase(folders: FolderItem[]): Promise<void> {
   try {
     const { data: existingWs } = await client
       .from('work_settings')
-      .select('id, salary_data')
+      .select('*')
       .eq('user_id', userId)
+      .order('updated_at', { ascending: false })
+      .limit(1)
       .maybeSingle();
 
-    const existingSalaryData = existingWs?.salary_data || {};
+    const existingSalaryData = (existingWs?.salary_data && typeof existingWs.salary_data === 'object') ? existingWs.salary_data : {};
     const updatedSalaryData = {
       ...existingSalaryData,
       storage_folders_backup: folders,
     };
 
-    await client.from('work_settings').upsert({
-      user_id: userId,
-      salary_data: updatedSalaryData,
-      updated_at: new Date().toISOString(),
-    });
+    if (existingWs?.id) {
+      await client.from('work_settings').update({
+        salary_data: updatedSalaryData,
+        updated_at: new Date().toISOString(),
+      }).eq('id', existingWs.id);
+    }
   } catch (err) {
     console.warn('Sync folders to Supabase warning:', err);
   }
