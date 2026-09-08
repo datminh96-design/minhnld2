@@ -228,24 +228,37 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const syncWithSupabase = async (showToast = false) => {
     if (loadingDataRef.current) return;
     const { client, isConfigured } = getSupabaseClient();
-    if (!isConfigured || !client || isDemoUser || !user) return;
+    if (!isConfigured || !client) return;
     try {
       setLoadingData(true);
       setSyncStatus('syncing');
       
-      const { data: wsData, error: wsError } = await client.from('work_settings').select('*').eq('user_id', user.id).maybeSingle();
-      if (wsError) {
-        console.error('Lỗi tải work_settings:', wsError);
-      } else if (wsData) {
-        setWorkSettings({ ...DEFAULT_WORK_SETTINGS, ...wsData });
-        if (wsData.salary_data && typeof wsData.salary_data === 'object') {
-          setSalaryRecords(prev => ({ ...prev, ...wsData.salary_data }));
+      const effectiveUserId = user?.id || 'admin123';
+
+      // 1. Tải work_settings (chứa cấu hình giờ công và salary_data)
+      try {
+        let queryWs = client.from('work_settings').select('*');
+        if (user?.id) {
+          queryWs = queryWs.or(`user_id.eq.${user.id},user_id.eq.admin123`);
         }
+        const { data: wsData, error: wsError } = await queryWs.order('updated_at', { ascending: false }).limit(1).maybeSingle();
+        if (!wsError && wsData) {
+          setWorkSettings(prev => ({ ...DEFAULT_WORK_SETTINGS, ...prev, ...wsData }));
+          if (wsData.salary_data && typeof wsData.salary_data === 'object') {
+            setSalaryRecords(prev => ({ ...prev, ...wsData.salary_data }));
+          }
+        }
+      } catch (wsErr) {
+        console.warn('Lỗi tải work_settings:', wsErr);
       }
 
-      // Load dedicated salary records table
+      // 2. Tải bảng salary_records chuyên dụng
       try {
-        const { data: salData, error: salError } = await client.from('salary_records').select('*').eq('user_id', user.id);
+        let querySal = client.from('salary_records').select('*');
+        if (user?.id) {
+          querySal = querySal.or(`user_id.eq.${user.id},user_id.eq.admin123`);
+        }
+        const { data: salData, error: salError } = await querySal;
         if (!salError && salData && Array.isArray(salData)) {
           const salMap: Record<string, MonthlySalaryData> = {};
           salData.forEach((r: any) => {
@@ -267,30 +280,42 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         console.warn('Tải salary_records:', salErr);
       }
 
-      const { data: usData, error: usError } = await client.from('user_settings').select('*').eq('user_id', user.id).maybeSingle();
-      if (usError) {
-        console.error('Lỗi tải user_settings:', usError);
-      } else if (usData) {
-        setUserSettings({ ...DEFAULT_USER_SETTINGS, ...usData });
-      }
-
-      const { data: wlData, error: wlError } = await client.from('work_logs').select('*').eq('user_id', user.id).order('work_date', { ascending: false });
-      if (wlError) {
-         console.error('Lỗi tải work_logs:', wlError);
-      } else if (wlData) {
-        setWorkLogs(wlData.map(l => ({
-          ...l, 
-          break_duration_hours: Number(l.break_duration_hours) || 0,
-          total_hours: Number(l.total_hours) || 0,
-          overtime_hours: Number(l.overtime_hours) || 0,
-          missing_hours: Number(l.missing_hours) || 0
-        })));
-      }
-
-      // Load business trips
+      // 3. Tải user_settings
       try {
-        const { data: btData, error: btError } = await client.from('business_trips').select('*').eq('user_id', user.id).order('trip_date', { ascending: false });
-        if (!btError && btData && Array.isArray(btData)) {
+        let queryUs = client.from('user_settings').select('*');
+        if (user?.id) queryUs = queryUs.or(`user_id.eq.${user.id},user_id.eq.admin123`);
+        const { data: usData } = await queryUs.order('updated_at', { ascending: false }).limit(1).maybeSingle();
+        if (usData) {
+          setUserSettings(prev => ({ ...DEFAULT_USER_SETTINGS, ...prev, ...usData }));
+        }
+      } catch (usErr) {
+        console.warn('Lỗi tải user_settings:', usErr);
+      }
+
+      // 4. Tải work_logs
+      try {
+        let queryWl = client.from('work_logs').select('*');
+        if (user?.id) queryWl = queryWl.or(`user_id.eq.${user.id},user_id.eq.admin123`);
+        const { data: wlData, error: wlError } = await queryWl.order('work_date', { ascending: false });
+        if (!wlError && wlData && wlData.length > 0) {
+          setWorkLogs(wlData.map(l => ({
+            ...l, 
+            break_duration_hours: Number(l.break_duration_hours) || 0,
+            total_hours: Number(l.total_hours) || 0,
+            overtime_hours: Number(l.overtime_hours) || 0,
+            missing_hours: Number(l.missing_hours) || 0
+          })));
+        }
+      } catch (wlErr) {
+        console.warn('Lỗi tải work_logs:', wlErr);
+      }
+
+      // 5. Tải business_trips
+      try {
+        let queryBt = client.from('business_trips').select('*');
+        if (user?.id) queryBt = queryBt.or(`user_id.eq.${user.id},user_id.eq.admin123`);
+        const { data: btData, error: btError } = await queryBt.order('trip_date', { ascending: false });
+        if (!btError && btData && Array.isArray(btData) && btData.length > 0) {
           setBusinessTrips(btData.map((t: any) => ({
             ...t,
             days_count: Number(t.days_count) || 1,
@@ -307,25 +332,26 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         console.warn('Tải business_trips:', btErr);
       }
 
-      const { data: catData, error: catError } = await client.from('expense_categories').select('*').or(`user_id.eq.${user.id},is_default.eq.true`);
-      if (catError) {
-         console.error('Lỗi tải categories:', catError);
-      } else if (catData && catData.length > 0) {
-        setCategories(catData);
-      } else {
-        const defaultCats = DEFAULT_EXPENSE_CATEGORIES.map(c => ({ ...c, user_id: user.id }));
-        setCategories(defaultCats);
-        const { error: insertError } = await client.from('expense_categories').upsert(defaultCats);
-        if (insertError) console.error(insertError);
+      // 6. Tải expense_categories
+      try {
+        const { data: catData, error: catError } = await client.from('expense_categories').select('*');
+        if (!catError && catData && catData.length > 0) {
+          setCategories(catData);
+        }
+      } catch (catErr) {
+        console.warn('Tải categories:', catErr);
       }
 
-      const { data: txData, error: txError } = await client.from('transactions').select('*').eq('user_id', user.id).order('transaction_date', { ascending: false });
-      if (txError) {
-         console.error('Lỗi tải transactions:', txError);
-      } else if (txData) {
-         const serverTxs = txData.map(t => ({ ...t, amount: Number(t.amount) || 0 }));
-         // Supabase is the single source of truth - replace directly to eliminate zombie resurrection
-         setTransactions(serverTxs);
+      // 7. Tải transactions
+      try {
+        let queryTx = client.from('transactions').select('*');
+        if (user?.id) queryTx = queryTx.or(`user_id.eq.${user.id},user_id.eq.admin123`);
+        const { data: txData, error: txError } = await queryTx.order('transaction_date', { ascending: false });
+        if (!txError && txData && txData.length > 0) {
+          setTransactions(txData.map(t => ({ ...t, amount: Number(t.amount) || 0 })));
+        }
+      } catch (txErr) {
+        console.warn('Tải transactions:', txErr);
       }
 
       const { data: assetData, error: assetError } = await client.from('investment_assets').select('*').eq('user_id', user.id);
@@ -406,17 +432,17 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Realtime Multi-Device synchronization hook
   useEffect(() => {
-    if (isDemoUser || !user) return;
-
     // Initial sync
     syncWithSupabase();
 
     const { client, isConfigured } = getSupabaseClient();
     if (!isConfigured || !client) return;
 
+    const effectiveUserId = user?.id || 'admin123';
+
     // Setup Supabase Realtime channel for instant cross-device updates
     const channel = client
-      .channel(`realtime-sync-${user.id}`)
+      .channel(`realtime-sync-${effectiveUserId}`)
       .on(
         'postgres_changes',
         {
@@ -550,17 +576,29 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       default_check_out: updated.default_check_out,
       default_break_start: updated.default_break_start,
       default_break_end: updated.default_break_end,
-      standard_hours_per_day: updated.standard_hours_per_day
+      standard_hours_per_day: updated.standard_hours_per_day,
+      standard_days_per_month: updated.standard_days_per_month,
+      salary_data: updated.salary_data || salaryRecords
     }, 'Đã lưu cấu hình giờ công');
   };
 
   const getSalaryRecord = (month: number, year: number): MonthlySalaryData => {
     const key = `${year}_${month}`;
     if (salaryRecords[key]) return salaryRecords[key];
+    if (workSettings?.salary_data && workSettings.salary_data[key]) {
+      return workSettings.salary_data[key];
+    }
     if (typeof window !== 'undefined') {
       const legacy = localStorage.getItem(`app_salary_${year}_${month}`);
       if (legacy) {
         try { return JSON.parse(legacy); } catch {}
+      }
+      const allRecords = localStorage.getItem('app_salary_records');
+      if (allRecords) {
+        try {
+          const parsed = JSON.parse(allRecords);
+          if (parsed[key]) return parsed[key];
+        } catch {}
       }
     }
     return {
@@ -604,47 +642,54 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const overtimePay = effectiveOTMinutes > 0 ? (perMinuteRate * effectiveOTMinutes) : 0;
     const totalSalary = regularSalary + data.kpiBonus + data.salesBonus + data.otherAllowance - data.insuranceDeduction + overtimePay;
 
-    if (!isDemoUser && user) {
+    const { client, isConfigured } = getSupabaseClient();
+    if (isConfigured && client) {
       triggerCloudBackup();
-      try {
-        const { client } = getSupabaseClient();
-        if (client) {
-          // 1. Try upserting to dedicated salary_records table
-          const recordId = `${user.id.slice(0, 18)}-sal-${year}-${month}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-          await client.from('salary_records').upsert({
-            id: recordId,
-            user_id: user.id,
-            month,
-            year,
-            base_salary: data.baseSalary,
-            kpi_bonus: data.kpiBonus,
-            sales_bonus: data.salesBonus,
-            other_allowance: data.otherAllowance,
-            insurance_deduction: data.insuranceDeduction,
-            total_overtime_minutes: totalOvertimeMinutes,
-            overtime_pay: Math.round(overtimePay),
-            total_salary: Math.round(totalSalary),
-            updated_at: new Date().toISOString()
-          });
+      const effectiveUserId = user?.id || 'admin123';
 
-          // 2. Also backup to work_settings as durable fallback
-          const updatedWorkSettings = {
-            ...workSettings,
-            salary_data: { ...(workSettings.salary_data || {}), [key]: data }
-          };
-          setWorkSettings(updatedWorkSettings);
-          await client.from('work_settings').upsert({
-            id: updatedWorkSettings.id,
-            user_id: user.id,
-            default_check_in: updatedWorkSettings.default_check_in,
-            default_check_out: updatedWorkSettings.default_check_out,
-            default_break_start: updatedWorkSettings.default_break_start,
-            default_break_end: updatedWorkSettings.default_break_end,
-            standard_hours_per_day: updatedWorkSettings.standard_hours_per_day
-          });
-        }
+      // 1. Lưu vào bảng chuyên dụng salary_records
+      try {
+        const recordId = `sal_${effectiveUserId.slice(0, 16)}_${year}_${month}`.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+        await client.from('salary_records').upsert({
+          id: recordId,
+          user_id: effectiveUserId,
+          month,
+          year,
+          base_salary: data.baseSalary,
+          kpi_bonus: data.kpiBonus,
+          sales_bonus: data.salesBonus,
+          other_allowance: data.otherAllowance,
+          insurance_deduction: data.insuranceDeduction,
+          total_overtime_minutes: totalOvertimeMinutes,
+          overtime_pay: Math.round(overtimePay),
+          total_salary: Math.round(totalSalary),
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'id' });
       } catch (err: any) {
-        console.warn('Lỗi lưu bảng lương lên Cloud:', err);
+        console.warn('Lỗi lưu bảng salary_records trên Cloud:', err);
+      }
+
+      // 2. Lưu trực tiếp vào work_settings (có trường salary_data để đồng bộ chắc chắn)
+      try {
+        const updatedWorkSettings = {
+          ...workSettings,
+          salary_data: { ...(workSettings.salary_data || {}), [key]: data }
+        };
+        setWorkSettings(updatedWorkSettings);
+        await client.from('work_settings').upsert({
+          id: updatedWorkSettings.id || `ws_${effectiveUserId}`,
+          user_id: effectiveUserId,
+          default_check_in: updatedWorkSettings.default_check_in,
+          default_check_out: updatedWorkSettings.default_check_out,
+          default_break_start: updatedWorkSettings.default_break_start,
+          default_break_end: updatedWorkSettings.default_break_end,
+          standard_hours_per_day: updatedWorkSettings.standard_hours_per_day,
+          standard_days_per_month: updatedWorkSettings.standard_days_per_month,
+          salary_data: updatedWorkSettings.salary_data,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'id' });
+      } catch (wsErr: any) {
+        console.warn('Lỗi lưu work_settings fallback trên Cloud:', wsErr);
       }
     }
 

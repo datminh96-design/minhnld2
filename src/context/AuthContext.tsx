@@ -33,7 +33,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [loading, setLoading] = useState(true);
   const [isDemoUser, setIsDemoUser] = useState<boolean>(() => {
     const saved = localStorage.getItem('app_is_demo_mode');
-    return saved !== null ? saved === 'true' : true; // Default to demo/interactive preview so it works right away!
+    return saved !== null ? saved === 'true' : false; // Default to FALSE to automatically connect and sync with Supabase Cloud
   });
 
   const { isConfigured } = getSupabaseStatus();

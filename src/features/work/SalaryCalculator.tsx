@@ -17,7 +17,7 @@ export const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({
   totalWorkedMinutes = 0,
   totalOvertimeMinutes = 0 
 }) => {
-  const { workSettings, getSalaryRecord, saveSalaryRecord, businessTrips } = useData();
+  const { workSettings, salaryRecords, getSalaryRecord, saveSalaryRecord, businessTrips } = useData();
 
   const [data, setData] = useState<MonthlySalaryData>(() => getSalaryRecord(month, year));
   const [isSaved, setIsSaved] = useState(false);
@@ -48,7 +48,7 @@ export const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({
     setData(record);
     setIsSaved(false);
     isInitialMount.current = true;
-  }, [month, year]);
+  }, [month, year, salaryRecords, workSettings]);
 
   const handleChange = (field: keyof MonthlySalaryData, value: string) => {
     const num = parseInt(value.replace(/\D/g, ''), 10);
