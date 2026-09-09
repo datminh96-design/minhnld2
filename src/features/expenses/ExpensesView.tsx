@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
 import { Transaction, TransactionType, DateFilterPreset, ExpenseCategory } from '../../types';
 import { formatCurrency, formatDateVN, getDayOfWeek, getTodayDateString, getWeekRange, getCurrentMonthPrefix, getMonthsAgoRange, getYearRange } from '../../lib/utils';
+import { getCategoryIconMeta, AVAILABLE_CATEGORY_ICONS } from '../../lib/categoryIcons';
 import { Modal } from '../../components/ui/Modal';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { TransactionModalForm } from './TransactionModalForm';
@@ -54,7 +55,8 @@ export const ExpensesView: React.FC = () => {
   const [isCatModalOpen, setIsCatModalOpen] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [newCatType, setNewCatType] = useState<TransactionType>('expense');
-  const [newCatColor, setNewCatColor] = useState('#10B981');
+  const [newCatIcon, setNewCatIcon] = useState('ShoppingBag');
+  const [newCatColor, setNewCatColor] = useState('#EF4444');
 
   // Date Filtering logic
   const filteredTransactions = useMemo(() => {
@@ -187,6 +189,7 @@ export const ExpensesView: React.FC = () => {
     await saveCategory({
       name: newCatName.trim(),
       type: newCatType,
+      icon: newCatIcon,
       color: newCatColor,
     });
 
@@ -452,7 +455,20 @@ export const ExpensesView: React.FC = () => {
                           </span>
                         </td>
                         <td className="py-3 px-4 font-medium text-slate-800 dark:text-slate-200">
-                          {tx.category_name}
+                          {(() => {
+                            const { Icon: CatIcon, color, bgColor } = getCategoryIconMeta(tx.category_name);
+                            return (
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                                  style={{ backgroundColor: bgColor }}
+                                >
+                                  <CatIcon className="w-4 h-4" style={{ color }} />
+                                </div>
+                                <span className="font-semibold text-slate-800 dark:text-slate-200">{tx.category_name}</span>
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td className="py-3 px-4 text-slate-600 dark:text-slate-400 max-w-sm truncate">
                           {tx.note || '--'}
@@ -510,12 +526,18 @@ export const ExpensesView: React.FC = () => {
               <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display">
                 Danh Sách Danh Mục Thu & Chi
               </h3>
-              <p className="text-xs text-slate-400">Tùy biến các danh mục phù hợp với thói quen tài chính của bạn</p>
+              <p className="text-xs text-slate-400">Tùy biến các danh mục với biểu tượng icon trực quan, chuyên nghiệp</p>
             </div>
             <button
               type="button"
-              onClick={() => setIsCatModalOpen(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-xs"
+              onClick={() => {
+                setNewCatName('');
+                setNewCatType('expense');
+                setNewCatIcon('ShoppingBag');
+                setNewCatColor('#EF4444');
+                setIsCatModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-xs cursor-pointer"
             >
               <Plus className="w-4 h-4" /> + Tạo Danh Mục Mới
             </button>
@@ -523,54 +545,78 @@ export const ExpensesView: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {/* Income categories */}
-            <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3.5">
               <h4 className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
                 <ArrowDownLeft className="w-4 h-4" /> Danh Mục Thu Nhập ({categories.filter(c => c.type === 'income').length})
               </h4>
-              <div className="grid grid-cols-2 gap-2.5">
-                {categories.filter(c => c.type === 'income').map((cat) => (
-                  <div
-                    key={cat.id}
-                    className="p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex items-center justify-between text-xs"
-                  >
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">{cat.name}</span>
-                    {!cat.is_default && (
-                      <button
-                        type="button"
-                        onClick={() => deleteCategory(cat.id)}
-                        className="text-slate-400 hover:text-rose-500 p-1"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                ))}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {categories.filter(c => c.type === 'income').map((cat) => {
+                  const { Icon: CatIcon, color, bgColor } = getCategoryIconMeta(cat.name, cat.icon, cat.color);
+                  return (
+                    <div
+                      key={cat.id}
+                      className="p-3 rounded-xl border border-slate-100 dark:border-slate-800/80 bg-slate-50/80 dark:bg-slate-800/50 hover:border-emerald-500/30 transition-all flex items-center justify-between text-xs"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div
+                          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                          style={{ backgroundColor: bgColor }}
+                        >
+                          <CatIcon className="w-4 h-4" style={{ color }} />
+                        </div>
+                        <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">{cat.name}</span>
+                      </div>
+                      {!cat.is_default && (
+                        <button
+                          type="button"
+                          onClick={() => deleteCategory(cat.id)}
+                          className="text-slate-400 hover:text-rose-500 p-1.5 rounded-lg hover:bg-rose-500/10 transition-colors ml-1 shrink-0"
+                          title="Xóa danh mục"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
             {/* Expense categories */}
-            <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3.5">
               <h4 className="text-xs font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
                 <ArrowUpRight className="w-4 h-4" /> Danh Mục Chi Tiêu ({categories.filter(c => c.type === 'expense').length})
               </h4>
-              <div className="grid grid-cols-2 gap-2.5">
-                {categories.filter(c => c.type === 'expense').map((cat) => (
-                  <div
-                    key={cat.id}
-                    className="p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex items-center justify-between text-xs"
-                  >
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">{cat.name}</span>
-                    {!cat.is_default && (
-                      <button
-                        type="button"
-                        onClick={() => deleteCategory(cat.id)}
-                        className="text-slate-400 hover:text-rose-500 p-1"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                ))}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {categories.filter(c => c.type === 'expense').map((cat) => {
+                  const { Icon: CatIcon, color, bgColor } = getCategoryIconMeta(cat.name, cat.icon, cat.color);
+                  return (
+                    <div
+                      key={cat.id}
+                      className="p-3 rounded-xl border border-slate-100 dark:border-slate-800/80 bg-slate-50/80 dark:bg-slate-800/50 hover:border-rose-500/30 transition-all flex items-center justify-between text-xs"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div
+                          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                          style={{ backgroundColor: bgColor }}
+                        >
+                          <CatIcon className="w-4 h-4" style={{ color }} />
+                        </div>
+                        <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">{cat.name}</span>
+                      </div>
+                      {!cat.is_default && (
+                        <button
+                          type="button"
+                          onClick={() => deleteCategory(cat.id)}
+                          className="text-slate-400 hover:text-rose-500 p-1.5 rounded-lg hover:bg-rose-500/10 transition-colors ml-1 shrink-0"
+                          title="Xóa danh mục"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -594,49 +640,114 @@ export const ExpensesView: React.FC = () => {
         isOpen={isCatModalOpen}
         onClose={() => setIsCatModalOpen(false)}
         title="Tạo Danh Mục Mới"
-        subtitle="Phân loại thu nhập hoặc chi tiêu"
-        maxWidth="sm"
+        subtitle="Chọn biểu tượng & màu sắc chuyên nghiệp"
+        maxWidth="md"
       >
         <form onSubmit={handleSaveCategory} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Loại danh mục
-            </label>
-            <select
-              value={newCatType}
-              onChange={(e) => setNewCatType(e.target.value as TransactionType)}
-              className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            >
-              <option value="expense">Chi tiêu</option>
-              <option value="income">Thu nhập</option>
-            </select>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Loại danh mục
+              </label>
+              <select
+                value={newCatType}
+                onChange={(e) => {
+                  const t = e.target.value as TransactionType;
+                  setNewCatType(t);
+                  if (t === 'income') {
+                    setNewCatColor('#10B981');
+                    setNewCatIcon('Briefcase');
+                  } else {
+                    setNewCatColor('#EF4444');
+                    setNewCatIcon('ShoppingBag');
+                  }
+                }}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                <option value="expense">Chi tiêu</option>
+                <option value="income">Thu nhập</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Tên danh mục
+              </label>
+              <input
+                type="text"
+                required
+                value={newCatName}
+                onChange={(e) => setNewCatName(e.target.value)}
+                placeholder="VD: Trả góp, Thú cưng, Thuốc lá..."
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
           </div>
 
+          {/* Icon Selector Grid */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Tên danh mục
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+              Chọn Biểu Tượng (Icon)
             </label>
-            <input
-              type="text"
-              required
-              value={newCatName}
-              onChange={(e) => setNewCatName(e.target.value)}
-              placeholder="VD: Trả góp, Thú cưng, Bảo hiểm..."
-              className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
+            <div className="grid grid-cols-5 sm:grid-cols-6 gap-2 max-h-44 overflow-y-auto p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+              {AVAILABLE_CATEGORY_ICONS.map((item) => {
+                const isSelected = newCatIcon === item.name;
+                const IconComp = item.Icon;
+                return (
+                  <button
+                    key={item.name}
+                    type="button"
+                    onClick={() => setNewCatIcon(item.name)}
+                    className={`p-2 rounded-lg flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-emerald-600 text-white shadow-xs scale-105'
+                        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                    title={item.label}
+                  >
+                    <IconComp className="w-5 h-5" />
+                    <span className="text-[10px] truncate max-w-full">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <div className="pt-2 flex items-center justify-end gap-2.5">
+          {/* Color Selector */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+              Chọn Tông Màu Chủ Đạo
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                '#EF4444', '#F97316', '#F59E0B', '#EAB308', '#84CC16',
+                '#10B981', '#06B6D4', '#0EA5E9', '#3B82F6', '#6366F1',
+                '#8B5CF6', '#EC4899', '#F43F5E', '#78716C', '#64748B'
+              ].map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setNewCatColor(c)}
+                  className={`w-6 h-6 rounded-full transition-transform cursor-pointer flex items-center justify-center ${
+                    newCatColor === c ? 'scale-125 ring-2 ring-offset-2 ring-emerald-500' : 'hover:scale-110'
+                  }`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="pt-3 flex items-center justify-end gap-2.5 border-t border-slate-100 dark:border-slate-800">
             <button
               type="button"
               onClick={() => setIsCatModalOpen(false)}
-              className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-medium"
+              className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-medium cursor-pointer"
             >
               Hủy
             </button>
             <button
               type="submit"
-              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs"
+              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs cursor-pointer"
             >
               Tạo Danh Mục
             </button>
