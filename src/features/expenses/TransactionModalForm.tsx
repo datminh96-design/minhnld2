@@ -41,19 +41,25 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
   const [inlineCatName, setInlineCatName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const prevIsOpenRef = React.useRef(false);
+  const prevEditingTxIdRef = React.useRef<string | undefined>(undefined);
+
   // Available categories for current selected type
   const availableCategories = useMemo(() => {
     return categories.filter((c) => c.type === formType);
   }, [categories, formType]);
 
-  // Sync state when modal opens or editingTx changes
+  // Sync state ONLY when modal transitions from closed to open, or when editingTx changes
   useEffect(() => {
-    if (isOpen) {
+    const isOpening = isOpen && !prevIsOpenRef.current;
+    const isEditingTargetChanged = isOpen && editingTx?.id !== prevEditingTxIdRef.current;
+
+    if (isOpening || isEditingTargetChanged) {
       if (editingTx) {
         setFormType(editingTx.type);
-        setFormDate(editingTx.transaction_date);
+        setFormDate(editingTx.transaction_date || new Date().toISOString().split('T')[0]);
         setFormCategoryName(editingTx.category);
-        setFormAmount(editingTx.amount.toString());
+        setFormAmount(editingTx.amount ? editingTx.amount.toString() : '');
         setFormNote(editingTx.description || '');
       } else {
         setFormType(defaultType);
@@ -66,7 +72,10 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
       setIsInlineAddCatOpen(false);
       setInlineCatName('');
     }
-  }, [isOpen, editingTx, defaultType, categories]);
+
+    prevIsOpenRef.current = isOpen;
+    prevEditingTxIdRef.current = editingTx?.id;
+  }, [isOpen, editingTx, defaultType]);
 
   const handleQuickCreateCategory = async () => {
     if (!inlineCatName.trim()) return;

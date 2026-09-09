@@ -30,9 +30,15 @@ export const WorkLogModalForm: React.FC<WorkLogModalFormProps> = ({
   const [formNotes, setFormNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Sync form state when modal opens or editingLog changes
+  const prevIsOpenRef = React.useRef(false);
+  const prevEditingLogIdRef = React.useRef<string | undefined>(undefined);
+
+  // Sync form state ONLY when modal transitions from closed to open, or when editing target changes
   useEffect(() => {
-    if (isOpen) {
+    const isOpening = isOpen && !prevIsOpenRef.current;
+    const isEditingTargetChanged = isOpen && editingLog?.id !== prevEditingLogIdRef.current;
+
+    if (isOpening || isEditingTargetChanged) {
       if (editingLog) {
         setFormDate(editingLog.work_date);
         setFormStatus(editingLog.work_status);
@@ -51,7 +57,10 @@ export const WorkLogModalForm: React.FC<WorkLogModalFormProps> = ({
         setFormNotes('');
       }
     }
-  }, [isOpen, editingLog, initialDate, workSettings]);
+
+    prevIsOpenRef.current = isOpen;
+    prevEditingLogIdRef.current = editingLog?.id;
+  }, [isOpen, editingLog, initialDate]);
 
   // Live calculation preview inside modal without triggering parent re-render
   const modalCalculated = useMemo(() => {

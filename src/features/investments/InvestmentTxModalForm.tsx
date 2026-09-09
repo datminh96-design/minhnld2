@@ -45,9 +45,12 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
   const [bnbPriceUsdt, setBnbPriceUsdt] = useState<number>(580);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Sync state when modal opens
+  const prevIsOpenRef = React.useRef(false);
+
+  // Sync state ONLY when modal transitions from closed to open
   useEffect(() => {
-    if (isOpen) {
+    const isOpening = isOpen && !prevIsOpenRef.current;
+    if (isOpening) {
       const selectedId = initialAssetId || investmentAssets[0]?.id || '';
       setTxAssetId(selectedId);
       setTxType('buy');
@@ -71,7 +74,8 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
         setTxPrice('');
       }
     }
-  }, [isOpen, initialAssetId, investmentAssets]);
+    prevIsOpenRef.current = isOpen;
+  }, [isOpen, initialAssetId]);
 
   const handleAssetChange = async (newAssetId: string) => {
     setTxAssetId(newAssetId);
