@@ -5,6 +5,7 @@ import { formatCurrency, formatDateVN, getDayOfWeek, getTodayDateString, getWeek
 import { Modal } from '../../components/ui/Modal';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { TransactionModalForm } from './TransactionModalForm';
+import { ExpensesSmartCharts } from './ExpensesSmartCharts';
 import { 
   Wallet, 
   ArrowDownLeft, 
@@ -22,26 +23,6 @@ import {
   Calendar,
   DollarSign
 } from 'lucide-react';
-import {
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip,
-  Legend,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  AreaChart,
-  Area,
-} from 'recharts';
-
-const PIE_COLORS = [
-  '#EF4444', '#F97316', '#F59E0B', '#10B981', '#06B6D4', 
-  '#6366F1', '#8B5CF6', '#EC4899', '#14B8A6', '#84CC16', '#64748B'
-];
 
 export const ExpensesView: React.FC = () => {
   const { 
@@ -150,73 +131,6 @@ export const ExpensesView: React.FC = () => {
       savingsRate,
       count: filteredTransactions.length,
     };
-  }, [filteredTransactions]);
-
-  // Chart 1: Expense by Category (Pie Data)
-  const categoryPieData = useMemo(() => {
-    const map: Record<string, number> = {};
-    filteredTransactions
-      .filter((t) => t.transaction_type === 'expense')
-      .forEach((t) => {
-        map[t.category_name] = (map[t.category_name] || 0) + t.amount;
-      });
-
-    return Object.entries(map).map(([name, value]) => ({
-      name,
-      value,
-    })).sort((a, b) => b.value - a.value);
-  }, [filteredTransactions]);
-
-  // Chart 2: Income vs Expense Monthly / Timeline Data
-  const monthlyComparisonData = useMemo(() => {
-    const monthlyMap: Record<string, { income: number; expense: number }> = {};
-    
-    // Auto-generate past 5 months including current
-    for (let i = 4; i >= 0; i--) {
-      const d = new Date();
-      d.setMonth(d.getMonth() - i);
-      const mLabel = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getFullYear()).substring(2)}`;
-      monthlyMap[mLabel] = { income: 0, expense: 0 };
-    }
-
-    transactions.forEach(tx => {
-      if (!tx.transaction_date) return;
-      const parts = tx.transaction_date.split('-');
-      if (parts.length < 2) return;
-      const mLabel = `${parts[1]}/${parts[0].substring(2)}`;
-      if (monthlyMap[mLabel]) {
-        if (tx.transaction_type === 'income') {
-          monthlyMap[mLabel].income += tx.amount;
-        } else {
-          monthlyMap[mLabel].expense += tx.amount;
-        }
-      }
-    });
-
-    return Object.entries(monthlyMap).map(([month, data]) => ({
-      month,
-      ThuNhap: data.income,
-      ChiTieu: data.expense,
-      SoDu: data.income - data.expense,
-    }));
-  }, [transactions]);
-
-  // Chart 3: Expense Trend Timeline
-  const expenseTrendData = useMemo(() => {
-    const dailyMap: Record<string, number> = {};
-    filteredTransactions
-      .filter((t) => t.transaction_type === 'expense')
-      .forEach((t) => {
-        const day = t.transaction_date.substring(5); // 'MM-DD'
-        dailyMap[day] = (dailyMap[day] || 0) + t.amount;
-      });
-
-    return Object.entries(dailyMap)
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([day, amount]) => ({
-        day,
-        amount,
-      }));
   }, [filteredTransactions]);
 
   // Open Create Tx Modal
@@ -581,90 +495,12 @@ export const ExpensesView: React.FC = () => {
       )}
 
       {viewTab === 'analytics' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* Chart 1: Pie Chart Expenses by Category */}
-          <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display mb-1">
-              Phân Bổ Chi Tiêu Theo Danh Mục
-            </h3>
-            <p className="text-xs text-slate-400 mb-4">Tỷ trọng các khoản chi trong khoảng thời gian đã chọn</p>
-
-            {categoryPieData.length === 0 ? (
-              <p className="text-xs text-slate-400 py-12 text-center">Chưa có dữ liệu chi tiêu</p>
-            ) : (
-              <div className="h-72 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={categoryPieData}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={80}
-                      innerRadius={45}
-                      paddingAngle={3}
-                    >
-                      {categoryPieData.map((_, index) => (
-                        <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(val: number) => formatCurrency(val, userSettings.currency)} />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
-
-          {/* Chart 2: Monthly Comparison Bar Chart */}
-          <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display mb-1">
-              Thu Nhập vs Chi Tiêu Các Tháng
-            </h3>
-            <p className="text-xs text-slate-400 mb-4">So sánh dòng tiền thu - chi và mức thặng dư</p>
-
-            <div className="h-72 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={monthlyComparisonData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148, 163, 184, 0.15)" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                  <YAxis tickFormatter={(val) => formatCurrency(val, userSettings.currency, true)} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={70} />
-                  <Tooltip formatter={(val: number) => formatCurrency(val, userSettings.currency)} />
-                  <Legend />
-                  <Bar dataKey="ThuNhap" fill="#10B981" radius={[4, 4, 0, 0]} name="Thu nhập" />
-                  <Bar dataKey="ChiTieu" fill="#EF4444" radius={[4, 4, 0, 0]} name="Chi tiêu" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Chart 3: Expense Trend Line */}
-          <div className="lg:col-span-2 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display mb-1">
-              Xu Hướng Chi Tiêu Theo Thời Gian
-            </h3>
-            <p className="text-xs text-slate-400 mb-4">Diễn biến các ngày có phát sinh chi tiêu trong kỳ</p>
-
-            <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={expenseTrendData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="expTrend" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#EF4444" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#EF4444" stopOpacity={0.0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148, 163, 184, 0.15)" />
-                  <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                  <YAxis tickFormatter={(val) => formatCurrency(val, userSettings.currency, true)} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={70} />
-                  <Tooltip formatter={(val: number) => formatCurrency(val, userSettings.currency)} />
-                  <Area type="monotone" dataKey="amount" stroke="#EF4444" strokeWidth={2.5} fillOpacity={1} fill="url(#expTrend)" name="Chi tiêu" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
+        <ExpensesSmartCharts
+          transactions={transactions}
+          categories={categories}
+          userSettings={userSettings}
+          onEditTransaction={(tx) => handleOpenEditTxModal(tx)}
+        />
       )}
 
       {viewTab === 'categories' && (
