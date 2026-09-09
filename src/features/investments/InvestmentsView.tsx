@@ -13,6 +13,7 @@ import { priceService, KNOWN_ASSET_NAMES } from '../../services/priceService';
 import { AddAssetQuickSection } from './AddAssetQuickSection';
 import { TechnicalAnalysis4HSection } from './TechnicalAnalysis4HSection';
 import { InvestmentTxModalForm } from './InvestmentTxModalForm';
+import { PortfolioSmartCharts } from './PortfolioSmartCharts';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -35,23 +36,6 @@ import {
   ArrowDown,
   Clock
 } from 'lucide-react';
-import {
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip,
-  Legend,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  AreaChart,
-  Area,
-} from 'recharts';
-
-const ALLOC_COLORS = ['#8B5CF6', '#3B82F6', '#10B981', '#F59E0B', '#EC4899', '#06B6D4', '#64748B'];
 
 export const InvestmentsView: React.FC = () => {
   const { 
@@ -174,29 +158,6 @@ export const InvestmentsView: React.FC = () => {
       profitPercent,
       assetCount: calculatedHoldings.length,
     };
-  }, [calculatedHoldings]);
-
-  // Asset Allocation Pie Data
-  const allocationPieData = useMemo(() => {
-    return calculatedHoldings
-      .filter((h) => h.currentValue > 0)
-      .map((h) => ({
-        name: `${h.asset.asset_symbol} (${h.asset.asset_type === 'crypto' ? 'Crypto' : h.asset.asset_type === 'stock' ? 'Cổ phiếu' : h.asset.asset_type === 'fund' ? 'Quỹ' : h.asset.asset_type === 'gold' ? 'Vàng' : 'Khác'})`,
-        value: h.currentValue,
-      }));
-  }, [calculatedHoldings]);
-
-  // Profit/Loss Bar Chart Data
-  const profitBarData = useMemo(() => {
-    return calculatedHoldings
-      .filter((h) => h.totalInvested > 0)
-      .map((h) => ({
-        symbol: h.asset.asset_symbol,
-        profit: h.totalProfit,
-        percent: Number(h.profitPercentage.toFixed(2)),
-        invested: h.totalInvested,
-      }))
-      .sort((a, b) => b.profit - a.profit);
   }, [calculatedHoldings]);
 
   // Open Create Asset Modal
@@ -852,56 +813,12 @@ export const InvestmentsView: React.FC = () => {
 
       {/* Main Tab 3: Charts */}
       {activeTab === 'charts' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* Chart 1: Asset Allocation */}
-          <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display mb-1">
-              Phân Bổ Tỷ Trọng Danh Mục
-            </h3>
-            <p className="text-xs text-slate-400 mb-4">Tỷ trọng phần trăm từng tài sản trên tổng danh mục</p>
-            <div className="h-72 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={allocationPieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                    innerRadius={45}
-                    paddingAngle={3}
-                  >
-                    {allocationPieData.map((_, index) => (
-                      <Cell key={`alloc-cell-${index}`} fill={ALLOC_COLORS[index % ALLOC_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(val: number) => formatCurrency(val, userSettings.currency)} />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Chart 2: Profit/Loss per Asset */}
-          <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display mb-1">
-              Lợi Nhuận Từng Tài Sản
-            </h3>
-            <p className="text-xs text-slate-400 mb-4">Mức lãi/lỗ tính bằng giá trị tiền tệ</p>
-            <div className="h-72 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={profitBarData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148, 163, 184, 0.15)" />
-                  <XAxis dataKey="symbol" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                  <YAxis tickFormatter={(val) => formatCurrency(val, userSettings.currency, true)} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={70} />
-                  <Tooltip formatter={(val: number) => formatCurrency(val, userSettings.currency)} />
-                  <Bar dataKey="profit" fill="#10B981" radius={[4, 4, 0, 0]} name="Lợi nhuận" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
+        <PortfolioSmartCharts
+          holdings={calculatedHoldings}
+          transactions={investmentTransactions}
+          snapshots={portfolioSnapshots}
+          userSettings={userSettings}
+        />
       )}
 
       {/* Main Tab 4: Technical Analysis & AI Quant Forecast */}
