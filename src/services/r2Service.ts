@@ -187,7 +187,8 @@ export const r2Service = {
           accountId: data?.accountId || FALLBACK_R2_CONFIG.accountId,
         };
       }
-      if (data?.error && response.status !== 404) {
+      // If server returned 4xx error with specific msg, return it; otherwise fallback to direct S3 test
+      if (data?.error && response.status >= 400 && response.status < 500) {
         return {
           connected: false,
           buckets: [],

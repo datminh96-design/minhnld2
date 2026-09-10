@@ -2,8 +2,40 @@
   "version": 2,
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api"
+      "source": "/api/r2/(.*)",
+      "destination": "/api/r2?subpath=$1"
+    },
+    {
+      "source": "/api/r2",
+      "destination": "/api/r2"
+    },
+    {
+      "source": "/api/payos/(.*)",
+      "destination": "/api/payos?subpath=$1"
+    },
+    {
+      "source": "/api/payos",
+      "destination": "/api/payos"
+    },
+    {
+      "source": "/api/email/(.*)",
+      "destination": "/api/email?subpath=$1"
+    },
+    {
+      "source": "/api/email",
+      "destination": "/api/email"
+    },
+    {
+      "source": "/api/gemini/(.*)",
+      "destination": "/api/gemini?subpath=$1"
+    },
+    {
+      "source": "/api/gemini",
+      "destination": "/api/gemini"
+    },
+    {
+      "source": "/api/health",
+      "destination": "/api/health"
     },
     {
       "source": "/((?!api/).*)",
@@ -11,4 +43,3 @@
     }
   ]
 }
-
