@@ -49,25 +49,34 @@ export function getPayOSStatus(): PayOSConfig {
 }
 
 /**
- * Clean & truncate description to meet PayOS requirement (max 25 characters, alphanumeric & spaces)
+ * Clean & truncate description to strictly meet PayOS requirement:
+ * - Maximum 25 characters
+ * - Only ASCII alphanumeric and single spaces [A-Za-z0-9 ]
+ * - No leading/trailing spaces or special symbols
  */
 export function formatPayOSDescription(desc?: string, fallbackOrderCode?: number | string): string {
   if (!desc) {
-    return `Gui Dat Minh ${fallbackOrderCode || ''}`.trim().substring(0, 25);
+    return 'Gui Dat Minh';
   }
-  // Remove Vietnamese diacritics for maximum compatibility with banking networks
-  let nonAccent = desc
+
+  // Remove Vietnamese diacritics
+  let clean = desc
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/đ/g, 'd')
     .replace(/Đ/g, 'D')
-    .replace(/[^a-zA-Z0-9 ]/g, '')
+    .replace(/[^a-zA-Z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 
-  // If user passed full sentence "Gui tien cho Nguyen Le Dat Minh", compact to "Gui Nguyen Le Dat Minh" (22 chars)
-  if (/gui\s+tien\s+cho\s+nguyen\s+le\s+dat\s+minh/i.test(nonAccent)) {
+  // If user passed "Gui tien cho Nguyen Le Dat Minh", compact to "Gui Nguyen Le Dat Minh" (22 chars)
+  if (/gui\s+tien\s+cho\s+nguyen\s+le\s+dat\s+minh/i.test(clean)) {
     return 'Gui Nguyen Le Dat Minh';
   }
-  
-  return (nonAccent || `DH${fallbackOrderCode || '123'}`).substring(0, 25);
+
+  if (clean.length > 25) {
+    clean = clean.substring(0, 25).trim();
+  }
+
+  return clean || 'Gui Dat Minh';
 }

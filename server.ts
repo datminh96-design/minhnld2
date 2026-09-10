@@ -186,37 +186,46 @@ app.use(express.static(path.join(process.cwd(), 'public')));
         });
       }
 
-      // Generate unique numerical orderCode (up to 9007199254740991)
+      // Generate clean safe integer orderCode
       const orderCode =
         customOrderCode && Number.isInteger(Number(customOrderCode)) && Number(customOrderCode) > 0
           ? Number(customOrderCode)
-          : Number(`${Date.now().toString().slice(-7)}${Math.floor(Math.random() * 90 + 10)}`);
+          : Math.floor(Date.now() / 1000) * 1000 + Math.floor(Math.random() * 900 + 100);
 
       const safeDescription = formatPayOSDescription(description, orderCode);
-      const host = req.get('host') || 'localhost:3000';
-      const protocol = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-      const defaultReturnUrl = `${protocol}://${host}/?payment_status=PAID&orderCode=${orderCode}`;
-      const defaultCancelUrl = `${protocol}://${host}/?payment_status=CANCELLED&orderCode=${orderCode}`;
+      
+      // Build clean, standard URLs
+      let finalReturnUrl = returnUrl;
+      let finalCancelUrl = cancelUrl;
+      if (!finalReturnUrl || typeof finalReturnUrl !== 'string' || !finalReturnUrl.startsWith('http')) {
+        const host = req.get('host') || 'ais-pre-vc2mudksye5gqgfzicn22t-115346028144.asia-east1.run.app';
+        const protocol = host.includes('localhost') ? 'http' : 'https';
+        finalReturnUrl = `${protocol}://${host}/?payment_status=PAID`;
+        finalCancelUrl = `${protocol}://${host}/?payment_status=CANCELLED`;
+      }
 
       const payos = getPayOSInstance();
       const paymentLinkData: any = {
         orderCode,
         amount: numAmount,
         description: safeDescription,
-        cancelUrl: cancelUrl || defaultCancelUrl,
-        returnUrl: returnUrl || defaultReturnUrl,
+        cancelUrl: finalCancelUrl,
+        returnUrl: finalReturnUrl,
       };
 
-      if (buyerName) paymentLinkData.buyerName = String(buyerName).substring(0, 50);
-      if (buyerEmail) paymentLinkData.buyerEmail = String(buyerEmail);
-      if (buyerPhone) paymentLinkData.buyerPhone = String(buyerPhone);
-      if (buyerAddress) paymentLinkData.buyerAddress = String(buyerAddress);
-      if (Array.isArray(items) && items.length > 0) {
-        paymentLinkData.items = items.map((item: any) => ({
-          name: String(item.name || 'Giao dịch').substring(0, 50),
-          quantity: Number(item.quantity) || 1,
-          price: Math.round(Number(item.price)) || numAmount,
-        }));
+      if (buyerName && typeof buyerName === 'string' && buyerName.trim()) {
+        const cleanName = buyerName
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/đ/g, 'd')
+          .replace(/Đ/g, 'D')
+          .replace(/[^a-zA-Z0-9 ]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .substring(0, 50);
+        if (cleanName) {
+          paymentLinkData.buyerName = cleanName;
+        }
       }
 
       const response = await payos.paymentRequests.create(paymentLinkData);
@@ -230,9 +239,15 @@ app.use(express.static(path.join(process.cwd(), 'public')));
       });
     } catch (err: any) {
       console.error('[PayOS Create Link Error]:', err);
-      res.status(500).json({
+      let errMsg = err?.message || 'Không thể tạo link thanh toán PayOS. Vui lòng kiểm tra API Key và Checksum Key.';
+      if (err?.response?.data?.desc) {
+        errMsg = err.response.data.desc;
+      } else if (err?.desc) {
+        errMsg = err.desc;
+      }
+      res.status(400).json({
         success: false,
-        error: err?.message || 'Không thể tạo link thanh toán PayOS. Vui lòng kiểm tra API Key và Checksum Key.',
+        error: errMsg,
       });
     }
   });

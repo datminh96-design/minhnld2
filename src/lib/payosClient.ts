@@ -36,10 +36,17 @@ export interface PayOSStatusResponse {
 export const payosClient = {
   async getStatus(): Promise<PayOSStatusResponse> {
     const res = await fetch('/api/payos/status');
-    if (!res.ok) {
-      throw new Error(`HTTP Error ${res.status}`);
+    const text = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(`Lỗi kết nối máy chủ (${res.status})`);
     }
-    return res.json();
+    if (!res.ok) {
+      throw new Error(data?.error || `HTTP Error ${res.status}`);
+    }
+    return data;
   },
 
   async updateConfig(config: { clientId?: string; apiKey?: string; checksumKey?: string }) {
@@ -48,7 +55,13 @@ export const payosClient = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(config),
     });
-    const data = await res.json();
+    const text = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(`Lỗi máy chủ (${res.status})`);
+    }
     if (!res.ok || !data.success) {
       throw new Error(data.error || 'Không thể lưu cấu hình PayOS');
     }
@@ -62,12 +75,27 @@ export const payosClient = {
     amount: number;
     description: string;
   }> {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const bodyPayload = {
+      ...payload,
+      returnUrl: payload.returnUrl || (origin ? `${origin}/?payment=success` : undefined),
+      cancelUrl: payload.cancelUrl || (origin ? `${origin}/?payment=cancelled` : undefined),
+    };
+
     const res = await fetch('/api/payos/create-payment-link', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(bodyPayload),
     });
-    const data = await res.json();
+
+    const text = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(`Lỗi phản hồi từ máy chủ (${res.status})`);
+    }
+
     if (!res.ok || !data.success) {
       throw new Error(data.error || 'Không thể tạo mã thanh toán VietQR từ PayOS');
     }
@@ -76,7 +104,13 @@ export const payosClient = {
 
   async getOrderInfo(orderCodeOrId: string | number): Promise<any> {
     const res = await fetch(`/api/payos/payment-link/${orderCodeOrId}`);
-    const data = await res.json();
+    const text = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(`Lỗi lấy thông tin đơn hàng (${res.status})`);
+    }
     if (!res.ok || !data.success) {
       throw new Error(data.error || 'Không thể lấy thông tin đơn hàng PayOS');
     }
@@ -89,7 +123,13 @@ export const payosClient = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cancellationReason: reason }),
     });
-    const data = await res.json();
+    const text = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(`Lỗi hủy giao dịch (${res.status})`);
+    }
     if (!res.ok || !data.success) {
       throw new Error(data.error || 'Không thể hủy link thanh toán');
     }
@@ -102,7 +142,13 @@ export const payosClient = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ webhookUrl }),
     });
-    const data = await res.json();
+    const text = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(`Lỗi xác nhận webhook (${res.status})`);
+    }
     if (!res.ok || !data.success) {
       throw new Error(data.error || 'Không thể xác nhận webhook');
     }
