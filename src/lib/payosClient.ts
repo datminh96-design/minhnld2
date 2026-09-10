@@ -93,7 +93,7 @@ export const payosClient = {
     try {
       data = JSON.parse(text);
     } catch {
-      throw new Error(`Lỗi phản hồi từ máy chủ (${res.status})`);
+      data = { success: false, error: `Lỗi kết nối máy chủ (${res.status})` };
     }
 
     if (!res.ok || !data.success) {
