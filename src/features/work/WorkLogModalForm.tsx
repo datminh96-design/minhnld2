@@ -88,9 +88,13 @@ export const WorkLogModalForm: React.FC<WorkLogModalFormProps> = ({
         work_status: formStatus,
         notes: formNotes,
         break_duration_hours: modalCalculated.breakDurationHours,
+        break_duration_minutes: modalCalculated.breakDurationMinutes,
         total_hours: modalCalculated.totalHours,
+        total_minutes: modalCalculated.totalMinutes,
         overtime_hours: modalCalculated.overtimeHours,
+        overtime_minutes: modalCalculated.overtimeMinutes,
         missing_hours: modalCalculated.missingHours,
+        missing_minutes: modalCalculated.missingMinutes,
       });
       onClose();
     } finally {

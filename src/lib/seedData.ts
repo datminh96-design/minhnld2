@@ -19,6 +19,8 @@ export const DEFAULT_PROFILE: Profile = {
 };
 
 export const DEFAULT_WORK_SETTINGS: WorkSettings = {
+  employee_id: '42157',
+  employee_name: 'Họ tên NV',
   default_check_in: '08:00',
   default_check_out: '18:00',
   default_break_start: '12:00',

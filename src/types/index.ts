@@ -32,6 +32,8 @@ export interface UserSettings {
 export interface WorkSettings {
   id?: string;
   user_id?: string;
+  employee_id?: string; // e.g. '42157'
+  employee_name?: string; // e.g. 'Họ tên NV'
   default_check_in: string; // e.g. '08:00'
   default_check_out: string; // e.g. '18:00'
   default_break_start: string; // e.g. '12:00'

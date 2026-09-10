@@ -92,7 +92,29 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   });
   const [workLogs, setWorkLogs] = useState<WorkLog[]>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('app_work_logs') : null;
-    return saved ? JSON.parse(saved) : getInitialWorkLogs();
+    const initial = saved ? JSON.parse(saved) : getInitialWorkLogs();
+    if (Array.isArray(initial)) {
+      return initial.map((l: any) => {
+        const isHolidayOrAnnual = 
+          l.work_status === 'Nghỉ lễ' || 
+          l.work_status === 'Nghỉ phép năm' || 
+          (l.notes && /\b(lễ|nghỉ lễ|phép năm|nghỉ phép năm)\b/i.test(l.notes));
+
+        let th = Number(l.total_hours) || 0;
+        let tm = Number(l.total_minutes) || Math.round(th * 60);
+        if (isHolidayOrAnnual && th === 0) {
+          th = 8.0;
+          tm = 480;
+        }
+
+        return {
+          ...l,
+          total_hours: th,
+          total_minutes: tm,
+        };
+      });
+    }
+    return initial;
   });
   const [businessTrips, setBusinessTrips] = useState<BusinessTripExpense[]>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('app_business_trips') : null;
@@ -243,14 +265,26 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
         const { data: wsData, error: wsError } = await queryWs.order('updated_at', { ascending: false }).limit(1).maybeSingle();
         if (!wsError && wsData) {
-          setWorkSettings(prev => ({ ...DEFAULT_WORK_SETTINGS, ...prev, ...wsData }));
+          const empFallback = wsData.salary_data?._employee_info;
+          const mergedWs: WorkSettings = {
+            ...DEFAULT_WORK_SETTINGS,
+            ...wsData,
+            employee_id: wsData.employee_id || empFallback?.employee_id || DEFAULT_WORK_SETTINGS.employee_id,
+            employee_name: wsData.employee_name || empFallback?.employee_name || DEFAULT_WORK_SETTINGS.employee_name,
+          };
+          setWorkSettings(mergedWs);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('app_work_settings', JSON.stringify(mergedWs));
+          }
           if (wsData.salary_data && typeof wsData.salary_data === 'object') {
             setSalaryRecords(prev => {
               const merged = { ...prev, ...wsData.salary_data };
               if (typeof window !== 'undefined') {
                 localStorage.setItem('app_salary_records', JSON.stringify(merged));
                 Object.entries(wsData.salary_data).forEach(([k, v]) => {
-                  localStorage.setItem(`app_salary_${k}`, JSON.stringify(v));
+                  if (k !== '_employee_info') {
+                    localStorage.setItem(`app_salary_${k}`, JSON.stringify(v));
+                  }
                 });
               }
               return merged;
@@ -341,12 +375,29 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               return;
             }
 
+            let th = Number(l.total_hours) || 0;
+            let tm = Number(l.total_minutes) || Math.round(th * 60);
+            const status = l.work_status;
+            const isHolidayOrAnnual = 
+              status === 'Nghỉ lễ' || 
+              status === 'Nghỉ phép năm' || 
+              (l.notes && /\b(lễ|nghỉ lễ|phép năm|nghỉ phép năm)\b/i.test(l.notes));
+
+            if (isHolidayOrAnnual && th === 0) {
+              th = 8.0;
+              tm = 480;
+            }
+
             actualLogs.push({
               ...l, 
               break_duration_hours: Number(l.break_duration_hours) || 0,
-              total_hours: Number(l.total_hours) || 0,
+              break_duration_minutes: Number(l.break_duration_minutes) || Math.round((Number(l.break_duration_hours) || 0) * 60),
+              total_hours: th,
+              total_minutes: tm,
               overtime_hours: Number(l.overtime_hours) || 0,
-              missing_hours: Number(l.missing_hours) || 0
+              overtime_minutes: Number(l.overtime_minutes) || Math.round((Number(l.overtime_hours) || 0) * 60),
+              missing_hours: Number(l.missing_hours) || 0,
+              missing_minutes: Number(l.missing_minutes) || Math.round((Number(l.missing_hours) || 0) * 60),
             });
           });
 
@@ -534,6 +585,22 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       )
       .on(
+        'broadcast',
+        { event: 'work_settings_sync' },
+        (payload: any) => {
+          const item = payload?.payload;
+          if (item?.settings) {
+            setWorkSettings(prev => {
+              const updated = { ...prev, ...item.settings };
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('app_work_settings', JSON.stringify(updated));
+              }
+              return updated;
+            });
+          }
+        }
+      )
+      .on(
         'postgres_changes',
         {
           event: '*',
@@ -658,18 +725,57 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const updateWorkSettings = async (newSettings: Partial<WorkSettings>) => {
-    const updated = { ...workSettings, ...newSettings };
+    const updated: WorkSettings = { ...workSettings, ...newSettings };
     setWorkSettings(updated);
-    await runUpsert('work_settings', {
-      id: updated.id,
-      default_check_in: updated.default_check_in,
-      default_check_out: updated.default_check_out,
-      default_break_start: updated.default_break_start,
-      default_break_end: updated.default_break_end,
-      standard_hours_per_day: updated.standard_hours_per_day,
-      standard_days_per_month: updated.standard_days_per_month,
-      salary_data: updated.salary_data || salaryRecords
-    }, 'Đã lưu cấu hình giờ công');
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('app_work_settings', JSON.stringify(updated));
+    }
+
+    const { client, isConfigured } = getSupabaseClient();
+    if (isConfigured && client) {
+      triggerCloudBackup();
+      const effectiveUserId = user?.id || 'admin123';
+
+      // 1. Broadcast realtime update to other devices/tabs
+      try {
+        const channel = client.channel('app_global_realtime_sync');
+        channel.send({
+          type: 'broadcast',
+          event: 'work_settings_sync',
+          payload: { settings: updated, updated_at: new Date().toISOString() }
+        });
+      } catch (bcErr) {
+        console.warn('Realtime broadcast error:', bcErr);
+      }
+
+      // 2. Save to work_settings table with fallback in salary_data._employee_info
+      try {
+        const salaryDataWithEmp = {
+          ...(updated.salary_data || salaryRecords || {}),
+          _employee_info: {
+            employee_id: updated.employee_id || '42157',
+            employee_name: updated.employee_name || 'Họ tên NV',
+          }
+        };
+
+        await runUpsert('work_settings', {
+          id: updated.id ? toValidUUID(updated.id) : toValidUUID(`ws_${effectiveUserId}`),
+          employee_id: updated.employee_id || '42157',
+          employee_name: updated.employee_name || 'Họ tên NV',
+          default_check_in: updated.default_check_in,
+          default_check_out: updated.default_check_out,
+          default_break_start: updated.default_break_start,
+          default_break_end: updated.default_break_end,
+          standard_hours_per_day: updated.standard_hours_per_day,
+          standard_days_per_month: updated.standard_days_per_month || 26,
+          salary_data: salaryDataWithEmp
+        }, 'Đã lưu & đồng bộ Mã số NV, Họ tên và Giờ chuẩn lên Supabase Cloud');
+      } catch (wsErr: any) {
+        console.warn('Lỗi lưu work_settings:', wsErr);
+      }
+    } else {
+      addToast('Đã lưu cài đặt giờ công & nhân viên', 'success');
+    }
   };
 
   const getSalaryRecord = (month: number, year: number): MonthlySalaryData => {

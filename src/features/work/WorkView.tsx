@@ -15,11 +15,13 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { SalaryCalculator } from './SalaryCalculator';
 import { BusinessTripView } from './BusinessTripView';
 import { WorkLogModalForm } from './WorkLogModalForm';
+import { EmployeeSettingsModal } from './EmployeeSettingsModal';
 import { 
   Clock, 
   Calendar, 
   Download, 
   Plus, 
+  Edit2,
   Edit3, 
   Trash2, 
   Search, 
@@ -87,6 +89,7 @@ export const WorkView: React.FC = () => {
   const { 
     workLogs, 
     workSettings, 
+    updateWorkSettings,
     saveWorkLog, 
     deleteWorkLog, 
     addToast 
@@ -101,6 +104,7 @@ export const WorkView: React.FC = () => {
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
   const [editingLog, setEditingLog] = useState<WorkLog | null>(null);
   const [modalInitialDate, setModalInitialDate] = useState<string>(() => new Date().toISOString().substring(0, 10));
 
@@ -148,32 +152,63 @@ export const WorkView: React.FC = () => {
     let leaveDaysCount = 0;
 
     currentMonthLogs.forEach((l) => {
-      totalHours += l.total_hours;
-      totalMinutes += l.total_minutes ?? Math.round((l.total_hours || 0) * 60);
+      const status = l.work_status;
+      const isHolidayOrAnnual = 
+        status === 'Nghỉ lễ' || 
+        status === 'Nghỉ phép năm' || 
+        (l.notes && /\b(lễ|nghỉ lễ|phép năm|nghỉ phép năm)\b/i.test(l.notes));
+
+      let logHours = l.total_hours;
+      let logMinutes = l.total_minutes ?? Math.round((l.total_hours || 0) * 60);
+
+      // Nghỉ lễ hay phép năm luôn được tính 8 giờ công (480 phút) cộng vào tổng thời gian làm
+      if (isHolidayOrAnnual) {
+        if (!logHours || logHours === 0) {
+          logHours = workSettings.standard_hours_per_day || 8.0;
+        }
+        if (!logMinutes || logMinutes === 0) {
+          logMinutes = Math.round(logHours * 60) || 480;
+        }
+      }
+
+      totalHours += logHours;
+      totalMinutes += logMinutes;
       totalOvertime += l.overtime_hours;
       totalOvertimeMinutes += l.overtime_minutes ?? Math.round((l.overtime_hours || 0) * 60);
       totalMissing += l.missing_hours;
       totalMissingMinutes += l.missing_minutes ?? Math.round((l.missing_hours || 0) * 60);
       totalBreakMinutes += l.break_duration_minutes ?? Math.round((l.break_duration_hours || 0) * 60);
 
-      if (['Làm việc', 'Tăng ca', 'Làm nửa ngày', 'Nghỉ phép năm', 'Nghỉ lễ'].includes(l.work_status)) {
+      if (['Làm việc', 'Tăng ca', 'Làm nửa ngày', 'Nghỉ phép năm', 'Nghỉ lễ'].includes(l.work_status) || isHolidayOrAnnual) {
         workDaysCount += (l.work_status === 'Làm nửa ngày' ? 0.5 : 1);
       } else {
         leaveDaysCount += 1;
       }
     });
 
-    const standardDaysInMonth = workSettings.standard_days_per_month || 26; // Standard 26 working days (26 x 8h = 208h)
-    const totalStandard = standardDaysInMonth * workSettings.standard_hours_per_day;
-    const totalStandardMinutes = Math.round(totalStandard * 60);
-    const completionRate = totalStandard > 0 ? (totalHours / totalStandard) * 100 : 0;
+    const standardHoursPerDay = workSettings.standard_hours_per_day || 8.0;
+    const standardDaysInMonth = workSettings.standard_days_per_month || 26; // Chuẩn 26 ngày (208h)
+    
+    // Định mức chuẩn = số ngày bạn làm nhân cho 8 (không cộng số giờ tăng ca)
+    const standardHoursWorked = workDaysCount * standardHoursPerDay;
+    const standardMinutesWorked = Math.round(standardHoursWorked * 60);
+
+    // Chuẩn định mức tháng (26 ngày x 8h = 208h)
+    const monthlyStandardHours = standardDaysInMonth * standardHoursPerDay;
+    const monthlyStandardMinutes = Math.round(monthlyStandardHours * 60);
+
+    const completionRate = monthlyStandardHours > 0 ? (totalHours / monthlyStandardHours) * 100 : 0;
 
     return {
       totalHours,
       totalMinutes,
-      totalStandard,
-      totalStandardMinutes,
+      standardHoursWorked,
+      standardMinutesWorked,
+      totalStandard: monthlyStandardHours,
+      totalStandardMinutes: monthlyStandardMinutes,
+      monthlyStandardHours,
       standardDaysInMonth,
+      standardHoursPerDay,
       totalOvertime,
       totalOvertimeMinutes,
       totalMissing,
@@ -296,16 +331,32 @@ export const WorkView: React.FC = () => {
 
   // Chart data for daily hours
   const dailyChartData = useMemo(() => {
-    return currentMonthLogs.map((l) => ({
-      day: l.work_date.substring(8), // 'DD'
-      fullDate: formatDateVN(l.work_date),
-      totalHours: l.total_hours,
-      totalMinutes: l.total_minutes ?? Math.round((l.total_hours || 0) * 60),
-      overtime: l.overtime_hours,
-      overtimeMinutes: l.overtime_minutes ?? Math.round((l.overtime_hours || 0) * 60),
-      standard: workSettings.standard_hours_per_day,
-      status: l.work_status,
-    }));
+    return currentMonthLogs.map((l) => {
+      const status = l.work_status;
+      const isHolidayOrAnnual = 
+        status === 'Nghỉ lễ' || 
+        status === 'Nghỉ phép năm' || 
+        (l.notes && /\b(lễ|nghỉ lễ|phép năm|nghỉ phép năm)\b/i.test(l.notes));
+
+      let totalHours = l.total_hours;
+      let totalMinutes = l.total_minutes ?? Math.round((l.total_hours || 0) * 60);
+
+      if (isHolidayOrAnnual) {
+        if (!totalHours || totalHours === 0) totalHours = workSettings.standard_hours_per_day || 8.0;
+        if (!totalMinutes || totalMinutes === 0) totalMinutes = Math.round(totalHours * 60) || 480;
+      }
+
+      return {
+        day: l.work_date.substring(8), // 'DD'
+        fullDate: formatDateVN(l.work_date),
+        totalHours,
+        totalMinutes,
+        overtime: l.overtime_hours,
+        overtimeMinutes: l.overtime_minutes ?? Math.round((l.overtime_hours || 0) * 60),
+        standard: workSettings.standard_hours_per_day,
+        status: l.work_status,
+      };
+    });
   }, [currentMonthLogs, workSettings]);
 
   // Helper: auto-suggest next working day based on existing logs
@@ -369,10 +420,10 @@ export const WorkView: React.FC = () => {
   // Export to Excel handler
   const handleExportExcel = () => {
     exportWorkLogsToExcel(currentMonthLogs, selectedMonth, selectedYear, summary, {
-      name: 'Người dùng',
-      id: '42157',
+      name: workSettings.employee_name || 'Họ tên NV',
+      id: workSettings.employee_id || '42157',
       username: 'Minhnd2',
-      standardTargetText: 'Giờ chuẩn 26 ngày: 208'
+      standardTargetText: `Giờ chuẩn ${workSettings.standard_days_per_month || 26} ngày: ${(workSettings.standard_days_per_month || 26) * (workSettings.standard_hours_per_day || 8)}`
     });
     addToast(`Đã xuất file Excel mẫu chuẩn: Bang_Ghi_Gio_Lam_Thang_${monthStr}_${selectedYear}.xlsx`, 'success');
   };
@@ -575,9 +626,11 @@ export const WorkView: React.FC = () => {
             <Award className="w-4 h-4 text-blue-500" />
           </div>
           <p className="text-lg sm:text-xl font-bold text-blue-600 dark:text-blue-400 font-display">
-            208h
+            {summary.standardHoursWorked.toFixed(1)}h
           </p>
-          <p className="text-[11px] text-slate-400 mt-0.5">{summary.standardDaysInMonth} ngày x {workSettings.standard_hours_per_day}h</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            {summary.workDaysCount} ngày x {summary.standardHoursPerDay}h (Chuẩn: {summary.monthlyStandardHours}h)
+          </p>
         </div>
       </div>
 
@@ -601,11 +654,28 @@ export const WorkView: React.FC = () => {
         <div className="rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
           {/* Top Header Row of the Table */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 bg-white dark:bg-slate-900 border-b border-slate-300 dark:border-slate-700">
-            <h2 className="text-lg sm:text-xl font-bold text-sky-700 dark:text-sky-400 font-display tracking-tight text-center sm:text-left">
-              Mã số NV: 42157 - Họ tên NV
-            </h2>
-            <div className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700">
-              Giờ chuẩn 26 ngày: <span className="text-amber-600 dark:text-amber-400">208</span>
+            <button
+              type="button"
+              onClick={() => setIsEmployeeModalOpen(true)}
+              className="group flex items-center gap-2 text-lg sm:text-xl font-bold text-sky-700 dark:text-sky-400 font-display tracking-tight text-center sm:text-left hover:text-sky-800 dark:hover:text-sky-300 transition-colors cursor-pointer text-left"
+              title="Bấm để chỉnh sửa Mã số NV, Họ tên và Giờ chuẩn"
+            >
+              <span>
+                Mã số NV: <span className="underline decoration-dashed decoration-sky-400 group-hover:text-sky-600 dark:group-hover:text-sky-300">{workSettings.employee_id || '42157'}</span> – <span className="underline decoration-dashed decoration-sky-400 group-hover:text-sky-600 dark:group-hover:text-sky-300">{workSettings.employee_name || 'Họ tên NV'}</span>
+              </span>
+              <span className="p-1 rounded-md bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 group-hover:bg-sky-100 dark:group-hover:bg-sky-900 transition-colors">
+                <Edit2 className="w-3.5 h-3.5" />
+              </span>
+            </button>
+            <div 
+              onClick={() => setIsEmployeeModalOpen(true)}
+              className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-amber-400 transition-colors flex items-center gap-1.5"
+              title="Bấm để chỉnh sửa định mức giờ chuẩn"
+            >
+              <span>Giờ chuẩn {workSettings.standard_days_per_month || 26} ngày:</span>
+              <span className="text-amber-600 dark:text-amber-400 font-extrabold text-sm sm:text-base">
+                {(workSettings.standard_days_per_month || 26) * (workSettings.standard_hours_per_day || 8)}
+              </span>
             </div>
           </div>
 
@@ -993,6 +1063,14 @@ export const WorkView: React.FC = () => {
         initialDate={modalInitialDate}
         workSettings={workSettings}
         onSave={handleSaveForm}
+      />
+
+      {/* Modal Chỉnh Sửa Thông Tin Nhân Viên & Giờ Chuẩn */}
+      <EmployeeSettingsModal
+        isOpen={isEmployeeModalOpen}
+        onClose={() => setIsEmployeeModalOpen(false)}
+        workSettings={workSettings}
+        onSave={updateWorkSettings}
       />
     </div>
   );
