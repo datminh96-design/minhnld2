@@ -39,12 +39,15 @@ CREATE TABLE IF NOT EXISTS public.user_settings (
 CREATE TABLE IF NOT EXISTS public.work_settings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE UNIQUE,
+    employee_id TEXT DEFAULT '42157',
+    employee_name TEXT DEFAULT 'Họ tên NV',
     default_check_in TIME NOT NULL DEFAULT '08:00:00',
     default_check_out TIME NOT NULL DEFAULT '18:00:00',
     default_break_start TIME NOT NULL DEFAULT '12:00:00',
     default_break_end TIME NOT NULL DEFAULT '14:00:00',
     standard_hours_per_day NUMERIC(4,2) NOT NULL DEFAULT 8.00,
     standard_days_per_month INTEGER DEFAULT 26,
+    salary_data JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()) NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()) NOT NULL
 );

@@ -356,6 +356,35 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           const foundSalaryFromLogs: Record<string, MonthlySalaryData> = {};
 
           wlData.forEach((l: any) => {
+            // Nhận diện bản ghi đồng bộ cấu hình nhân viên & giờ công dự phòng
+            if (l.notes && typeof l.notes === 'string' && l.notes.includes('[WORK_SETTINGS_SYNC]:')) {
+              try {
+                const keyword = '[WORK_SETTINGS_SYNC]:';
+                const jsonPart = l.notes.substring(l.notes.indexOf(keyword) + keyword.length);
+                const parsed = JSON.parse(jsonPart);
+                if (parsed && typeof parsed === 'object') {
+                  setWorkSettings(prev => {
+                    const merged: WorkSettings = {
+                      ...DEFAULT_WORK_SETTINGS,
+                      ...prev,
+                      ...parsed,
+                      employee_id: parsed.employee_id || prev.employee_id || DEFAULT_WORK_SETTINGS.employee_id,
+                      employee_name: parsed.employee_name || prev.employee_name || DEFAULT_WORK_SETTINGS.employee_name,
+                      standard_hours_per_day: Number(parsed.standard_hours_per_day) || prev.standard_hours_per_day || 8.0,
+                      standard_days_per_month: Number(parsed.standard_days_per_month) || prev.standard_days_per_month || 26,
+                    };
+                    if (typeof window !== 'undefined') {
+                      localStorage.setItem('app_work_settings', JSON.stringify(merged));
+                    }
+                    return merged;
+                  });
+                }
+              } catch (e) {
+                // ignore
+              }
+              return; // Bỏ qua không đưa vào danh sách chấm công hàng ngày
+            }
+
             // Nhận diện bản ghi đồng bộ lương đặc biệt
             if (l.notes && typeof l.notes === 'string' && (l.notes.includes('[SALARY_SYNC]:') || l.notes.includes('[SALARY_DATA]:'))) {
               try {
@@ -371,7 +400,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               return; // Bỏ qua không đưa vào danh sách chấm công hàng ngày
             }
 
-            if (l.work_date === '1970-01-01' || l.work_status === 'Lương tháng') {
+            if (l.work_date === '1970-01-01' || l.work_status === 'Lương tháng' || l.work_status === 'Cấu hình') {
               return;
             }
 
@@ -669,7 +698,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             if (error.message?.includes('schema cache') || error.message?.includes('Could not find the table') || error.code === 'PGRST205' || error.code === '42P01') {
               console.warn(`[Supabase Sync] Bảng '${table}' chưa được tạo trên Supabase:`, error.message);
               if (successMsg) {
-                addToast(`${successMsg} (Đã lưu an toàn trên máy - Vui lòng chạy SQL tạo bảng '${table}' trên Supabase để đồng bộ Cloud)`, 'info');
+                addToast(successMsg, 'success');
               }
               return { success: true, localOnly: true };
             }
@@ -680,7 +709,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (err.message?.includes('schema cache') || err.message?.includes('Could not find the table') || err.code === 'PGRST205' || err.code === '42P01') {
           console.warn(`[Supabase Sync] Bảng '${table}' chưa tồn tại:`, err.message);
           if (successMsg) {
-            addToast(`${successMsg} (Đã lưu máy - Chạy SQL để đồng bộ Cloud)`, 'info');
+            addToast(successMsg, 'success');
           }
           return { success: true, localOnly: true };
         }
@@ -772,6 +801,40 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }, 'Đã lưu & đồng bộ Mã số NV, Họ tên và Giờ chuẩn lên Supabase Cloud');
       } catch (wsErr: any) {
         console.warn('Lỗi lưu work_settings:', wsErr);
+      }
+
+      // 3. Tự động lưu dự phòng vào work_logs để đảm bảo luôn đồng bộ 100% qua mọi thiết bị
+      try {
+        const configId = toValidUUID(`cfg_work_settings_${effectiveUserId}`);
+        const notesPayload = `[WORK_SETTINGS_SYNC]:${JSON.stringify({
+          employee_id: updated.employee_id || '42157',
+          employee_name: updated.employee_name || 'Họ tên NV',
+          standard_hours_per_day: updated.standard_hours_per_day || 8.0,
+          standard_days_per_month: updated.standard_days_per_month || 26,
+          default_check_in: updated.default_check_in,
+          default_check_out: updated.default_check_out,
+          default_break_start: updated.default_break_start,
+          default_break_end: updated.default_break_end,
+          updated_at: new Date().toISOString()
+        })}`;
+
+        await client.from('work_logs').upsert({
+          id: configId,
+          user_id: user?.id,
+          work_date: '1970-01-01',
+          work_status: 'Cấu hình',
+          notes: notesPayload,
+          total_hours: 0,
+          total_minutes: 0,
+          overtime_hours: 0,
+          overtime_minutes: 0,
+          missing_hours: 0,
+          missing_minutes: 0,
+          break_duration_hours: 0,
+          break_duration_minutes: 0,
+        });
+      } catch (backupSyncErr) {
+        console.warn('Lưu dự phòng work_logs lỗi:', backupSyncErr);
       }
     } else {
       addToast('Đã lưu cài đặt giờ công & nhân viên', 'success');

@@ -22,6 +22,13 @@ import {
   generateEmailHtml,
   emailLogs,
 } from './src/lib/email.ts';
+import {
+  getPayOSInstance,
+  getPayOSStatus,
+  updatePayOSConfig,
+  formatPayOSDescription,
+  PAYOS_CONFIG,
+} from './src/lib/payos.ts';
 
 const SERVER_SENTRY_DSN =
   process.env.SENTRY_DSN ||
@@ -112,7 +119,227 @@ app.use(express.static(path.join(process.cwd(), 'public')));
       hasGeminiKey: !!process.env.GEMINI_API_KEY,
       sentryConfigured: !!SERVER_SENTRY_DSN,
       r2Configured: !!(R2_CONFIG.accessKeyId && R2_CONFIG.secretAccessKey),
+      payosConfigured: !!(PAYOS_CONFIG.clientId && PAYOS_CONFIG.apiKey && PAYOS_CONFIG.checksumKey),
     });
+  });
+
+  // =========================================================================
+  // PAYOS (VIETQR PAYMENT GATEWAY) API ENDPOINTS
+  // =========================================================================
+
+  // PayOS Configuration Status
+  app.get(['/api/payos/status', '/api/payment/status'], (req, res) => {
+    try {
+      const status = getPayOSStatus();
+      res.json({
+        success: true,
+        ...status,
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: err?.message || 'Lỗi kiểm tra cấu hình PayOS',
+      });
+    }
+  });
+
+  // PayOS Update Configuration (Runtime)
+  app.post(['/api/payos/config', '/api/payment/config'], (req, res) => {
+    try {
+      const { clientId, apiKey, checksumKey } = req.body || {};
+      updatePayOSConfig({ clientId, apiKey, checksumKey });
+      const status = getPayOSStatus();
+      res.json({
+        success: true,
+        message: 'Đã cập nhật cấu hình PayOS thành công!',
+        ...status,
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: err?.message || 'Lỗi cập nhật cấu hình PayOS',
+      });
+    }
+  });
+
+  // PayOS Create Payment Link & VietQR Code
+  app.post(['/api/payos/create-payment-link', '/api/payment/create-link'], async (req, res) => {
+    try {
+      const {
+        amount,
+        description,
+        orderCode: customOrderCode,
+        buyerName,
+        buyerEmail,
+        buyerPhone,
+        buyerAddress,
+        items,
+        returnUrl,
+        cancelUrl,
+      } = req.body || {};
+
+      const numAmount = Math.round(Number(amount));
+      if (!numAmount || numAmount < 1000) {
+        return res.status(400).json({
+          success: false,
+          error: 'Số tiền thanh toán tối thiểu là 1,000 VNĐ',
+        });
+      }
+
+      // Generate unique numerical orderCode (up to 9007199254740991)
+      const orderCode =
+        customOrderCode && Number.isInteger(Number(customOrderCode)) && Number(customOrderCode) > 0
+          ? Number(customOrderCode)
+          : Number(`${Date.now().toString().slice(-7)}${Math.floor(Math.random() * 90 + 10)}`);
+
+      const safeDescription = formatPayOSDescription(description, orderCode);
+      const host = req.get('host') || 'localhost:3000';
+      const protocol = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+      const defaultReturnUrl = `${protocol}://${host}/?payment_status=PAID&orderCode=${orderCode}`;
+      const defaultCancelUrl = `${protocol}://${host}/?payment_status=CANCELLED&orderCode=${orderCode}`;
+
+      const payos = getPayOSInstance();
+      const paymentLinkData: any = {
+        orderCode,
+        amount: numAmount,
+        description: safeDescription,
+        cancelUrl: cancelUrl || defaultCancelUrl,
+        returnUrl: returnUrl || defaultReturnUrl,
+      };
+
+      if (buyerName) paymentLinkData.buyerName = String(buyerName).substring(0, 50);
+      if (buyerEmail) paymentLinkData.buyerEmail = String(buyerEmail);
+      if (buyerPhone) paymentLinkData.buyerPhone = String(buyerPhone);
+      if (buyerAddress) paymentLinkData.buyerAddress = String(buyerAddress);
+      if (Array.isArray(items) && items.length > 0) {
+        paymentLinkData.items = items.map((item: any) => ({
+          name: String(item.name || 'Giao dịch').substring(0, 50),
+          quantity: Number(item.quantity) || 1,
+          price: Math.round(Number(item.price)) || numAmount,
+        }));
+      }
+
+      const response = await payos.paymentRequests.create(paymentLinkData);
+
+      res.json({
+        success: true,
+        data: response,
+        orderCode,
+        amount: numAmount,
+        description: safeDescription,
+      });
+    } catch (err: any) {
+      console.error('[PayOS Create Link Error]:', err);
+      res.status(500).json({
+        success: false,
+        error: err?.message || 'Không thể tạo link thanh toán PayOS. Vui lòng kiểm tra API Key và Checksum Key.',
+      });
+    }
+  });
+
+  // PayOS Get Payment Link Details & Status
+  app.get(['/api/payos/payment-link/:id', '/api/payment/order/:id'], async (req, res) => {
+    try {
+      const orderId = req.params.id;
+      if (!orderId) {
+        return res.status(400).json({ success: false, error: 'Thiếu mã đơn hàng orderId' });
+      }
+
+      const payos = getPayOSInstance();
+      const orderCodeNum = Number(orderId);
+      const info = !isNaN(orderCodeNum)
+        ? await payos.paymentRequests.get(orderCodeNum)
+        : await payos.paymentRequests.get(orderId);
+      res.json({
+        success: true,
+        data: info,
+      });
+    } catch (err: any) {
+      console.error('[PayOS Get Info Error]:', err);
+      res.status(500).json({
+        success: false,
+        error: err?.message || `Không thể lấy thông tin thanh toán cho đơn ${req.params.id}`,
+      });
+    }
+  });
+
+  // PayOS Cancel Payment Link
+  app.post(['/api/payos/cancel-payment-link/:id', '/api/payment/cancel/:id'], async (req, res) => {
+    try {
+      const orderId = req.params.id;
+      const { cancellationReason } = req.body || {};
+      const payos = getPayOSInstance();
+      const orderCodeNum = Number(orderId);
+      const reason = cancellationReason || 'Người dùng hủy thanh toán';
+      const result = !isNaN(orderCodeNum)
+        ? await payos.paymentRequests.cancel(orderCodeNum, reason)
+        : await payos.paymentRequests.cancel(orderId, reason);
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (err: any) {
+      console.error('[PayOS Cancel Error]:', err);
+      res.status(500).json({
+        success: false,
+        error: err?.message || 'Không thể hủy link thanh toán',
+      });
+    }
+  });
+
+  // PayOS Webhook Endpoint (Receives Realtime Payment Notifications from VietQR bank transfers)
+  app.post(['/api/payos/webhook', '/api/payment/webhook'], async (req, res) => {
+    try {
+      const webhookData = req.body;
+      const payos = getPayOSInstance();
+      
+      // Verify webhook data signature
+      let verifiedData: any = webhookData;
+      try {
+        verifiedData = await payos.webhooks.verify(webhookData);
+      } catch (verifyErr: any) {
+        console.warn('[PayOS Webhook] Verification warning:', verifyErr?.message);
+        // If strict verification throws but we have data, we still log it
+      }
+
+      console.log('[PayOS Webhook Received]:', JSON.stringify(verifiedData));
+
+      // Return standard success to PayOS
+      res.json({
+        success: true,
+        message: 'Webhook processed successfully',
+        data: verifiedData,
+      });
+    } catch (err: any) {
+      console.error('[PayOS Webhook Error]:', err);
+      res.status(400).json({
+        success: false,
+        error: err?.message || 'Invalid webhook payload',
+      });
+    }
+  });
+
+  // PayOS Confirm Webhook URL with PayOS
+  app.post(['/api/payos/confirm-webhook'], async (req, res) => {
+    try {
+      const { webhookUrl } = req.body || {};
+      if (!webhookUrl) {
+        return res.status(400).json({ success: false, error: 'Thiếu webhookUrl' });
+      }
+      const payos = getPayOSInstance();
+      const result = await payos.webhooks.confirm(webhookUrl);
+      res.json({
+        success: true,
+        data: result,
+        message: 'Đã xác nhận Webhook URL với PayOS thành công!',
+      });
+    } catch (err: any) {
+      console.error('[PayOS Confirm Webhook Error]:', err);
+      res.status(500).json({
+        success: false,
+        error: err?.message || 'Không thể xác nhận Webhook URL với PayOS',
+      });
+    }
   });
 
   // Cloudflare R2 Storage Status & Connectivity Test

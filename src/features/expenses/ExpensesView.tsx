@@ -22,8 +22,11 @@ import {
   TrendingUp, 
   Layers, 
   Calendar,
-  DollarSign
+  DollarSign,
+  QrCode,
+  Heart
 } from 'lucide-react';
+import { PayOSModal } from '../payment/PayOSModal';
 
 export const ExpensesView: React.FC = () => {
   const { 
@@ -50,6 +53,7 @@ export const ExpensesView: React.FC = () => {
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [defaultTxType, setDefaultTxType] = useState<TransactionType>('expense');
+  const [isPayOSModalOpen, setIsPayOSModalOpen] = useState(false);
 
   // Category Modal State
   const [isCatModalOpen, setIsCatModalOpen] = useState(false);
@@ -318,6 +322,14 @@ export const ExpensesView: React.FC = () => {
               </button>
             </div>
 
+            <button
+              type="button"
+              onClick={() => setIsPayOSModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 via-pink-600 to-indigo-600 hover:from-rose-700 hover:via-pink-700 hover:to-indigo-700 text-white font-semibold text-xs shadow-xs transition-all cursor-pointer shadow-rose-500/20"
+              title="Quyên góp & ủng hộ cho Nguyễn Lê Đạt Minh qua mã VietQR PayOS"
+            >
+              <Heart className="w-3.5 h-3.5 fill-white text-white" /> Quyên Góp
+            </button>
             <button
               type="button"
               onClick={() => handleOpenAddTxModal('income')}
@@ -754,6 +766,16 @@ export const ExpensesView: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      {/* PayOS VietQR Payment Modal */}
+      {isPayOSModalOpen && (
+        <PayOSModal
+          isOpen={isPayOSModalOpen}
+          onClose={() => setIsPayOSModalOpen(false)}
+          defaultAmount={50000}
+          defaultDescription="Gui tien cho Nguyen Le Dat Minh"
+        />
+      )}
     </div>
   );
 };

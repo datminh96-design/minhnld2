@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getSupabaseStatus, updateSupabaseCredentials } from '../../lib/supabase';
 import { r2Service, R2ObjectItem, R2StatusResponse } from '../../services/r2Service';
 import { TransactionalEmailSection } from './TransactionalEmailSection';
+import { PayOSSection } from './PayOSSection';
 import { 
   Settings, 
   Clock, 
@@ -257,12 +258,41 @@ R2_ENDPOINT=${r2ConfigForm.endpoint}`;
   };
 
   const copySchemaSql = () => {
-    const sqlText = `-- Chạy đoạn mã này trong Supabase SQL Editor:
--- Đã có sẵn trong file supabase/schema.sql của dự án.`;
+    const sqlText = `-- ==============================================================================
+-- SUPABASE POSTGRESQL MASTER DATABASE SCHEMA
+-- ==============================================================================
+
+-- 1. BẢNG CẤU HÌNH GIỜ LÀM VIỆC CHUẨN (WORK SETTINGS)
+CREATE TABLE IF NOT EXISTS public.work_settings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE UNIQUE,
+    employee_id TEXT DEFAULT '42157',
+    employee_name TEXT DEFAULT 'Họ tên NV',
+    default_check_in TIME NOT NULL DEFAULT '08:00:00',
+    default_check_out TIME NOT NULL DEFAULT '18:00:00',
+    default_break_start TIME NOT NULL DEFAULT '12:00:00',
+    default_break_end TIME NOT NULL DEFAULT '14:00:00',
+    standard_hours_per_day NUMERIC(4,2) NOT NULL DEFAULT 8.00,
+    standard_days_per_month INTEGER DEFAULT 26,
+    salary_data JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()) NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()) NOT NULL
+);
+
+-- BẬT RLS & POLICY CHO WORK_SETTINGS
+ALTER TABLE public.work_settings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can all on own work_settings" ON public.work_settings
+    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Thêm cột nếu bảng đã tồn tại trước đó:
+ALTER TABLE public.work_settings ADD COLUMN IF NOT EXISTS employee_id TEXT DEFAULT '42157';
+ALTER TABLE public.work_settings ADD COLUMN IF NOT EXISTS employee_name TEXT DEFAULT 'Họ tên NV';
+ALTER TABLE public.work_settings ADD COLUMN IF NOT EXISTS salary_data JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE public.work_settings ADD COLUMN IF NOT EXISTS standard_days_per_month INTEGER DEFAULT 26;`;
     navigator.clipboard.writeText(sqlText);
     setCopiedSql(true);
     setTimeout(() => setCopiedSql(false), 2000);
-    addToast('Đã sao chép hướng dẫn SQL Schema', 'info');
+    addToast('Đã sao chép toàn bộ mã SQL tạo bảng work_settings!', 'success');
   };
 
   return (
@@ -741,12 +771,15 @@ R2_ENDPOINT=${r2ConfigForm.endpoint}`;
             </div>
           </div>
 
-          {/* 5. Cấu hình & Gửi Transactional Email */}
+          {/* 5. Cổng Thanh Toán PayOS (VietQR) */}
+          <PayOSSection />
+
+          {/* 6. Cấu hình & Gửi Transactional Email */}
           <TransactionalEmailSection />
         </>
       )}
 
-      {/* 6. Thông tin ứng dụng */}
+      {/* 7. Thông tin ứng dụng */}
       <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 space-y-1">
         <p className="font-bold text-slate-800 dark:text-slate-200 font-display">
           QUẢN LÝ CÁ NHÂN – GIỜ CÔNG | CHI TIÊU | ĐẦU TƯ

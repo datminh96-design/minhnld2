@@ -17,11 +17,15 @@ import {
   CheckCircle2,
   Cloud,
   ShieldCheck,
-  ChevronDown
+  ChevronDown,
+  QrCode,
+  Zap,
+  Heart
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { NavTab } from './Sidebar';
+import { PayOSModal } from '../../features/payment/PayOSModal';
 
 interface HeaderProps {
   activeTab: NavTab;
@@ -50,6 +54,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [showQuickMenu, setShowQuickMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showSyncTooltip, setShowSyncTooltip] = useState(false);
+  const [isPayOSModalOpen, setIsPayOSModalOpen] = useState(false);
 
   const getTabTitle = (tab: NavTab) => {
     switch (tab) {
@@ -166,6 +171,17 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         )}
 
+        {/* Donation & Support Button */}
+        <button
+          type="button"
+          onClick={() => setIsPayOSModalOpen(true)}
+          className="flex items-center gap-1.5 py-2 px-3 sm:px-3.5 rounded-xl bg-gradient-to-r from-rose-600 via-pink-600 to-indigo-600 hover:from-rose-700 hover:via-pink-700 hover:to-indigo-700 text-white font-medium text-xs sm:text-sm shadow-sm shadow-rose-600/25 transition-all cursor-pointer"
+          title="Quyên góp & ủng hộ cho Nguyễn Lê Đạt Minh qua mã VietQR PayOS"
+        >
+          <Heart className="w-4 h-4 fill-white text-white animate-pulse" />
+          <span className="hidden sm:inline">Quyên Góp</span>
+        </button>
+
         {/* Quick Add Button */}
         <div className="relative">
           <button
@@ -183,7 +199,19 @@ export const Header: React.FC<HeaderProps> = ({
                 className="fixed inset-0 z-40"
                 onClick={() => setShowQuickMenu(false)}
               />
-              <div className="absolute right-0 mt-2 w-56 rounded-2xl bg-white dark:bg-slate-900 shadow-xl border border-slate-200 dark:border-slate-800 py-2 z-50 animate-in fade-in zoom-in-95 duration-150">
+              <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-white dark:bg-slate-900 shadow-xl border border-slate-200 dark:border-slate-800 py-2 z-50 animate-in fade-in zoom-in-95 duration-150">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowQuickMenu(false);
+                    setIsPayOSModalOpen(true);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-left text-slate-700 dark:text-slate-200 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-600 dark:hover:text-rose-400 transition-colors font-semibold"
+                >
+                  <Heart className="w-4 h-4 text-rose-500 fill-rose-500" />
+                  <span>Quyên Góp Ủng Hộ (VietQR)</span>
+                </button>
+                <div className="border-t border-slate-100 dark:border-slate-800 my-1" />
                 <button
                   type="button"
                   onClick={() => {
@@ -329,6 +357,16 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
       </div>
+
+      {/* PayOS VietQR Payment Modal */}
+      {isPayOSModalOpen && (
+        <PayOSModal
+          isOpen={isPayOSModalOpen}
+          onClose={() => setIsPayOSModalOpen(false)}
+          defaultAmount={50000}
+          defaultDescription="Gui tien cho Nguyen Le Dat Minh"
+        />
+      )}
     </header>
   );
 };
