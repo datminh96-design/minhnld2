@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
   QrCode,
@@ -74,23 +76,43 @@ export const PayOSModal: React.FC<PayOSModalProps> = ({
   const [isCheckingStatus, setIsCheckingStatus] = useState<boolean>(false);
 
   const pollingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const prevIsOpenRef = useRef<boolean>(false);
 
+  // Initialize or reset state only when transitioning from closed to open
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !prevIsOpenRef.current) {
       setStep('create');
       setAmount(defaultAmount);
-      setCustomAmountText(defaultAmount.toLocaleString('vi-VN'));
+      setCustomAmountText(defaultAmount ? defaultAmount.toLocaleString('vi-VN') : '50.000');
       setDescription(defaultDescription);
       setErrorMessage(null);
       setPaymentData(null);
       setTimeLeft(600);
-    } else {
+    } else if (!isOpen && prevIsOpenRef.current) {
       if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
     }
-    return () => {
-      if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
+    prevIsOpenRef.current = isOpen;
+  }, [isOpen]);
+
+  // Handle ESC key and Body Scroll Lock separately without affecting user inputs
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
     };
-  }, [isOpen, defaultAmount, defaultDescription]);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
 
   // Polling logic when payment data is active
   useEffect(() => {
@@ -247,51 +269,77 @@ export const PayOSModal: React.FC<PayOSModalProps> = ({
     ? `https://img.vietqr.io/image/${paymentData.bin || '970422'}-${paymentData.accountNumber}-compact2.png?amount=${paymentData.amount}&addInfo=${encodeURIComponent(paymentData.description)}&accountName=${encodeURIComponent(paymentData.accountName || 'NGUYEN LE DAT MINH')}`
     : '';
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 w-full max-w-lg overflow-hidden flex flex-col max-h-[92vh] transition-all">
-        {/* Header with Recipient Profile Banner */}
-        <div className="relative px-6 py-5 border-b border-slate-100 dark:border-slate-800/80 bg-gradient-to-r from-rose-500/10 via-pink-500/10 to-indigo-500/10 dark:from-rose-950/30 dark:via-pink-950/20 dark:to-indigo-950/30 overflow-hidden">
-          {/* Subtle Ambient Glow */}
-          <div className="absolute -top-10 -right-10 w-32 h-32 bg-rose-500/15 rounded-full blur-2xl pointer-events-none" />
-          <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-indigo-500/15 rounded-full blur-2xl pointer-events-none" />
+  if (!isOpen) return null;
 
-          <div className="flex items-center justify-between relative z-10">
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-rose-500 via-pink-500 to-indigo-600 text-white font-bold text-base flex items-center justify-center shrink-0 shadow-md shadow-rose-500/25">
-                  <Heart className="w-6 h-6 fill-white text-white animate-pulse" />
+  return createPortal(
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          {/* Fullscreen Backdrop */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            onClick={onClose}
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm cursor-pointer"
+          />
+
+          {/* Centered Modal Card */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 8 }}
+            transition={{ duration: 0.15 }}
+            className="relative z-10 bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh] sm:max-h-[88vh] my-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header with Recipient Profile Banner */}
+            <div className="relative px-5 py-4 sm:px-6 sm:py-5 border-b border-slate-100 dark:border-slate-800/80 bg-gradient-to-r from-rose-500/10 via-pink-500/10 to-indigo-500/10 dark:from-rose-950/30 dark:via-pink-950/20 dark:to-indigo-950/30 overflow-hidden shrink-0">
+              {/* Subtle Ambient Glow */}
+              <div className="absolute -top-10 -right-10 w-32 h-32 bg-rose-500/15 rounded-full blur-2xl pointer-events-none" />
+              <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-indigo-500/15 rounded-full blur-2xl pointer-events-none" />
+
+              <div className="flex items-center justify-between relative z-10">
+                <div className="flex items-center gap-3">
+                  <div className="relative shrink-0">
+                    <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-tr from-rose-500 via-pink-500 to-indigo-600 text-white font-bold text-base flex items-center justify-center shadow-md shadow-rose-500/25">
+                      <Heart className="w-5 h-5 sm:w-6 sm:h-6 fill-white text-white animate-pulse" />
+                    </div>
+                    <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900 flex items-center justify-center text-[8px] text-white">
+                      ✓
+                    </span>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <h3 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base font-display">
+                        Quyên Góp & Ủng Hộ
+                      </h3>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                        <Sparkles className="w-3 h-3" /> VietQR PayOS
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 flex items-center gap-1">
+                      <span>Gửi tới:</span>
+                      <strong className="text-slate-900 dark:text-slate-200 font-semibold">
+                        Nguyễn Lê Đạt Minh
+                      </strong>
+                    </p>
+                  </div>
                 </div>
-                <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900 flex items-center justify-center text-[8px] text-white">
-                  ✓
-                </span>
-              </div>
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <h3 className="font-bold text-slate-900 dark:text-white text-base font-display">
-                    Quyên Góp & Ủng Hộ
-                  </h3>
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
-                    <Sparkles className="w-3 h-3" /> VietQR PayOS
-                  </span>
-                </div>
-                <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 flex items-center gap-1">
-                  <span>Gửi tới:</span>
-                  <strong className="text-slate-900 dark:text-slate-200 font-semibold">
-                    Nguyễn Lê Đạt Minh
-                  </strong>
-                </p>
+
+                {/* Prominent Close Button ('X') */}
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center bg-white/90 dark:bg-slate-800/90 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 border border-slate-200/80 dark:border-slate-700/80 shadow-xs transition-all cursor-pointer shrink-0"
+                  title="Đóng bảng quyên góp (Esc hoặc nhấp ra ngoài)"
+                  aria-label="Đóng"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
             </div>
-            <button
-              onClick={onClose}
-              className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-white/80 dark:hover:bg-slate-800 transition-all cursor-pointer"
-              title="Đóng"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
 
         {/* Modal Scrollable Content */}
         <div className="p-5 sm:p-6 overflow-y-auto space-y-5">
@@ -667,7 +715,10 @@ export const PayOSModal: React.FC<PayOSModalProps> = ({
             </div>
           )}
         </div>
-      </div>
+      </motion.div>
     </div>
+      )}
+    </AnimatePresence>,
+    document.body
   );
 };
