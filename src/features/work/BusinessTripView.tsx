@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
-import { BusinessTripExpense } from '../../types';
+import { BusinessTripExpense, TransportType } from '../../types';
 import { formatCurrency, formatDateVN, getDayOfWeek, cn } from '../../lib/utils';
 import { Modal } from '../../components/ui/Modal';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -13,6 +13,8 @@ import {
   CheckCircle2,
   Clock,
   Car,
+  Bike,
+  Bus,
   Building2,
   DollarSign,
   AlertCircle,
@@ -26,7 +28,9 @@ import {
   Tag,
   Database,
   Copy,
-  Check
+  Check,
+  Eye,
+  FileText
 } from 'lucide-react';
 
 interface BusinessTripViewProps {
@@ -88,6 +92,87 @@ CREATE POLICY "business_trips_all_policy" ON public.business_trips FOR ALL USING
     setTimeout(() => setCopiedSql(false), 2000);
     addToast('Đã sao chép câu lệnh SQL tạo bảng Supabase!', 'success');
   };
+  const KM_RATE = 1500;
+
+  // Report View & Copy Modal State
+  const [viewingTripForReport, setViewingTripForReport] = useState<BusinessTripExpense | null>(null);
+  const [copiedReportText, setCopiedReportText] = useState(false);
+  const [customReportText, setCustomReportText] = useState<string>('');
+
+  const getEndDateFormatted = (startDateStr: string, daysCount: number = 1, endDateStr?: string) => {
+    if (endDateStr) return formatDateVN(endDateStr);
+    if (!startDateStr) return '';
+    const parts = startDateStr.split('-');
+    if (parts.length === 3) {
+      const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+      d.setDate(d.getDate() + Math.max(0, daysCount - 1));
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${day}/${m}/${y}`;
+    }
+    return formatDateVN(startDateStr);
+  };
+
+  const formatTransportDetail = (
+    type?: TransportType,
+    km?: number | string,
+    cost: number = 0
+  ) => {
+    const numKm = Number(km) || 0;
+    if (type === 'motorbike' || (!type && numKm > 0)) {
+      return `xe máy ${numKm > 0 ? `${numKm}km ` : ''}${cost > 0 ? formatCurrency(cost) : '0 đ'}`;
+    }
+    if (type === 'bus') {
+      return `xe khách ${cost > 0 ? formatCurrency(cost) : '0 đ'}`;
+    }
+    if (cost > 0) {
+      return `${formatCurrency(cost)}`;
+    }
+    return '0 đ';
+  };
+
+  const generateTripReportText = (trip: BusinessTripExpense) => {
+    const startDateVN = formatDateVN(trip.trip_date);
+    const endDateVN = getEndDateFormatted(trip.trip_date, trip.days_count || 1, trip.end_date);
+    const days = trip.days_count || 1;
+    const hotelText = trip.hotel_cost > 0 ? formatCurrency(trip.hotel_cost) : '0 đ';
+
+    let transportText = '';
+    const hasOutbound = trip.outbound_cost > 0 || (trip.outbound_km && Number(trip.outbound_km) > 0);
+    const hasReturn = trip.return_cost > 0 || (trip.return_km && Number(trip.return_km) > 0);
+
+    if (hasOutbound || hasReturn) {
+      const outDesc = formatTransportDetail(trip.outbound_type, trip.outbound_km, trip.outbound_cost);
+      const retDesc = formatTransportDetail(trip.return_type, trip.return_km, trip.return_cost);
+      transportText = `Đi: ${outDesc} | Về: ${retDesc}`;
+    } else {
+      transportText = '0 đ';
+    }
+
+    return `Shop: ${trip.location || 'Chưa nhập địa điểm'}
+42157 - Nguyễn Lê Đạt Minh
+Email:  minhnld2@fpt.com
+CTP: từ ngày ${startDateVN} tới ngày ${endDateVN} (${days} ngày)
+Tiền khách sạn: ${hotelText}
+Di chuyển: ${transportText}`;
+  };
+
+  const handleOpenReportModal = (trip: BusinessTripExpense) => {
+    setViewingTripForReport(trip);
+    setCustomReportText(generateTripReportText(trip));
+    setCopiedReportText(false);
+  };
+
+  const handleCopyReport = (textToCopy?: string) => {
+    const text = textToCopy !== undefined ? textToCopy : customReportText;
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedReportText(true);
+    setTimeout(() => setCopiedReportText(false), 2500);
+    addToast('Đã sao chép nội dung báo cáo CTP!', 'success');
+  };
+
   const [editingTrip, setEditingTrip] = useState<BusinessTripExpense | null>(null);
 
   // Form Fields
@@ -98,11 +183,19 @@ CREATE POLICY "business_trips_all_policy" ON public.business_trips FOR ALL USING
   const [formDaysCount, setFormDaysCount] = useState<number>(1);
   const [formDailyRate, setFormDailyRate] = useState<number>(160000); // Mặc định 160.000 hoặc 200.000
   const [formHotelCost, setFormHotelCost] = useState<number | string>('');
+
+  // Lượt đi: Xe máy (1.500đ/km) hoặc Xe khách
+  const [formOutboundType, setFormOutboundType] = useState<TransportType>('motorbike');
+  const [formOutboundKm, setFormOutboundKm] = useState<number | string>('');
   const [formOutboundCost, setFormOutboundCost] = useState<number | string>('');
+
+  // Lượt về: Xe máy (1.500đ/km) hoặc Xe khách
+  const [formReturnType, setFormReturnType] = useState<TransportType>('motorbike');
+  const [formReturnKm, setFormReturnKm] = useState<number | string>('');
   const [formReturnCost, setFormReturnCost] = useState<number | string>('');
+
   const [formLocation, setFormLocation] = useState<string>('');
   const [formNotes, setFormNotes] = useState<string>('');
-  const [formIsPaid, setFormIsPaid] = useState<boolean>(false);
 
   // Month prefix
   const monthStr = String(filterMonth).padStart(2, '0');
@@ -187,11 +280,14 @@ CREATE POLICY "business_trips_all_policy" ON public.business_trips FOR ALL USING
     setFormDaysCount(1);
     setFormDailyRate(160000);
     setFormHotelCost('');
+    setFormOutboundType('bus');
+    setFormOutboundKm('');
     setFormOutboundCost('');
+    setFormReturnType('bus');
+    setFormReturnKm('');
     setFormReturnCost('');
     setFormLocation('');
     setFormNotes('');
-    setFormIsPaid(false);
     setIsModalOpen(true);
   };
 
@@ -203,19 +299,40 @@ CREATE POLICY "business_trips_all_policy" ON public.business_trips FOR ALL USING
     setFormDaysCount(trip.days_count || 1);
     setFormDailyRate(trip.daily_allowance_rate || 160000);
     setFormHotelCost(trip.hotel_cost || '');
-    setFormOutboundCost(trip.outbound_cost || '');
-    setFormReturnCost(trip.return_cost || '');
+    
+    // Phương tiện lượt đi
+    const outType: TransportType = trip.outbound_type || (trip.outbound_km ? 'motorbike' : 'bus');
+    setFormOutboundType(outType);
+    setFormOutboundKm(trip.outbound_km !== undefined && trip.outbound_km !== null ? trip.outbound_km : (outType === 'motorbike' && trip.outbound_cost ? Math.round(trip.outbound_cost / KM_RATE) : ''));
+    setFormOutboundCost(outType === 'motorbike' ? '' : (trip.outbound_cost || ''));
+
+    // Phương tiện lượt về
+    const retType: TransportType = trip.return_type || (trip.return_km ? 'motorbike' : 'bus');
+    setFormReturnType(retType);
+    setFormReturnKm(trip.return_km !== undefined && trip.return_km !== null ? trip.return_km : (retType === 'motorbike' && trip.return_cost ? Math.round(trip.return_cost / KM_RATE) : ''));
+    setFormReturnCost(retType === 'motorbike' ? '' : (trip.return_cost || ''));
+
     setFormLocation(trip.location || '');
     setFormNotes(trip.notes || '');
-    setFormIsPaid(Boolean(trip.is_paid));
     setIsModalOpen(true);
   };
 
   // Live calculation for form total
   const calculatedDailyTotal = (Number(formDaysCount) || 1) * (Number(formDailyRate) || 0);
   const calculatedHotelTotal = Number(formHotelCost) || 0;
-  const calculatedOutboundTotal = Number(formOutboundCost) || 0;
-  const calculatedReturnTotal = Number(formReturnCost) || 0;
+  
+  // Tính tiền lượt đi: nếu xe máy thì số km * 1500đ, nếu xe khách thì lấy tiền vé
+  const calculatedOutboundTotal =
+    formOutboundType === 'motorbike'
+      ? (Number(formOutboundKm) || 0) * KM_RATE
+      : (Number(formOutboundCost) || 0);
+
+  // Tính tiền lượt về: nếu xe máy thì số km * 1500đ, nếu xe khách thì lấy tiền vé
+  const calculatedReturnTotal =
+    formReturnType === 'motorbike'
+      ? (Number(formReturnKm) || 0) * KM_RATE
+      : (Number(formReturnCost) || 0);
+
   const calculatedFormGrandTotal =
     calculatedDailyTotal + calculatedHotelTotal + calculatedOutboundTotal + calculatedReturnTotal;
 
@@ -267,10 +384,10 @@ CREATE POLICY "business_trips_all_policy" ON public.business_trips FOR ALL USING
     const days = Math.max(1, Number(formDaysCount) || 1);
     const rate = Number(formDailyRate) || 160000;
     const hotel = Number(formHotelCost) || 0;
-    const outbound = Number(formOutboundCost) || 0;
-    const returnCost = Number(formReturnCost) || 0;
+    const outboundCost = calculatedOutboundTotal;
+    const returnCost = calculatedReturnTotal;
     const totalDaily = days * rate;
-    const grandTotal = totalDaily + hotel + outbound + returnCost;
+    const grandTotal = totalDaily + hotel + outboundCost + returnCost;
 
     await saveBusinessTrip({
       id: editingTrip ? editingTrip.id : undefined,
@@ -280,11 +397,15 @@ CREATE POLICY "business_trips_all_policy" ON public.business_trips FOR ALL USING
       daily_allowance_rate: rate,
       total_daily_allowance: totalDaily,
       hotel_cost: hotel,
-      outbound_cost: outbound,
+      outbound_type: formOutboundType,
+      outbound_km: formOutboundType === 'motorbike' ? (Number(formOutboundKm) || 0) : undefined,
+      outbound_cost: outboundCost,
+      return_type: formReturnType,
+      return_km: formReturnType === 'motorbike' ? (Number(formReturnKm) || 0) : undefined,
       return_cost: returnCost,
       total_amount: grandTotal,
-      is_paid: formIsPaid,
-      paid_at: formIsPaid ? (editingTrip?.paid_at || new Date().toISOString()) : undefined,
+      is_paid: editingTrip ? Boolean(editingTrip.is_paid) : false,
+      paid_at: editingTrip?.paid_at,
       location: formLocation.trim() || undefined,
       notes: formNotes.trim() || undefined,
     });
@@ -647,7 +768,22 @@ CREATE POLICY "business_trips_all_policy" ON public.business_trips FOR ALL USING
                       {/* Lượt đi */}
                       <td className="py-3 px-3 text-right font-mono text-slate-700 dark:text-slate-300">
                         {trip.outbound_cost > 0 ? (
-                          formatCurrency(trip.outbound_cost)
+                          <div>
+                            <div className="font-semibold text-slate-800 dark:text-slate-200">
+                              {formatCurrency(trip.outbound_cost)}
+                            </div>
+                            {trip.outbound_type === 'motorbike' && trip.outbound_km ? (
+                              <div className="text-[10px] text-sky-600 dark:text-sky-400 flex items-center justify-end gap-0.5">
+                                <Bike className="w-3 h-3 text-sky-500" />
+                                <span>{trip.outbound_km}km</span>
+                              </div>
+                            ) : trip.outbound_type === 'bus' ? (
+                              <div className="text-[10px] text-slate-400 flex items-center justify-end gap-0.5">
+                                <Bus className="w-3 h-3 text-slate-400" />
+                                <span>Xe khách</span>
+                              </div>
+                            ) : null}
+                          </div>
                         ) : (
                           <span className="text-slate-400">-</span>
                         )}
@@ -656,7 +792,22 @@ CREATE POLICY "business_trips_all_policy" ON public.business_trips FOR ALL USING
                       {/* Lượt về */}
                       <td className="py-3 px-3 text-right font-mono text-slate-700 dark:text-slate-300">
                         {trip.return_cost > 0 ? (
-                          formatCurrency(trip.return_cost)
+                          <div>
+                            <div className="font-semibold text-slate-800 dark:text-slate-200">
+                              {formatCurrency(trip.return_cost)}
+                            </div>
+                            {trip.return_type === 'motorbike' && trip.return_km ? (
+                              <div className="text-[10px] text-sky-600 dark:text-sky-400 flex items-center justify-end gap-0.5">
+                                <Bike className="w-3 h-3 text-sky-500" />
+                                <span>{trip.return_km}km</span>
+                              </div>
+                            ) : trip.return_type === 'bus' ? (
+                              <div className="text-[10px] text-slate-400 flex items-center justify-end gap-0.5">
+                                <Bus className="w-3 h-3 text-slate-400" />
+                                <span>Xe khách</span>
+                              </div>
+                            ) : null}
+                          </div>
                         ) : (
                           <span className="text-slate-400">-</span>
                         )}
@@ -693,10 +844,17 @@ CREATE POLICY "business_trips_all_policy" ON public.business_trips FOR ALL USING
                       {/* Địa điểm & Ghi chú */}
                       <td className="py-3 px-4 text-left">
                         {trip.location && (
-                          <div className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                            <MapPin className="w-3 h-3 text-amber-500 shrink-0" />
-                            <span className="truncate max-w-[160px]">{trip.location}</span>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenReportModal(trip)}
+                            className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1 hover:text-sky-600 dark:hover:text-sky-400 text-left transition-colors cursor-pointer group"
+                            title="Bấm để xem và sao chép văn bản báo cáo CTP"
+                          >
+                            <MapPin className="w-3 h-3 text-amber-500 shrink-0 group-hover:scale-110 transition-transform" />
+                            <span className="truncate max-w-[160px] underline decoration-dotted decoration-slate-300 dark:decoration-slate-700 underline-offset-2">
+                              {trip.location}
+                            </span>
+                          </button>
                         )}
                         {trip.notes && (
                           <div className="text-[11px] text-slate-400 truncate max-w-[160px]">
@@ -711,6 +869,14 @@ CREATE POLICY "business_trips_all_policy" ON public.business_trips FOR ALL USING
                       {/* Thao tác */}
                       <td className="py-3 px-3 text-center">
                         <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenReportModal(trip)}
+                            className="p-1 rounded-lg text-slate-400 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/30 transition-colors cursor-pointer"
+                            title="Xem & Sao chép báo cáo CTP"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
                           <button
                             type="button"
                             onClick={() => handleOpenEdit(trip)}
@@ -914,46 +1080,168 @@ CREATE POLICY "business_trips_all_policy" ON public.business_trips FOR ALL USING
             />
           </div>
 
-          {/* Hàng 4: Lượt đi & Lượt về */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-sky-50/50 dark:bg-sky-950/20 border border-sky-200/70 dark:border-sky-900/40">
-            <div>
-              <label className="block font-bold text-slate-800 dark:text-slate-200 mb-1 flex items-center justify-between">
-                <span className="flex items-center gap-1">
-                  <Car className="w-3.5 h-3.5 text-sky-600" /> Tiền lượt đi (VNĐ)
+          {/* Hàng 4: Phương tiện & Tiền Lượt đi & Lượt về */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 p-3.5 rounded-xl bg-sky-50/60 dark:bg-sky-950/20 border border-sky-200/80 dark:border-sky-900/50">
+            {/* Lượt đi */}
+            <div className="space-y-2 p-3 rounded-lg bg-white dark:bg-slate-900 border border-sky-100 dark:border-slate-800">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
+                  <Car className="w-3.5 h-3.5 text-sky-600" />
+                  Tiền Lượt Đi
                 </span>
-                <span className="text-[11px] text-sky-600 font-mono">
+                <span className="text-xs font-bold text-sky-600 dark:text-sky-400 font-mono">
                   {formatCurrency(calculatedOutboundTotal)}
                 </span>
-              </label>
-              <input
-                type="number"
-                min="0"
-                step="1000"
-                value={formOutboundCost}
-                onChange={(e) => setFormOutboundCost(e.target.value)}
-                className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                placeholder="VD: 150000"
-              />
+              </div>
+
+              {/* Toggle Xe máy / Xe khách */}
+              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-lg bg-slate-100 dark:bg-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setFormOutboundType('motorbike')}
+                  className={cn(
+                    'py-1.5 px-2 rounded-md text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer',
+                    formOutboundType === 'motorbike'
+                      ? 'bg-sky-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  )}
+                >
+                  <Bike className="w-3.5 h-3.5" />
+                  Xe máy (1.500đ/km)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormOutboundType('bus')}
+                  className={cn(
+                    'py-1.5 px-2 rounded-md text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer',
+                    formOutboundType === 'bus'
+                      ? 'bg-sky-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  )}
+                >
+                  <Bus className="w-3.5 h-3.5" />
+                  Xe khách (Vé xe)
+                </button>
+              </div>
+
+              {/* Ô nhập tương ứng với loại xe */}
+              {formOutboundType === 'motorbike' ? (
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                    Nhập số km di chuyển (1 km = 1.500 đ)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={formOutboundKm}
+                    onChange={(e) => setFormOutboundKm(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    placeholder="VD: 100 (Số km)"
+                  />
+                  <div className="text-[10px] text-sky-600 dark:text-sky-400 mt-1 font-mono">
+                    {Number(formOutboundKm) > 0
+                      ? `${formOutboundKm} km × 1.500 đ = ${formatCurrency(calculatedOutboundTotal)}`
+                      : '1 km = 1.500 đ'}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                    Nhập số tiền vé xe khách (VNĐ)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1000"
+                    value={formOutboundCost}
+                    onChange={(e) => setFormOutboundCost(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    placeholder="VD: 150000 (Tiền vé)"
+                  />
+                </div>
+              )}
             </div>
 
-            <div>
-              <label className="block font-bold text-slate-800 dark:text-slate-200 mb-1 flex items-center justify-between">
-                <span className="flex items-center gap-1">
-                  <Car className="w-3.5 h-3.5 text-sky-600" /> Tiền lượt về (VNĐ)
+            {/* Lượt về */}
+            <div className="space-y-2 p-3 rounded-lg bg-white dark:bg-slate-900 border border-sky-100 dark:border-slate-800">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
+                  <Car className="w-3.5 h-3.5 text-sky-600" />
+                  Tiền Lượt Về
                 </span>
-                <span className="text-[11px] text-sky-600 font-mono">
+                <span className="text-xs font-bold text-sky-600 dark:text-sky-400 font-mono">
                   {formatCurrency(calculatedReturnTotal)}
                 </span>
-              </label>
-              <input
-                type="number"
-                min="0"
-                step="1000"
-                value={formReturnCost}
-                onChange={(e) => setFormReturnCost(e.target.value)}
-                className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                placeholder="VD: 150000"
-              />
+              </div>
+
+              {/* Toggle Xe máy / Xe khách */}
+              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-lg bg-slate-100 dark:bg-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setFormReturnType('motorbike')}
+                  className={cn(
+                    'py-1.5 px-2 rounded-md text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer',
+                    formReturnType === 'motorbike'
+                      ? 'bg-sky-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  )}
+                >
+                  <Bike className="w-3.5 h-3.5" />
+                  Xe máy (1.500đ/km)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormReturnType('bus')}
+                  className={cn(
+                    'py-1.5 px-2 rounded-md text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer',
+                    formReturnType === 'bus'
+                      ? 'bg-sky-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  )}
+                >
+                  <Bus className="w-3.5 h-3.5" />
+                  Xe khách (Vé xe)
+                </button>
+              </div>
+
+              {/* Ô nhập tương ứng với loại xe */}
+              {formReturnType === 'motorbike' ? (
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                    Nhập số km di chuyển (1 km = 1.500 đ)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={formReturnKm}
+                    onChange={(e) => setFormReturnKm(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    placeholder="VD: 100 (Số km)"
+                  />
+                  <div className="text-[10px] text-sky-600 dark:text-sky-400 mt-1 font-mono">
+                    {Number(formReturnKm) > 0
+                      ? `${formReturnKm} km × 1.500 đ = ${formatCurrency(calculatedReturnTotal)}`
+                      : '1 km = 1.500 đ'}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                    Nhập số tiền vé xe khách (VNĐ)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1000"
+                    value={formReturnCost}
+                    onChange={(e) => setFormReturnCost(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    placeholder="VD: 150000 (Tiền vé)"
+                  />
+                </div>
+              )}
             </div>
           </div>
 
@@ -983,20 +1271,6 @@ CREATE POLICY "business_trips_all_policy" ON public.business_trips FOR ALL USING
                 placeholder="Số hóa đơn, người đi cùng..."
               />
             </div>
-          </div>
-
-          {/* Hàng 6: Trạng thái thanh toán ban đầu */}
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
-            <input
-              type="checkbox"
-              id="formIsPaidCheckbox"
-              checked={formIsPaid}
-              onChange={(e) => setFormIsPaid(e.target.checked)}
-              className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 cursor-pointer"
-            />
-            <label htmlFor="formIsPaidCheckbox" className="font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
-              Đã thanh toán (nếu chưa thanh toán, để trống để hiện chữ Đỏ chờ thanh toán)
-            </label>
           </div>
 
           {/* TỔNG TIỀN LIVE PREVIEW BÊN DƯỚI FORM */}
@@ -1031,6 +1305,121 @@ CREATE POLICY "business_trips_all_policy" ON public.business_trips FOR ALL USING
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* MODAL XEM & SAO CHÉP BÁO CÁO CÔNG TÁC PHÍ */}
+      <Modal
+        isOpen={Boolean(viewingTripForReport)}
+        onClose={() => setViewingTripForReport(null)}
+        title="Báo Cáo Công Tác Phí (CTP)"
+        subtitle={
+          viewingTripForReport?.location
+            ? `Shop: ${viewingTripForReport.location} | ${formatDateVN(viewingTripForReport.trip_date)}`
+            : 'Sao chép nhanh định dạng văn bản gửi duyệt công tác phí'
+        }
+        maxWidth="md"
+      >
+        {viewingTripForReport && (
+          <div className="space-y-4 text-xs">
+            {/* Tóm tắt nhanh */}
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 flex items-center justify-between">
+              <div className="space-y-0.5">
+                <div className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-amber-500" />
+                  <span>{viewingTripForReport.location || 'Chưa nhập địa điểm'}</span>
+                </div>
+                <div className="text-[11px] text-slate-500 flex items-center gap-1">
+                  <Calendar className="w-3 h-3 text-slate-400" />
+                  <span>
+                    {formatDateVN(viewingTripForReport.trip_date)} ({viewingTripForReport.days_count || 1} ngày)
+                  </span>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-[10px] text-slate-400 uppercase font-bold">Tổng tiền</div>
+                <div className="text-sm font-extrabold font-mono text-amber-600 dark:text-amber-400">
+                  {formatCurrency(viewingTripForReport.total_amount)}
+                </div>
+              </div>
+            </div>
+
+            {/* Ô xem & sao chép văn bản */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <FileText className="w-4 h-4 text-sky-500" />
+                  <span>Nội dung văn bản báo cáo</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => handleCopyReport()}
+                  className={cn(
+                    'px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer',
+                    copiedReportText
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 hover:bg-sky-100 dark:hover:bg-sky-900/60 border border-sky-200 dark:border-sky-800'
+                  )}
+                >
+                  {copiedReportText ? (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Đã sao chép</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Sao chép nhanh</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Textarea hiển thị có thể chỉnh sửa trước khi sao chép nếu cần */}
+              <div className="relative rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-900 text-slate-100 p-3.5 font-mono text-xs shadow-inner">
+                <textarea
+                  value={customReportText}
+                  onChange={(e) => setCustomReportText(e.target.value)}
+                  rows={7}
+                  className="w-full bg-transparent text-emerald-300 dark:text-emerald-300 focus:outline-none resize-none font-mono text-xs leading-relaxed"
+                  placeholder="Nội dung báo cáo CTP..."
+                />
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setViewingTripForReport(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                Đóng
+              </button>
+              <button
+                type="button"
+                onClick={() => handleCopyReport()}
+                className={cn(
+                  'px-5 py-2 rounded-xl text-xs font-bold text-white flex items-center gap-2 shadow-sm transition-all cursor-pointer',
+                  copiedReportText
+                    ? 'bg-emerald-600 hover:bg-emerald-700'
+                    : 'bg-amber-500 hover:bg-amber-600'
+                )}
+              >
+                {copiedReportText ? (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>Đã Sao Chép!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" />
+                    <span>Sao Chép Văn Bản CTP</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

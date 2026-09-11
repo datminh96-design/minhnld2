@@ -211,6 +211,8 @@ export interface ToastMessage {
   type: 'success' | 'error' | 'info' | 'warning';
 }
 
+export type TransportType = 'motorbike' | 'bus';
+
 export interface BusinessTripExpense {
   id: string;
   user_id?: string;
@@ -221,7 +223,11 @@ export interface BusinessTripExpense {
   total_daily_allowance: number; // days_count * daily_allowance_rate
   hotel_cost: number; // Tiền khách sạn
   outbound_cost: number; // Tiền lượt đi
+  outbound_type?: TransportType; // 'motorbike' hoặc 'bus'
+  outbound_km?: number; // Số km nếu chọn xe máy
   return_cost: number; // Tiền lượt về
+  return_type?: TransportType; // 'motorbike' hoặc 'bus'
+  return_km?: number; // Số km nếu chọn xe máy
   total_amount: number; // Tổng tiền = Tiền phụ cấp ngày + Khách sạn + Lượt đi + Lượt về
   is_paid: boolean; // false = Chờ thanh toán (đỏ), true = Đã thanh toán (xanh mờ, đưa xuống dưới cùng)
   paid_at?: string; // Thời gian đánh dấu thanh toán
