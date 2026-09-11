@@ -141,13 +141,18 @@ export const KNOWN_ASSET_NAMES: Record<string, { name: string; type: AssetType; 
 
 // In-memory cache for mutual fund NAVs from Fmarket
 let fundNavCache: Record<string, number> = {
-  VEOF: 32684.74,
-  VESAF: 28450.10,
-  VIBF: 15200.00,
-  DCDS: 82140.50,
-  DCBC: 35120.00,
-  VCBF_MGF: 27800.00,
-  SSISCA: 41200.00,
+  VEOF: 32600.18,
+  VESAF: 31574.96,
+  VIBF: 19223.56,
+  DCDS: 95308.61,
+  DCBC: 30452.23,
+  VCBF_BCF: 41815.84,
+  VCBF_MGF: 13712.77,
+  SSISCA: 42177.02,
+  SSIBF: 17045.96,
+  DCIP: 12358.63,
+  DCDE: 24944.58,
+  BVFED: 30506.00,
 };
 let lastFundCacheFetch = 0;
 
@@ -166,41 +171,81 @@ class PriceService {
   }
 
   /**
-   * Fetch latest NAVs for mutual funds from Fmarket API
+   * Fetch latest NAVs for mutual funds from Fmarket API (Direct CORS + Server proxy fallback)
    */
-  private async fetchFundNavFromFmarket(symbol: string): Promise<number | null> {
-    const cleanSym = symbol.toUpperCase().trim();
+  async fetchFundNavFromFmarket(symbol: string): Promise<number | null> {
+    const cleanSym = symbol.toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
     const now = Date.now();
 
-    // Throttle queries to once per 60 seconds
-    if (now - lastFundCacheFetch > 60000) {
-      lastFundCacheFetch = now;
-      try {
-        const res = await fetch('/api/fmarket/res/products/filter', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            types: ['NEW_FUND', 'TRADING_FUND'],
-            page: 1,
-            pageSize: 100,
-          }),
-        });
+    // Refresh fund NAV cache every 30 seconds
+    if (now - lastFundCacheFetch > 30000 || Object.keys(fundNavCache).length <= 5) {
+      const endpoints = [
+        'https://api.fmarket.vn/res/products/filter',
+        '/api/fmarket/res/products/filter',
+      ];
 
-        if (res.ok) {
-          const data = await res.json();
-          if (data?.data?.rows && Array.isArray(data.data.rows)) {
-            data.data.rows.forEach((row: any) => {
-              const code = (row.shortName || row.code || '').toUpperCase();
-              if (code && typeof row.nav === 'number') {
-                fundNavCache[code] = row.nav;
-              }
-            });
+      for (const ep of endpoints) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 6000);
+
+          const res = await fetch(ep, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json, text/plain, */*',
+            },
+            body: JSON.stringify({
+              types: ['NEW_FUND', 'TRADING_FUND'],
+              page: 1,
+              pageSize: 100,
+            }),
+            signal: controller.signal,
+          });
+          clearTimeout(timer);
+
+          if (res.ok) {
+            const data = await res.json();
+            const rows = data?.data?.rows;
+            if (Array.isArray(rows) && rows.length > 0) {
+              lastFundCacheFetch = now;
+              rows.forEach((row: any) => {
+                const nav = typeof row.nav === 'number' && row.nav > 0 
+                  ? row.nav 
+                  : (typeof row.extra?.currentNAV === 'number' ? row.extra.currentNAV : null);
+                
+                if (nav && nav > 0) {
+                  const sName = (row.shortName || '').toUpperCase().trim();
+                  const code = (row.code || '').toUpperCase().trim();
+                  
+                  if (sName) {
+                    fundNavCache[sName] = nav;
+                    fundNavCache[sName.replace(/[^A-Z0-9]/g, '')] = nav;
+                  }
+                  if (code) {
+                    fundNavCache[code] = nav;
+                    fundNavCache[code.replace(/[^A-Z0-9]/g, '')] = nav;
+                  }
+                }
+              });
+              break; // Successfully fetched
+            }
           }
+        } catch {
+          // Try next endpoint
         }
-      } catch {
-        // Fall back to stored NAV cache
+      }
+    }
+
+    // Direct symbol lookup
+    if (fundNavCache[cleanSym]) {
+      return fundNavCache[cleanSym];
+    }
+
+    // Fuzzy matching for fund symbols (e.g., 'VEOF', 'VESAF', 'DCDS', 'DCBC', 'SSISCA', 'VCBF')
+    for (const [key, nav] of Object.entries(fundNavCache)) {
+      if (cleanSym.includes(key) || key.includes(cleanSym)) {
+        return nav;
       }
     }
 
@@ -277,7 +322,31 @@ class PriceService {
     const defaultName = known?.name || cleanSym;
     const targetType: AssetType = preferredType || known?.type || 'crypto';
 
-    // 1. If preferred or known is Stock / HOSE
+    // 1. If preferred or known is Mutual Fund (VEOF, VESAF, DCDS, DCBC...)
+    const isFundMatch =
+      (targetType as string) === 'Quỹ' ||
+      targetType === 'fund' ||
+      known?.type === 'fund' ||
+      ['VEOF', 'VESAF', 'DCDS', 'DCBC', 'VIBF', 'SSISCA', 'VCBF', 'BVFED', 'DCIP', 'DCDE'].some((f) =>
+        cleanSym.includes(f)
+      );
+
+    if (isFundMatch) {
+      const fundNav = await this.fetchFundNavFromFmarket(cleanSym);
+      if (fundNav && fundNav > 0) {
+        return {
+          symbol: cleanSym,
+          name: defaultName || `Chứng chỉ quỹ ${cleanSym}`,
+          type: 'fund',
+          priceVnd: Math.round(fundNav * 100) / 100,
+          priceUsdt: Math.round((fundNav / this.usdtVndRate) * 100) / 100,
+          exchange: 'Fmarket',
+          isLive: true,
+        };
+      }
+    }
+
+    // 2. If preferred or known is Stock / HOSE
     if ((targetType as string) === 'Cổ phiếu' || targetType === 'stock') {
       const stockData = await this.fetchVnStockPrice(cleanSym);
       if (stockData && stockData.price > 0) {
@@ -294,7 +363,7 @@ class PriceService {
       }
     }
 
-    // 2. If preferred or known is Crypto / Binance
+    // 3. If preferred or known is Crypto / Binance
     if ((targetType as string) === 'Crypto' || targetType === 'crypto' || !preferredType) {
       try {
         const binanceSymbol = cleanSym === 'XAUT' ? 'PAXGUSDT' : (cleanSym.endsWith('USDT') ? cleanSym : `${cleanSym}USDT`);
@@ -327,7 +396,7 @@ class PriceService {
       } catch {}
     }
 
-    // 3. If not found in crypto, try VN Stock
+    // 4. If not found in crypto, try VN Stock
     const stockData = await this.fetchVnStockPrice(cleanSym);
     if (stockData && stockData.price > 0) {
       return {
@@ -342,21 +411,21 @@ class PriceService {
       };
     }
 
-    // 4. Try Mutual Fund
+    // 5. Try Mutual Fund if not checked earlier
     const fundNav = await this.fetchFundNavFromFmarket(cleanSym);
     if (fundNav && fundNav > 0) {
       return {
         symbol: cleanSym,
         name: defaultName || `Chứng chỉ quỹ ${cleanSym}`,
         type: 'fund',
-        priceVnd: Math.round(fundNav),
+        priceVnd: Math.round(fundNav * 100) / 100,
         priceUsdt: Math.round((fundNav / this.usdtVndRate) * 100) / 100,
         exchange: 'Fmarket',
         isLive: true,
       };
     }
 
-    // 5. Gold (SJC)
+    // 6. Gold (SJC)
     if (cleanSym === 'SJC' || cleanSym.includes('GOLD')) {
       return {
         symbol: 'SJC',
@@ -380,7 +449,29 @@ class PriceService {
     const type = asset.asset_type;
 
     try {
-      // 1. Crypto (BTC, ETH, BNB, SOL, DOGE, XRP, etc.) & Gold Token (PAXG, XAUT)
+      // 1. Mutual Fund (Quỹ mở, VEOF, VESAF, DCDS, DCBC, VCBF...)
+      const isFundType =
+        (type as string) === 'Quỹ' ||
+        type === 'fund' ||
+        ['VEOF', 'VESAF', 'DCDS', 'DCBC', 'VIBF', 'SSISCA', 'VCBF', 'BVFED', 'DCIP', 'DCDE'].some((f) =>
+          symbol.includes(f)
+        );
+
+      if (isFundType) {
+        const liveNav = await this.fetchFundNavFromFmarket(symbol);
+        if (liveNav && liveNav > 0) {
+          return {
+            symbol: asset.asset_symbol,
+            price: Math.round(liveNav * 100) / 100,
+            usdtPrice: Math.round((liveNav / this.usdtVndRate) * 100) / 100,
+            updatedAt: new Date().toISOString(),
+            source: 'fund_api',
+            sourceName: 'Fmarket NAV Live',
+          };
+        }
+      }
+
+      // 2. Crypto (BTC, ETH, BNB, SOL, DOGE, XRP, etc.) & Gold Token (PAXG, XAUT)
       const isCryptoType = (type as string) === 'Crypto' || type === 'crypto';
       const isKnownCrypto = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'DOGE', 'ADA', 'DOT', 'AVAX', 'NEAR', 'XAUT', 'PAXG', 'SUI', 'PEPE', 'SHIB', 'TON', 'LINK'].includes(symbol);
 
@@ -400,22 +491,6 @@ class PriceService {
             updatedAt: new Date().toISOString(),
             source: 'binance',
             sourceName: 'Binance Live Ticker',
-          };
-        }
-      }
-
-      // 2. Mutual Fund (Quỹ mở, VEOF, VESAF, DCDS, DCBC, VCBF...)
-      const isFundType = (type as string) === 'Quỹ' || type === 'fund' || ['VEOF', 'VESAF', 'DCDS', 'DCBC', 'VIBF', 'SSISCA'].includes(symbol);
-      if (isFundType) {
-        const liveNav = await this.fetchFundNavFromFmarket(symbol);
-        if (liveNav && liveNav > 0) {
-          return {
-            symbol: asset.asset_symbol,
-            price: Math.round(liveNav),
-            usdtPrice: Math.round((liveNav / this.usdtVndRate) * 100) / 100,
-            updatedAt: new Date().toISOString(),
-            source: 'fund_api',
-            sourceName: 'Fmarket NAV Live',
           };
         }
       }

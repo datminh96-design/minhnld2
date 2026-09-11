@@ -1110,41 +1110,74 @@ app.use(express.static(path.join(process.cwd(), 'public')));
 
       // 3. Fetch Mutual Funds from Fmarket
       const fundMap: Record<string, number> = {
-        VEOF: 32684.74,
-        VESAF: 28450.1,
-        VIBF: 15200.0,
-        DCDS: 82140.5,
-        DCBC: 35120.0,
-        VCBF_MGF: 27800.0,
-        SSISCA: 41200.0,
+        VEOF: 32600.18,
+        VESAF: 31574.96,
+        VIBF: 19223.56,
+        DCDS: 95308.61,
+        DCBC: 30452.23,
+        VCBF_BCF: 41815.84,
+        VCBF_MGF: 13712.77,
+        SSISCA: 42177.02,
+        SSIBF: 17045.96,
+        DCIP: 12358.63,
+        DCDE: 24944.58,
+        BVFED: 30506.00,
       };
 
-      const fundSymbols = assets
-        .filter((a: any) => {
-          const sym = (a.symbol || a.asset_symbol || '').toUpperCase().trim();
-          const type = (a.type || a.asset_type || '').toLowerCase();
-          return type === 'fund' || ['VEOF', 'VESAF', 'VIBF', 'DCDS', 'DCBC', 'VCBF_MGF', 'SSISCA'].includes(sym);
-        })
-        .map((a: any) => (a.symbol || a.asset_symbol || '').toUpperCase().trim());
+      const hasFundAssets = assets.some((a: any) => {
+        const sym = (a.symbol || a.asset_symbol || '').toUpperCase().trim();
+        const type = (a.type || a.asset_type || '').toLowerCase();
+        return (
+          type === 'fund' ||
+          type === 'quỹ' ||
+          ['VEOF', 'VESAF', 'VIBF', 'DCDS', 'DCBC', 'VCBF', 'SSISCA', 'BVFED', 'DCIP', 'DCDE'].some((f) =>
+            sym.includes(f)
+          )
+        );
+      });
 
-      if (fundSymbols.length > 0) {
+      if (hasFundAssets) {
         try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 6000);
           const fRes = await fetch('https://api.fmarket.vn/res/products/filter', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json, text/plain, */*',
+              'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              Referer: 'https://fmarket.vn/',
+              Origin: 'https://fmarket.vn',
+            },
             body: JSON.stringify({
               types: ['NEW_FUND', 'TRADING_FUND'],
               page: 1,
               pageSize: 100,
             }),
+            signal: controller.signal,
           });
+          clearTimeout(timer);
+
           if (fRes.ok) {
             const fData: any = await fRes.json();
             if (fData?.data?.rows && Array.isArray(fData.data.rows)) {
               fData.data.rows.forEach((row: any) => {
-                const code = (row.shortName || row.code || '').toUpperCase().trim();
-                if (code && typeof row.nav === 'number' && row.nav > 0) {
-                  fundMap[code] = row.nav;
+                const sName = (row.shortName || '').toUpperCase().trim();
+                const code = (row.code || '').toUpperCase().trim();
+                const nav = typeof row.nav === 'number' && row.nav > 0 
+                  ? row.nav 
+                  : (typeof row.extra?.currentNAV === 'number' ? row.extra.currentNAV : null);
+
+                if (nav && nav > 0) {
+                  if (sName) {
+                    fundMap[sName] = nav;
+                    fundMap[sName.replace(/[^A-Z0-9]/g, '')] = nav;
+                  }
+                  if (code) {
+                    fundMap[code] = nav;
+                    fundMap[code.replace(/[^A-Z0-9]/g, '')] = nav;
+                  }
                 }
               });
             }
@@ -1156,7 +1189,29 @@ app.use(express.static(path.join(process.cwd(), 'public')));
       for (const item of assets) {
         const id = item.id || item.symbol || item.asset_symbol;
         const sym = (item.symbol || item.asset_symbol || '').toUpperCase().trim();
+        const cleanSym = sym.replace(/[^A-Z0-9]/g, '');
         const type = (item.type || item.asset_type || '').toLowerCase();
+
+        // Mutual Fund matching (Exact or partial matching for VEOF, VESAF, DCDS, DCBC...)
+        const matchedFundKey = Object.keys(fundMap).find(
+          (k) => k === sym || k === cleanSym || sym.includes(k) || cleanSym.includes(k)
+        );
+        const isFundType = type === 'fund' || type === 'quỹ' || !!matchedFundKey;
+
+        if (isFundType && (matchedFundKey || fundMap[sym] || fundMap[cleanSym])) {
+          const nav = fundMap[sym] || fundMap[cleanSym] || (matchedFundKey ? fundMap[matchedFundKey] : 0);
+          if (nav > 0) {
+            results[id] = {
+              symbol: sym,
+              price: Math.round(nav * 100) / 100,
+              usdtPrice: Math.round((nav / currentUsdtRate) * 100) / 100,
+              updatedAt: new Date().toISOString(),
+              source: 'fmarket',
+              sourceName: 'Fmarket NAV Live',
+            };
+            continue;
+          }
+        }
 
         // Crypto
         if (binancePriceMap[sym]) {
@@ -1184,20 +1239,6 @@ app.use(express.static(path.join(process.cwd(), 'public')));
             updatedAt: new Date().toISOString(),
             source: 'hose_api',
             sourceName: 'Sàn HOSE/HNX Trực Tiếp',
-          };
-          continue;
-        }
-
-        // Mutual Fund
-        if (fundMap[sym] || type === 'fund') {
-          const nav = fundMap[sym] || (sym === 'VEOF' ? 32684.74 : item.price || item.current_price || 0);
-          results[id] = {
-            symbol: sym,
-            price: Math.round(nav * 100) / 100,
-            usdtPrice: Math.round((nav / currentUsdtRate) * 100) / 100,
-            updatedAt: new Date().toISOString(),
-            source: 'fmarket',
-            sourceName: 'Fmarket NAV Live',
           };
           continue;
         }
