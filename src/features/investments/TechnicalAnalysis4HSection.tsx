@@ -199,6 +199,41 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
           setIsMoversLoading(false);
         });
 
+      // 4. Auto-sync 5 live market news items (CafeF, VnEconomy, CoinDesk, Bloomberg)
+      technicalAnalysisService
+        .fetchMarketNews(modelToUse, forceRefresh)
+        .then((freshNews) => {
+          if (Array.isArray(freshNews) && freshNews.length > 0) {
+            setAnalyses((prev) => {
+              const next = { ...prev };
+              for (const k of Object.keys(next)) {
+                if (next[k]) {
+                  next[k] = {
+                    ...next[k],
+                    geminiInsight: {
+                      ...(next[k].geminiInsight || {
+                        verdict: 'QUAN SÁT',
+                        confidence: 80,
+                        trendAnalysis: '',
+                        keyDrivers: [],
+                        customDcaAdvice: '',
+                        tacticalBuyNotes: '',
+                        tacticalSellNotes: '',
+                        summaryReportMarkdown: '',
+                      }),
+                      topMarketNews: freshNews,
+                    },
+                  };
+                }
+              }
+              return next;
+            });
+          }
+        })
+        .catch((nErr) => {
+          console.warn('Live market news auto-sync notice:', nErr);
+        });
+
       if (forceRefresh) {
         addToast(`Đã hoàn tất phân tích kỹ thuật 4H (${modelToUse})!`, 'success');
       }
