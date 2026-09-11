@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Modal } from '../../components/ui/Modal';
-import { InvestmentAsset, InvestmentTxType } from '../../types';
+import { InvestmentAsset, InvestmentTxType, InvestmentTransaction } from '../../types';
 import { formatCurrency } from '../../lib/utils';
 import { priceService } from '../../services/priceService';
 import { ArrowDownLeft, ArrowUpRight, Sparkles, Coins, RefreshCw } from 'lucide-react';
@@ -9,15 +9,21 @@ interface InvestmentTxModalFormProps {
   isOpen: boolean;
   onClose: () => void;
   investmentAssets: InvestmentAsset[];
+  selectedAsset?: InvestmentAsset;
   initialAssetId?: string;
   initialUsdtRate?: number;
-  onSave: (data: {
+  onSave: (data: Partial<InvestmentTransaction> & {
     asset_id: string;
-    tx_type: InvestmentTxType;
-    units: number;
-    price_per_unit: number;
+    transaction_type: InvestmentTxType;
+    tx_type?: InvestmentTxType;
+    quantity: number;
+    units?: number;
+    price: number;
+    price_per_unit?: number;
     fee: number;
-    tx_date: string;
+    transaction_date: string;
+    tx_date?: string;
+    note?: string;
     notes?: string;
     fee_currency?: 'VND' | 'USDT' | 'BNB';
     exchange_rate?: number;
@@ -28,6 +34,7 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
   isOpen,
   onClose,
   investmentAssets,
+  selectedAsset,
   initialAssetId,
   initialUsdtRate = 25400,
   onSave,
@@ -51,7 +58,7 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
   useEffect(() => {
     const isOpening = isOpen && !prevIsOpenRef.current;
     if (isOpening) {
-      const selectedId = initialAssetId || investmentAssets[0]?.id || '';
+      const selectedId = selectedAsset?.id || initialAssetId || investmentAssets[0]?.id || '';
       setTxAssetId(selectedId);
       setTxType('buy');
       setTxDate(new Date().toISOString().split('T')[0]);
@@ -59,7 +66,7 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
       setTxFee('0');
       setTxNotes('');
 
-      const selected = investmentAssets.find((a) => a.id === selectedId);
+      const selected = investmentAssets.find((a) => a.id === selectedId) || selectedAsset;
       if (selected) {
         const isCrypto =
           selected.asset_type === 'crypto' ||
@@ -75,7 +82,7 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
       }
     }
     prevIsOpenRef.current = isOpen;
-  }, [isOpen, initialAssetId]);
+  }, [isOpen, initialAssetId, selectedAsset, investmentAssets]);
 
   const handleAssetChange = async (newAssetId: string) => {
     setTxAssetId(newAssetId);
@@ -128,11 +135,16 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
     try {
       await onSave({
         asset_id: txAssetId,
+        transaction_type: txType,
         tx_type: txType,
+        quantity: rawQty,
         units: rawQty,
+        price: priceVnd,
         price_per_unit: priceVnd,
         fee: feeVnd,
+        transaction_date: txDate,
         tx_date: txDate,
+        note: txNotes,
         notes: txNotes,
         fee_currency: txFeeCurrency,
         exchange_rate: txPriceCurrency === 'USDT' ? usdtRate : 1,

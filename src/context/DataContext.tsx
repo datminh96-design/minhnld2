@@ -1223,10 +1223,28 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     await runDelete('investment_assets', id, 'Đã xóa tài sản');
   };
 
-  const saveInvestmentTransaction = async (txData: Omit<InvestmentTransaction, 'id'> & { id?: string }) => {
+  const saveInvestmentTransaction = async (txData: any) => {
     const id = txData.id || generateUUID();
     const isNew = !txData.id;
-    const fullTx: InvestmentTransaction = { ...txData, id, quantity: Number(txData.quantity), price: Number(txData.price || (txData as any).price_per_unit || 0) };
+    const txType = txData.transaction_type || txData.tx_type || 'buy';
+    const txDate = txData.transaction_date || txData.tx_date || new Date().toISOString().split('T')[0];
+    const txQty = Number(txData.quantity ?? txData.units ?? 0);
+    const txPrice = Number(txData.price ?? txData.price_per_unit ?? 0);
+    const txFee = Number(txData.fee ?? 0);
+    const txNote = txData.note || txData.notes || '';
+
+    const fullTx: InvestmentTransaction = {
+      ...txData,
+      id,
+      asset_id: txData.asset_id,
+      transaction_type: txType,
+      transaction_date: txDate,
+      quantity: txQty,
+      price: txPrice,
+      price_per_unit: txPrice,
+      fee: txFee,
+      note: txNote,
+    };
     
     setInvestmentTransactions(prev => {
       const idx = prev.findIndex(t => t.id === id);
