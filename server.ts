@@ -2244,24 +2244,26 @@ YÊU CẦU QUAN TRỌNG:
   });
 
   app.post('/api/gemini/market-news', async (req, res) => {
-    const { model, cycleTimestamp } = req.body || {};
+    const { model, cycleTimestamp, forceRefresh } = req.body || {};
     const chosenModel = model || 'gemini-3.7-flash';
     const cacheKey = `news_${cycleTimestamp || Math.floor(Date.now() / (4 * 3600 * 1000))}_${chosenModel}`;
 
-    // 1. Fetch real-time live news headlines from RSS feeds first
+    // 1. If not forceRefresh, check cache first
+    if (!forceRefresh) {
+      const cached = geminiNewsCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < 10 * 60 * 1000 && Array.isArray(cached.data) && cached.data.length > 0) {
+        return res.json({
+          success: true,
+          data: cached.data,
+          model: cached.model,
+          timestamp: new Date(cached.timestamp).toISOString(),
+        });
+      }
+    }
+
+    // 2. Fetch real-time live news headlines from RSS feeds first
     const rawArticles = await fetchLiveMarketNewsFeed();
     const liveParsedNews = parseLiveNewsToImpactObjects(rawArticles);
-
-    // If cached within 10 minutes and fresh
-    const cached = geminiNewsCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < 10 * 60 * 1000 && Array.isArray(cached.data) && cached.data.length > 0) {
-      return res.json({
-        success: true,
-        data: cached.data,
-        model: cached.model,
-        timestamp: new Date(cached.timestamp).toISOString(),
-      });
-    }
 
     const ai = getGeminiClient();
     if (!ai) {

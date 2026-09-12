@@ -1085,7 +1085,9 @@ class TechnicalAnalysisService {
     const cycleInfo = get4HCycleInfo();
     const cacheKey = `news_${cycleInfo.currentCycleTimestamp}_${model}`;
 
-    if (!forceRefresh) {
+    if (forceRefresh) {
+      this.cache.delete(cacheKey);
+    } else {
       const cached = this.cache.get(cacheKey);
       if (cached && Date.now() - cached.timestamp < 10 * 60 * 1000) {
         return cached.analysis as any;
@@ -1104,6 +1106,7 @@ class TechnicalAnalysisService {
         body: JSON.stringify({
           model,
           cycleTimestamp: cycleInfo.currentCycleTimestamp,
+          forceRefresh: !!forceRefresh,
         }),
       });
 
@@ -1120,24 +1123,82 @@ class TechnicalAnalysisService {
       console.warn('Failed to fetch live 4H market news from Gemini:', e);
     }
 
-    // 2. Direct Live News fallback
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
-      const res = await fetch('/api/news/live', { signal: controller.signal });
-      clearTimeout(timeoutId);
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
-          this.cache.set(cacheKey, { analysis: json.data as any, timestamp: Date.now() });
-          return json.data;
+    // 2. Direct Live News fallback from backend /api/news or /api/news/live
+    for (const newsEndpoint of ['/api/news', '/api/news/live']) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch(newsEndpoint, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+            this.cache.set(cacheKey, { analysis: json.data as any, timestamp: Date.now() });
+            return json.data;
+          }
         }
+      } catch {
+        // Try next
       }
-    } catch (e) {
-      console.warn('Failed to fetch from live news proxy:', e);
     }
 
-    // 3. Dynamic cycle-aware fallback
+    // 3. Client-side CORS RSS Fetcher (Works even on static hosting without server)
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const rssRes = await fetch(
+        'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://cafef.vn/thi-truong-chung-khoan.rss'),
+        { signal: controller.signal }
+      );
+      clearTimeout(timeoutId);
+
+      if (rssRes.ok) {
+        const xmlText = await rssRes.text();
+        const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+        let match;
+        const liveItems: MarketNewsImpact[] = [];
+        const seen = new Set<string>();
+
+        while ((match = itemRegex.exec(xmlText)) !== null && liveItems.length < 5) {
+          const itemContent = match[1];
+          const titleMatch = itemContent.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/);
+          const descMatch = itemContent.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/);
+          const title = titleMatch ? titleMatch[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim() : '';
+          const desc = descMatch ? descMatch[1].replace(/<[^>]+>/g, '').replace(/<!\[CDATA\[|\]\]>/g, '').trim() : '';
+
+          if (title && !seen.has(title) && !title.toLowerCase().includes('thông báo')) {
+            seen.add(title);
+            const fullUpper = `${title} ${desc}`.toUpperCase();
+            const isBullish = ['TĂNG', 'MUA RÒNG', 'BỐC ĐẦU', 'KỶ TÍCH', 'LẬP ĐỈNH', 'GOM RÒNG', 'HÚT TIỀN', 'LÃI', 'BỨT PHÁ'].some(w => fullUpper.includes(w));
+            const isBearish = ['GIẢM', 'RƠI', 'THỦNG', 'BÁN RÒNG', 'XẢ', 'BÁN THÁO', 'LỖ', 'LAO DỐC', 'ÁP LỰC'].some(w => fullUpper.includes(w));
+            const isVolatile = ['BIẾN ĐỘNG', 'GIỜ G', 'TRANH CHẤP', 'RUNG LẮC'].some(w => fullUpper.includes(w));
+
+            const impactType = isBearish ? 'BEARISH' : isBullish ? 'BULLISH' : isVolatile ? 'VOLATILE' : 'NEUTRAL';
+            liveItems.push({
+              title,
+              source: 'CafeF Trực Tuyến',
+              timeAgo: 'Vừa cập nhật (Chu kỳ 4H)',
+              impactedAssets: ['VN-INDEX', 'TPB', 'VCB', 'MBB'],
+              impactType,
+              impactSummary: isBullish
+                ? 'Lực cầu và dòng tiền gia tăng tích cực, nâng đỡ kỳ vọng hồi phục kỹ thuật.'
+                : isBearish
+                ? 'Áp lực điều chỉnh ngắn hạn; nhà đầu tư thận trọng theo dõi các mốc hỗ trợ nến 4H.'
+                : 'Thị trường biến động theo diễn biến tin tức vĩ mô; ưu tiên kiểm soát tỷ trọng an toàn.',
+            });
+          }
+        }
+
+        if (liveItems.length > 0) {
+          this.cache.set(cacheKey, { analysis: liveItems as any, timestamp: Date.now() });
+          return liveItems;
+        }
+      }
+    } catch {
+      // Ignore
+    }
+
+    // 4. Dynamic cycle-aware fallback
     const dynamicFallback: MarketNewsImpact[] = [
       {
         title: `Dòng tiền nến 4H (${cycleInfo.cycleStartHour || 'Chu kỳ 4H'}) phân hóa mạnh mẽ giữa nhóm Crypto và Cổ phiếu VN30`,

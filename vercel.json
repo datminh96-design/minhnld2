@@ -34,6 +34,14 @@
       "destination": "/api/gemini"
     },
     {
+      "source": "/api/news/(.*)",
+      "destination": "/api/news?subpath=$1"
+    },
+    {
+      "source": "/api/news",
+      "destination": "/api/news"
+    },
+    {
       "source": "/api/health",
       "destination": "/api/health"
     },

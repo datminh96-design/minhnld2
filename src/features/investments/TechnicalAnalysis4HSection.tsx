@@ -302,11 +302,14 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
   };
 
   const [isNewsRefreshing, setIsNewsRefreshing] = useState<boolean>(false);
+  const [lastNewsUpdatedAt, setLastNewsUpdatedAt] = useState<string | null>(null);
 
   const handleRefreshNews = async () => {
     setIsNewsRefreshing(true);
     try {
       const freshNews = await technicalAnalysisService.fetchMarketNews(selectedModel, true);
+      const nowStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLastNewsUpdatedAt(nowStr);
       setAnalyses((prev) => {
         const next = { ...prev };
         for (const k of Object.keys(next)) {
@@ -331,7 +334,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
         }
         return next;
       });
-      addToast('Đã cập nhật 5 tin tức thị trường 4H mới nhất!', 'success');
+      addToast(`Đã làm mới 5 tin tức thị trường lúc ${nowStr}!`, 'success');
     } catch (e) {
       console.error('Failed to refresh news:', e);
       addToast('Không thể làm mới tin tức, đang dùng bản lưu tạm.', 'warning');
@@ -687,6 +690,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
                 isAiRefreshing={aiRefreshingSymbol === item.symbol}
                 onRefreshNews={handleRefreshNews}
                 isNewsRefreshing={isNewsRefreshing}
+                lastNewsUpdatedAt={lastNewsUpdatedAt}
               />
             ))}
           </div>
@@ -703,6 +707,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
             isAiRefreshing={aiRefreshingSymbol === activeAnalysis.symbol}
             onRefreshNews={handleRefreshNews}
             isNewsRefreshing={isNewsRefreshing}
+            lastNewsUpdatedAt={lastNewsUpdatedAt}
           />
         ) : (
           <div className="py-8 text-center text-slate-400 text-xs">
@@ -841,6 +846,7 @@ const AssetAnalysisCard: React.FC<{
   isAiRefreshing?: boolean;
   onRefreshNews?: () => void;
   isNewsRefreshing?: boolean;
+  lastNewsUpdatedAt?: string | null;
 }> = ({
   analysis,
   userCurrency,
@@ -852,6 +858,7 @@ const AssetAnalysisCard: React.FC<{
   isAiRefreshing,
   onRefreshNews,
   isNewsRefreshing,
+  lastNewsUpdatedAt,
 }) => {
   const isBullish = analysis.upProbability >= 50;
   const isProfitable = analysis.pnlPercent >= 0;
@@ -1358,20 +1365,32 @@ const AssetAnalysisCard: React.FC<{
                 </h5>
               </div>
             </div>
-            <div className="flex items-center gap-2 self-end sm:self-auto">
+            <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
               <span className="text-[10px] text-slate-400 font-medium">
-                Đồng bộ cùng chu kỳ 4H
+                {isNewsRefreshing ? (
+                  <span className="text-amber-600 dark:text-amber-400 font-bold animate-pulse">
+                    Đang quét tin tức mới...
+                  </span>
+                ) : lastNewsUpdatedAt ? (
+                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                    Cập nhật lúc: {lastNewsUpdatedAt}
+                  </span>
+                ) : (
+                  'Đồng bộ cùng chu kỳ 4H'
+                )}
               </span>
               {onRefreshNews && (
                 <button
                   type="button"
                   onClick={onRefreshNews}
                   disabled={isNewsRefreshing}
-                  className="px-2 py-0.5 rounded-lg text-xs font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/60 border border-amber-300 dark:border-amber-800/80 flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/60 border border-amber-300 dark:border-amber-800/80 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-60 active:scale-95 shadow-2xs"
                   title="Cập nhật 5 tin tức thị trường 4H mới nhất"
                 >
-                  <RefreshCw className={`w-3 h-3 ${isNewsRefreshing ? 'animate-spin' : ''}`} />
-                  <span className="text-[11px] font-bold">Làm mới tin tức</span>
+                  <RefreshCw className={`w-3 h-3 ${isNewsRefreshing ? 'animate-spin text-amber-600' : ''}`} />
+                  <span className="text-[11px] font-bold">
+                    {isNewsRefreshing ? 'Đang làm mới...' : 'Làm mới tin tức'}
+                  </span>
                 </button>
               )}
             </div>
