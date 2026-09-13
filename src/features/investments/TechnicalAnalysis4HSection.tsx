@@ -7,7 +7,8 @@ import {
   AVAILABLE_GEMINI_MODELS,
   GeminiModelOption,
   MarketTopMoversReport,
-  AssetMoverItem
+  AssetMoverItem,
+  MarketNewsImpact
 } from '../../services/technicalAnalysisService';
 import { formatCurrency, formatPercent } from '../../lib/utils';
 import { 
@@ -93,6 +94,11 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
   const [moversReport, setMoversReport] = useState<MarketTopMoversReport | null>(null);
   const [isMoversLoading, setIsMoversLoading] = useState<boolean>(false);
   
+  // 10 Key Market News (5 Gemini AI Săn Lùng + 5 Tin Nhanh Thị Trường)
+  const [globalMarketNews, setGlobalMarketNews] = useState<MarketNewsImpact[]>([]);
+  const [isNewsRefreshing, setIsNewsRefreshing] = useState<boolean>(false);
+  const [lastNewsUpdatedAt, setLastNewsUpdatedAt] = useState<string | null>(null);
+
   // 4H Timer & Cycle Tracking
   const [cycleInfo, setCycleInfo] = useState(() => get4HCycleInfo());
   const [countdownText, setCountdownText] = useState<string>('');
@@ -240,11 +246,12 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
           setIsMoversLoading(false);
         });
 
-      // 5. Auto-sync 5 live market news items (CafeF, VnEconomy, CoinDesk, Bloomberg)
+      // 5. Auto-sync 10 market news items (5 Gemini AI Săn Lùng + 5 Tin Nhanh Thị Trường)
       technicalAnalysisService
         .fetchMarketNews(modelToUse, forceRefresh)
         .then((freshNews) => {
           if (Array.isArray(freshNews) && freshNews.length > 0) {
+            setGlobalMarketNews(freshNews);
             setAnalyses((prev) => {
               const next = { ...prev };
               for (const k of Object.keys(next)) {
@@ -342,15 +349,13 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
     }
   };
 
-  const [isNewsRefreshing, setIsNewsRefreshing] = useState<boolean>(false);
-  const [lastNewsUpdatedAt, setLastNewsUpdatedAt] = useState<string | null>(null);
-
   const handleRefreshNews = async () => {
     setIsNewsRefreshing(true);
     try {
       const freshNews = await technicalAnalysisService.fetchMarketNews(selectedModel, true);
       const nowStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       setLastNewsUpdatedAt(nowStr);
+      setGlobalMarketNews(freshNews);
       setAnalyses((prev) => {
         const next = { ...prev };
         for (const k of Object.keys(next)) {
@@ -375,7 +380,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
         }
         return next;
       });
-      addToast(`Đã làm mới 5 tin tức thị trường lúc ${nowStr}!`, 'success');
+      addToast(`Đã làm mới 10 tin tức thị trường (5 tin Gemini AI Săn Lùng + 5 tin nhanh) lúc ${nowStr}!`, 'success');
     } catch (e) {
       console.error('Failed to refresh news:', e);
       addToast('Không thể làm mới tin tức, đang dùng bản lưu tạm.', 'warning');
@@ -517,12 +522,16 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
   // Copy full report
   const handleCopyReport = (analysis: Asset4HAnalysis) => {
     let newsSectionText = '';
-    if (analysis.geminiInsight?.topMarketNews && analysis.geminiInsight.topMarketNews.length > 0) {
-      newsSectionText = `\n\n📰 5 TIN TỨC QUAN TRỌNG MỚI NHẤT TÁC ĐỘNG TỚI GIÁ (CRYPTO & CK VN):\n` +
-        analysis.geminiInsight.topMarketNews
+    const targetNews = (analysis.geminiInsight?.topMarketNews && analysis.geminiInsight.topMarketNews.length > 0)
+      ? analysis.geminiInsight.topMarketNews
+      : globalMarketNews;
+
+    if (targetNews && targetNews.length > 0) {
+      newsSectionText = `\n\n📰 10 TIN TỨC QUAN TRỌNG MỚI NHẤT TÁC ĐỘNG TỚI GIÁ & DÒNG TIỀN (5 TIN GEMINI AI SĂN LÙNG + 5 TIN NHANH):\n` +
+        targetNews
           .map(
             (n, idx) =>
-              `${idx + 1}. ${n.title} (Nguồn: ${n.source || 'Tổng hợp'})\n   • Tác động tới: ${n.impactedAssets?.join(', ')} [${n.impactType}]\n   • Đánh giá: ${n.impactSummary}`
+              `${idx + 1}. [${n.badge || (n.category === 'ai_radar' ? '🤖 Gemini AI Săn Lùng' : '⚡ Tin Nhanh')}] ${n.title} (Nguồn: ${n.source || 'Tổng hợp'})\n   • Tác động tới: ${n.impactedAssets?.join(', ')} [${n.impactType}]\n   • Đánh giá: ${n.impactSummary}`
           )
           .join('\n');
     }
@@ -545,7 +554,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
 
     navigator.clipboard.writeText(fullText);
     setCopiedSymbol(analysis.symbol);
-    addToast(`Đã sao chép báo cáo phân tích 4H & 5 tin tức thị trường mã ${analysis.symbol}!`, 'success');
+    addToast(`Đã sao chép báo cáo phân tích 4H & 10 tin tức thị trường mã ${analysis.symbol}!`, 'success');
     setTimeout(() => setCopiedSymbol(null), 2500);
   };
 
@@ -732,6 +741,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
                 onRefreshNews={handleRefreshNews}
                 isNewsRefreshing={isNewsRefreshing}
                 lastNewsUpdatedAt={lastNewsUpdatedAt}
+                globalMarketNews={globalMarketNews}
               />
             ))}
           </div>
@@ -749,6 +759,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
             onRefreshNews={handleRefreshNews}
             isNewsRefreshing={isNewsRefreshing}
             lastNewsUpdatedAt={lastNewsUpdatedAt}
+            globalMarketNews={globalMarketNews}
           />
         ) : (
           <div className="py-8 text-center text-slate-400 text-xs">
@@ -888,6 +899,7 @@ const AssetAnalysisCard: React.FC<{
   onRefreshNews?: () => void;
   isNewsRefreshing?: boolean;
   lastNewsUpdatedAt?: string | null;
+  globalMarketNews?: MarketNewsImpact[];
 }> = ({
   analysis,
   userCurrency,
@@ -900,11 +912,40 @@ const AssetAnalysisCard: React.FC<{
   onRefreshNews,
   isNewsRefreshing,
   lastNewsUpdatedAt,
+  globalMarketNews = [],
 }) => {
   const isBullish = analysis.upProbability >= 50;
   const isProfitable = analysis.pnlPercent >= 0;
   const hasAi = !!analysis.geminiInsight;
   const currentModelDisplayName = analysis.geminiInsight?.model || activeModelOption.name;
+
+  // 10 items: 5 Gemini AI Săn Lùng + 5 Tin Nhanh Thị Trường
+  const [newsFilter, setNewsFilter] = useState<'all' | 'ai' | 'live'>('all');
+
+  const effectiveNews: MarketNewsImpact[] = useMemo(() => {
+    if (analysis.geminiInsight?.topMarketNews && analysis.geminiInsight.topMarketNews.length > 0) {
+      return analysis.geminiInsight.topMarketNews;
+    }
+    return globalMarketNews;
+  }, [analysis.geminiInsight?.topMarketNews, globalMarketNews]);
+
+  const aiNews = useMemo(() => {
+    return effectiveNews.filter(
+      (n) => n.category === 'ai_radar' || n.isAiGenerated || n.badge?.includes('Gemini') || (n.source && n.source.toLowerCase().includes('gemini'))
+    );
+  }, [effectiveNews]);
+
+  const liveNews = useMemo(() => {
+    return effectiveNews.filter(
+      (n) => !(n.category === 'ai_radar' || n.isAiGenerated || n.badge?.includes('Gemini') || (n.source && n.source.toLowerCase().includes('gemini')))
+    );
+  }, [effectiveNews]);
+
+  const displayNews = useMemo(() => {
+    if (newsFilter === 'ai') return aiNews;
+    if (newsFilter === 'live') return liveNews;
+    return effectiveNews;
+  }, [newsFilter, effectiveNews, aiNews, liveNews]);
 
   return (
     <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 sm:p-5 space-y-4 shadow-2xs">
@@ -1397,28 +1438,30 @@ const AssetAnalysisCard: React.FC<{
         </div>
       </div>
 
-      {/* 6. Top 5 Key Market News Affecting Crypto & Vietnam Stocks */}
-      {analysis.geminiInsight?.topMarketNews && analysis.geminiInsight.topMarketNews.length > 0 && (
+      {/* 6. Top 10 Key Market News (5 Gemini AI Săn Lùng + 5 Tin Nhanh Thị Trường) */}
+      {effectiveNews.length > 0 && (
         <div className="rounded-2xl bg-white dark:bg-slate-800 p-3.5 sm:p-4 border border-amber-200/80 dark:border-amber-900/50 space-y-3 shadow-2xs">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 pb-2 border-b border-amber-100 dark:border-amber-950/80">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-amber-100 dark:border-amber-950/80">
             <div className="flex items-center gap-2">
-              <div className="w-5 h-5 rounded-lg bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400 flex items-center justify-center font-bold text-xs shrink-0">
-                <Newspaper className="w-3 h-3" />
+              <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-purple-500 to-amber-500 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs">
+                <Newspaper className="w-3.5 h-3.5" />
               </div>
               <div>
                 <h5 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2 flex-wrap">
-                  <span>5 Tin Tức Quan Trọng Tác Động Tới Giá & Dòng Tiền</span>
-                  <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/80 px-2 py-0.2 rounded-full border border-amber-200 dark:border-amber-800">
-                    Crypto & Cổ Phiếu VN
-                  </span>
+                  <span>10 Tin Tức Quan Trọng Tác Động Tới Giá & Dòng Tiền</span>
                 </h5>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                  5 tin do Gemini AI đi tìm kiếm & phân tích chuyên sâu + 5 tin nhanh từ thị trường
+                </p>
               </div>
             </div>
+
             <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
               <span className="text-[10px] text-slate-400 font-medium">
                 {isNewsRefreshing ? (
-                  <span className="text-amber-600 dark:text-amber-400 font-bold animate-pulse">
-                    Đang quét tin tức mới...
+                  <span className="text-amber-600 dark:text-amber-400 font-bold animate-pulse flex items-center gap-1">
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                    Đang quét 10 tin tức...
                   </span>
                 ) : lastNewsUpdatedAt ? (
                   <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
@@ -1434,7 +1477,7 @@ const AssetAnalysisCard: React.FC<{
                   onClick={onRefreshNews}
                   disabled={isNewsRefreshing}
                   className="px-2.5 py-1 rounded-lg text-xs font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/60 border border-amber-300 dark:border-amber-800/80 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-60 active:scale-95 shadow-2xs"
-                  title="Cập nhật 5 tin tức thị trường 4H mới nhất"
+                  title="Cập nhật 10 tin tức thị trường 4H mới nhất"
                 >
                   <RefreshCw className={`w-3 h-3 ${isNewsRefreshing ? 'animate-spin text-amber-600' : ''}`} />
                   <span className="text-[11px] font-bold">
@@ -1445,8 +1488,52 @@ const AssetAnalysisCard: React.FC<{
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-2">
-            {analysis.geminiInsight.topMarketNews.map((news, idx) => {
+          {/* Category Filter Tabs */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+            <button
+              type="button"
+              onClick={() => setNewsFilter('all')}
+              className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer whitespace-nowrap text-[11px] ${
+                newsFilter === 'all'
+                  ? 'bg-slate-900 text-white dark:bg-amber-400 dark:text-slate-950 shadow-xs'
+                  : 'bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              Tất cả ({effectiveNews.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setNewsFilter('ai')}
+              className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer whitespace-nowrap text-[11px] flex items-center gap-1 ${
+                newsFilter === 'ai'
+                  ? 'bg-purple-600 text-white shadow-xs'
+                  : 'bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-900/60 hover:bg-purple-100'
+              }`}
+            >
+              <span>🤖 5 Tin Gemini AI Săn Lùng</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-purple-200/60 dark:bg-purple-900 text-purple-900 dark:text-purple-100">
+                {aiNews.length}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setNewsFilter('live')}
+              className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer whitespace-nowrap text-[11px] flex items-center gap-1 ${
+                newsFilter === 'live'
+                  ? 'bg-amber-600 text-white shadow-xs'
+                  : 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60 hover:bg-amber-100'
+              }`}
+            >
+              <span>⚡ 5 Tin Nhanh Thị Trường</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-200/60 dark:bg-amber-900 text-amber-900 dark:text-amber-100">
+                {liveNews.length}
+              </span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2.5">
+            {displayNews.map((news, idx) => {
+              const isAiItem = news.category === 'ai_radar' || news.isAiGenerated || news.badge?.includes('Gemini') || (news.source && news.source.toLowerCase().includes('gemini'));
               const isBullish = news.impactType === 'BULLISH';
               const isBearish = news.impactType === 'BEARISH';
               const isVolatile = news.impactType === 'VOLATILE';
@@ -1470,23 +1557,47 @@ const AssetAnalysisCard: React.FC<{
               return (
                 <div
                   key={idx}
-                  className="p-2.5 sm:p-3 rounded-xl bg-slate-50/90 dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/90 text-xs space-y-1.5 hover:border-amber-300 dark:hover:border-amber-800/80 transition-all"
+                  className={`p-3 rounded-xl border text-xs space-y-2 transition-all ${
+                    isAiItem
+                      ? 'bg-gradient-to-r from-purple-50/50 to-indigo-50/30 dark:from-purple-950/20 dark:to-indigo-950/10 border-purple-200/80 dark:border-purple-900/60 hover:border-purple-400 dark:hover:border-purple-700'
+                      : 'bg-slate-50/90 dark:bg-slate-900/70 border-slate-200/80 dark:border-slate-800/90 hover:border-amber-300 dark:hover:border-amber-800/80'
+                  }`}
                 >
-                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-1">
-                    <div className="flex items-start gap-2">
-                      <span className="w-4 h-4 rounded bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[10px] font-bold flex items-center justify-center shrink-0 border border-amber-500/20 mt-0.5">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-1.5">
+                    <div className="flex items-start gap-2 min-w-0">
+                      <span
+                        className={`w-5 h-5 rounded-md text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5 border ${
+                          isAiItem
+                            ? 'bg-purple-600 text-white border-purple-700 shadow-2xs'
+                            : 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20'
+                        }`}
+                      >
                         {idx + 1}
                       </span>
-                      <span className="font-bold text-slate-900 dark:text-white leading-snug text-xs">
+                      <span className="font-bold text-slate-900 dark:text-white leading-snug text-xs sm:text-sm">
                         {news.title}
                       </span>
                     </div>
 
-                    {news.source && (
-                      <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap self-end sm:self-auto bg-slate-100 dark:bg-slate-800 px-1.5 py-0.2 rounded border border-slate-200 dark:border-slate-700">
-                        {news.source}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                      {isAiItem ? (
+                        <span className="text-[10px] font-bold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/80 px-2 py-0.5 rounded-full border border-purple-300 dark:border-purple-800 whitespace-nowrap flex items-center gap-1">
+                          <span>🤖</span>
+                          <span>Gemini AI Săn Lùng</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/80 px-2 py-0.5 rounded-full border border-amber-300 dark:border-amber-800 whitespace-nowrap flex items-center gap-1">
+                          <span>⚡</span>
+                          <span>Tin Nhanh Thị Trường</span>
+                        </span>
+                      )}
+
+                      {news.source && (
+                        <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">
+                          {news.source}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Impact Target & Direction Row */}
@@ -1504,14 +1615,14 @@ const AssetAnalysisCard: React.FC<{
                     ))}
 
                     <span
-                      className={`px-1.5 py-0.2 rounded-full text-[9px] font-bold border sm:ml-auto ${badgeBg}`}
+                      className={`px-2 py-0.5 rounded-full text-[9px] font-bold border sm:ml-auto ${badgeBg}`}
                     >
                       {badgeLabel}
                     </span>
                   </div>
 
                   {/* News Impact Analysis */}
-                  <div className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed bg-white dark:bg-slate-800/90 p-2 rounded-lg border border-slate-200/80 dark:border-slate-800">
+                  <div className="text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed bg-white/90 dark:bg-slate-800/90 p-2.5 rounded-lg border border-slate-200/80 dark:border-slate-700/80">
                     💡 <strong>Tác động giá & dòng tiền:</strong> {news.impactSummary}
                   </div>
                 </div>
