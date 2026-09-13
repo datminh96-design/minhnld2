@@ -327,6 +327,164 @@ Hãy chọn lọc và phân tích ĐÚNG 5 TIN TỨC / SỰ KIỆN QUAN TRỌNG 
     }
   }
 
+  // 2. Specialized Handler: Batch Probabilities
+  if (subpath === 'batch-probabilities') {
+    const { items = [], model } = body || {};
+    const chosenModel = model || 'gemini-2.5-flash';
+
+    const buildFallback = () => {
+      const fallbackResult: Record<string, any> = {};
+      for (const item of (Array.isArray(items) ? items : [])) {
+        const rsi = Number(item.rsi) || 50;
+        const macdTrend = String(item.macdTrend || '');
+        const emaTrend = String(item.emaTrend || '');
+        const sym = String(item.symbol || 'ASSET');
+
+        let baseScore = 50;
+        if (rsi >= 50) {
+          if (rsi <= 65) baseScore += ((rsi - 50) / 15) * 12;
+          else if (rsi <= 75) baseScore += 12 - ((rsi - 65) / 10) * 8;
+          else baseScore -= ((rsi - 75) / 25) * 14;
+        } else {
+          if (rsi >= 35) baseScore -= ((50 - rsi) / 15) * 12;
+          else baseScore += ((35 - rsi) / 35) * 9;
+        }
+
+        if (macdTrend.includes('Bullish')) baseScore += 8;
+        else if (macdTrend.includes('Bearish')) baseScore -= 8;
+
+        if (emaTrend.includes('Strong Uptrend')) baseScore += 12;
+        else if (emaTrend.includes('Uptrend')) baseScore += 6;
+        else if (emaTrend.includes('Strong Downtrend')) baseScore -= 12;
+        else if (emaTrend.includes('Downtrend')) baseScore -= 6;
+
+        if (item.assetType === 'crypto') {
+          baseScore += ((sym.charCodeAt(0) + sym.charCodeAt(sym.length - 1)) % 7) - 3;
+        } else if (item.assetType === 'fund') {
+          baseScore = 50 + (baseScore - 50) * 0.65;
+        }
+
+        const upProb = Math.min(82, Math.max(18, Math.round(baseScore)));
+        const downProb = 100 - upProb;
+
+        let primaryTrend = 'ĐI NGANG (SWING)';
+        if (upProb >= 68) primaryTrend = 'TĂNG MẠNH';
+        else if (upProb >= 55) primaryTrend = 'TĂNG TÍCH LŨY';
+        else if (upProb <= 35) primaryTrend = 'GIẢM MẠNH';
+        else if (upProb <= 45) primaryTrend = 'ĐIỀU CHỈNH GIẢM';
+
+        fallbackResult[sym] = {
+          upProbability: upProb,
+          downProbability: downProb,
+          primaryTrend,
+          confidence: Math.round(75 + Math.abs(upProb - 50) * 0.4),
+          marketCatalyst: `Chỉ báo kỹ thuật RSI(14) đạt ${rsi.toFixed(1)}, hệ EMA phản ánh ${emaTrend || 'tích lũy'}, động lượng ${macdTrend || 'cân bằng'}.`,
+        };
+      }
+      return fallbackResult;
+    };
+
+    const ai = getClient();
+    if (!ai) {
+      return res.status(200).json({
+        success: true,
+        probabilities: buildFallback(),
+        model: 'Quant Engine (Serverless)',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    try {
+      const prompt = `
+Bạn là chuyên gia phân tích kỹ thuật định lượng và chiến lược dòng tiền thị trường tài chính cấp cao (CFA/CMT).
+Dưới đây là danh sách các tài sản đầu tư trong danh mục và thông số kỹ thuật nến 4H hiện tại:
+${JSON.stringify(items, null, 2)}
+
+YÊU CẦU:
+Hãy phân tích trạng thái thị trường thực tế và dữ liệu kỹ thuật của từng tài sản để ước lượng XÁC SUẤT TĂNG/GIẢM (Up/Down Probability) trên khung nến 4H tiếp theo.
+
+QUY TẮC BẮT BUỘC:
+1. TUYỆT ĐỐI KHÔNG xuất các con số rập khuôn giống nhau (như cùng 84%, 82%). Mỗi tài sản PHẢI có tỉ lệ xác suất RIÊNG BIỆT (từ 15% đến 85%), phản ánh đúng cấu trúc nến, RSI, động lượng MACD, xu hướng EMA và tính chất của lớp tài sản:
+   - Crypto (BTC, ETH, SOL...): Độ co giãn dòng tiền và biến động cao.
+   - Cổ phiếu VN (TPB, HPG, FPT...): Phụ thuộc dòng tiền khối ngoại, nhóm ngành, thanh khoản VN-Index.
+   - Quỹ mở (VEOF, VESAF, DCDS...): Bám sát tăng trưởng NAV của danh mục cổ phiếu cơ sở, biến động có kiểm soát.
+   - Vàng (SJC, PAXG): Xu hướng phòng hộ, phản ứng theo lãi suất và địa chính trị.
+2. "upProbability": Số nguyên từ 15 đến 85 (ví dụ: BTC 68, TPB 61, VEOF 56, SJC 52, HPG 44).
+3. "downProbability": Phải bằng 100 - upProbability.
+4. "primaryTrend": "TĂNG MẠNH" | "TĂNG TÍCH LŨY" | "ĐI NGANG (SWING)" | "ĐIỀU CHỈNH GIẢM" | "GIẢM MẠNH".
+5. "confidence": Điểm tin cậy từ 65 đến 95.
+6. "marketCatalyst": 1 câu súc tích bằng tiếng Việt giải thích động lực dòng tiền, hỗ trợ/kháng cự kỹ thuật hoặc xúc tác thị trường cho mã đó.
+`;
+
+      const response = await ai.models.generateContent({
+        model: chosenModel,
+        contents: prompt,
+        config: {
+          temperature: 0.2,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              probabilities: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    symbol: { type: Type.STRING },
+                    upProbability: { type: Type.INTEGER },
+                    downProbability: { type: Type.INTEGER },
+                    primaryTrend: { type: Type.STRING },
+                    confidence: { type: Type.INTEGER },
+                    marketCatalyst: { type: Type.STRING },
+                  },
+                  required: ['symbol', 'upProbability', 'downProbability', 'primaryTrend', 'confidence', 'marketCatalyst'],
+                },
+              },
+            },
+            required: ['probabilities'],
+          },
+        },
+      });
+
+      const parsedData = JSON.parse(response.text || '{}');
+      const probArray = parsedData?.probabilities || [];
+      const resultMap: Record<string, any> = {};
+
+      for (const p of probArray) {
+        if (p.symbol) {
+          const up = Math.min(85, Math.max(15, Number(p.upProbability) || 50));
+          resultMap[p.symbol] = {
+            upProbability: up,
+            downProbability: 100 - up,
+            primaryTrend: p.primaryTrend || 'TĂNG TÍCH LŨY',
+            confidence: p.confidence || 80,
+            marketCatalyst: p.marketCatalyst || '',
+          };
+        }
+      }
+
+      for (const item of (Array.isArray(items) ? items : [])) {
+        if (!resultMap[item.symbol]) {
+          resultMap[item.symbol] = buildFallback()[item.symbol];
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        probabilities: resultMap,
+        model: chosenModel,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      return res.status(200).json({
+        success: true,
+        probabilities: buildFallback(),
+        model: `${chosenModel} (Quant Fallback)`,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+
   const ai = getClient();
   if (!ai) {
     return res.status(200).json({

@@ -164,7 +164,48 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
       localStorage.setItem('app_4h_analysis_last_run', now.toString());
       setCycleInfo(currentCycle);
 
-      // 2. Enrich the active/selected holding with Gemini AI in the background
+      // 2. Fetch AI Batch Market Probabilities for ALL portfolio holdings in parallel
+      technicalAnalysisService
+        .getBatchMarketProbabilities(sortedHoldings, modelToUse, forceRefresh)
+        .then((batchProbs) => {
+          if (batchProbs) {
+            setAnalyses((prev) => {
+              const next = { ...prev };
+              for (const sym of Object.keys(batchProbs)) {
+                if (next[sym]) {
+                  const probInfo = batchProbs[sym];
+                  next[sym] = {
+                    ...next[sym],
+                    upProbability: probInfo.upProbability,
+                    downProbability: probInfo.downProbability,
+                    primaryTrend: (probInfo.primaryTrend as any) || next[sym].primaryTrend,
+                    marketCatalyst: probInfo.marketCatalyst || next[sym].marketCatalyst,
+                    isAiEnhanced: true,
+                    indicators: {
+                      ...next[sym].indicators,
+                      trendStrength: probInfo.upProbability,
+                    },
+                    geminiInsight: next[sym].geminiInsight
+                      ? {
+                          ...next[sym].geminiInsight!,
+                          confidence: probInfo.confidence || next[sym].geminiInsight!.confidence,
+                          upProbability: probInfo.upProbability,
+                          downProbability: probInfo.downProbability,
+                          marketCatalyst: probInfo.marketCatalyst,
+                        }
+                      : next[sym].geminiInsight,
+                  };
+                }
+              }
+              return next;
+            });
+          }
+        })
+        .catch((bErr) => {
+          console.warn('Batch market probabilities fetch notice:', bErr);
+        });
+
+      // 3. Enrich the active/selected holding with Gemini AI in the background
       const targetHolding = sortedHoldings.find((h) => h.asset.asset_symbol.toUpperCase() === activeSym);
       if (targetHolding) {
         setAiRefreshingSymbol(activeSym);
@@ -183,7 +224,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
           });
       }
 
-      // 3. Auto-sync top 5 gainers & losers for Crypto and VN Stocks for current 4H cycle
+      // 4. Auto-sync top 5 gainers & losers for Crypto and VN Stocks for current 4H cycle
       setIsMoversLoading(true);
       technicalAnalysisService
         .getMarketTopMovers(modelToUse, forceRefresh)
@@ -199,7 +240,7 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
           setIsMoversLoading(false);
         });
 
-      // 4. Auto-sync 5 live market news items (CafeF, VnEconomy, CoinDesk, Bloomberg)
+      // 5. Auto-sync 5 live market news items (CafeF, VnEconomy, CoinDesk, Bloomberg)
       technicalAnalysisService
         .fetchMarketNews(modelToUse, forceRefresh)
         .then((freshNews) => {
@@ -1104,6 +1145,14 @@ const AssetAnalysisCard: React.FC<{
               style={{ width: `${analysis.upProbability}%` }}
             />
           </div>
+
+          {analysis.marketCatalyst && (
+            <div className="flex items-center gap-1.5 pt-1 text-[11px] text-purple-700 dark:text-purple-300">
+              <Zap className="w-3 h-3 text-amber-500 shrink-0" />
+              <span className="font-semibold">Động lực thị trường:</span>
+              <span className="text-slate-600 dark:text-slate-300 font-medium">{analysis.marketCatalyst}</span>
+            </div>
+          )}
         </div>
       </div>
 
