@@ -1145,100 +1145,133 @@ class TechnicalAnalysisService {
     // 3. Client-side CORS RSS Fetcher (Works even on static hosting without server)
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      const rssRes = await fetch(
-        'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://cafef.vn/thi-truong-chung-khoan.rss'),
-        { signal: controller.signal }
-      );
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      
+      const fetchFeed = async (feedUrl: string, source: string, isCrypto: boolean) => {
+        try {
+          const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(feedUrl);
+          const rssRes = await fetch(proxyUrl, { signal: controller.signal });
+          if (!rssRes.ok) return [];
+          const xmlText = await rssRes.text();
+          const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+          let match;
+          const items: MarketNewsImpact[] = [];
+          while ((match = itemRegex.exec(xmlText)) !== null && items.length < 4) {
+            const itemContent = match[1];
+            const titleMatch = itemContent.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/);
+            const descMatch = itemContent.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/);
+            const title = titleMatch ? titleMatch[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim() : '';
+            const desc = descMatch ? descMatch[1].replace(/<[^>]+>/g, '').replace(/<!\[CDATA\[|\]\]>/g, '').trim() : '';
+
+            if (title && !title.toLowerCase().includes('thông báo') && !title.toLowerCase().includes('lịch sự kiện')) {
+              const fullUpper = `${title} ${desc}`.toUpperCase();
+              const isBullish = ['TĂNG', 'MUA RÒNG', 'BỐC ĐẦU', 'KỶ TÍCH', 'LẬP ĐỈNH', 'GOM RÒNG', 'HÚT TIỀN', 'LÃI', 'BỨT PHÁ', 'SURGE', 'RALLY', 'RECORD'].some(w => fullUpper.includes(w));
+              const isBearish = ['GIẢM', 'RƠI', 'THỦNG', 'BÁN RÒNG', 'XẢ', 'BÁN THÁO', 'LỖ', 'LAO DỐC', 'ÁP LỰC', 'DROP', 'FALL', 'LOSS', 'CRASH'].some(w => fullUpper.includes(w));
+              const isVolatile = ['BIẾN ĐỘNG', 'GIỜ G', 'TRANH CHẤP', 'RUNG LẮC', 'VOLATILITY'].some(w => fullUpper.includes(w));
+
+              const impactType = isBearish ? 'BEARISH' : isBullish ? 'BULLISH' : isVolatile ? 'VOLATILE' : 'NEUTRAL';
+              const targetAssets = isCrypto
+                ? (fullUpper.includes('SOL') ? ['SOL', 'BTC', 'ETH'] : fullUpper.includes('ETH') ? ['ETH', 'BTC'] : fullUpper.includes('XRP') ? ['XRP', 'BTC'] : ['BTC', 'ETH', 'SOL'])
+                : fullUpper.includes('VÀNG')
+                ? ['SJC', 'PAXG']
+                : fullUpper.includes('NGÂN HÀNG')
+                ? ['TPB', 'VCB', 'MBB', 'VN-INDEX']
+                : ['VN-INDEX', 'FPT', 'HPG'];
+
+              items.push({
+                title,
+                source,
+                timeAgo: 'Vừa cập nhật (Chu kỳ 4H)',
+                impactedAssets: targetAssets,
+                impactType,
+                impactSummary: isCrypto
+                  ? isBullish
+                    ? `Dòng vốn và lực cầu Crypto gia tăng mạnh mẽ, củng cố đà bứt phá cho ${targetAssets.join(', ')}.`
+                    : isBearish
+                    ? `Áp lực bán chốt lời và điều chỉnh ngắn hạn; quan sát mốc hỗ trợ nến 4H của ${targetAssets.join(', ')}.`
+                    : `Dòng tiền On-chain tích lũy chờ tín hiệu xác nhận xu hướng cho ${targetAssets.join(', ')}.`
+                  : isBullish
+                  ? `Lực cầu và dòng tiền gia tăng tích cực, tạo động lực nâng đỡ kỳ vọng bứt phá cho nhóm ${targetAssets.join(', ')}.`
+                  : isBearish
+                  ? `Áp lực bán tháo và điều chỉnh ngắn hạn gia tăng; cần quan sát kỹ các mốc hỗ trợ nến 4H của ${targetAssets.join(', ')}.`
+                  : `Dòng tiền đang ở trạng thái tích lũy thận trọng, tạo vùng đệm cân bằng cho ${targetAssets.join(', ')}.`,
+              });
+            }
+          }
+          return items;
+        } catch {
+          return [];
+        }
+      };
+
+      const [cryptoNews, stockNews] = await Promise.all([
+        fetchFeed('https://blogtienao.com/feed/', 'BlogTiềnẢo', true),
+        fetchFeed('https://cafef.vn/thi-truong-chung-khoan.rss', 'CafeF', false),
+      ]);
       clearTimeout(timeoutId);
 
-      if (rssRes.ok) {
-        const xmlText = await rssRes.text();
-        const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-        let match;
-        const liveItems: MarketNewsImpact[] = [];
-        const seen = new Set<string>();
-
-        while ((match = itemRegex.exec(xmlText)) !== null && liveItems.length < 5) {
-          const itemContent = match[1];
-          const titleMatch = itemContent.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/);
-          const descMatch = itemContent.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/);
-          const title = titleMatch ? titleMatch[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim() : '';
-          const desc = descMatch ? descMatch[1].replace(/<[^>]+>/g, '').replace(/<!\[CDATA\[|\]\]>/g, '').trim() : '';
-
-          if (title && !seen.has(title) && !title.toLowerCase().includes('thông báo')) {
-            seen.add(title);
-            const fullUpper = `${title} ${desc}`.toUpperCase();
-            const isBullish = ['TĂNG', 'MUA RÒNG', 'BỐC ĐẦU', 'KỶ TÍCH', 'LẬP ĐỈNH', 'GOM RÒNG', 'HÚT TIỀN', 'LÃI', 'BỨT PHÁ'].some(w => fullUpper.includes(w));
-            const isBearish = ['GIẢM', 'RƠI', 'THỦNG', 'BÁN RÒNG', 'XẢ', 'BÁN THÁO', 'LỖ', 'LAO DỐC', 'ÁP LỰC'].some(w => fullUpper.includes(w));
-            const isVolatile = ['BIẾN ĐỘNG', 'GIỜ G', 'TRANH CHẤP', 'RUNG LẮC'].some(w => fullUpper.includes(w));
-
-            const impactType = isBearish ? 'BEARISH' : isBullish ? 'BULLISH' : isVolatile ? 'VOLATILE' : 'NEUTRAL';
-            liveItems.push({
-              title,
-              source: 'CafeF Trực Tuyến',
-              timeAgo: 'Vừa cập nhật (Chu kỳ 4H)',
-              impactedAssets: ['VN-INDEX', 'TPB', 'VCB', 'MBB'],
-              impactType,
-              impactSummary: isBullish
-                ? 'Lực cầu và dòng tiền gia tăng tích cực, nâng đỡ kỳ vọng hồi phục kỹ thuật.'
-                : isBearish
-                ? 'Áp lực điều chỉnh ngắn hạn; nhà đầu tư thận trọng theo dõi các mốc hỗ trợ nến 4H.'
-                : 'Thị trường biến động theo diễn biến tin tức vĩ mô; ưu tiên kiểm soát tỷ trọng an toàn.',
-            });
-          }
+      const combined: MarketNewsImpact[] = [];
+      let cI = 0;
+      let sI = 0;
+      while (combined.length < 5 && (cI < cryptoNews.length || sI < stockNews.length)) {
+        if (combined.length % 2 === 0 && cI < cryptoNews.length) {
+          combined.push(cryptoNews[cI++]);
+        } else if (sI < stockNews.length) {
+          combined.push(stockNews[sI++]);
+        } else if (cI < cryptoNews.length) {
+          combined.push(cryptoNews[cI++]);
         }
+      }
 
-        if (liveItems.length > 0) {
-          this.cache.set(cacheKey, { analysis: liveItems as any, timestamp: Date.now() });
-          return liveItems;
-        }
+      if (combined.length >= 3) {
+        this.cache.set(cacheKey, { analysis: combined as any, timestamp: Date.now() });
+        return combined;
       }
     } catch {
       // Ignore
     }
 
-    // 4. Dynamic cycle-aware fallback
+    // 4. Dynamic cycle-aware fallback (Balanced: 2 Crypto, 2 Stock, 1 Gold/Macro)
     const dynamicFallback: MarketNewsImpact[] = [
       {
-        title: `Dòng tiền nến 4H (${cycleInfo.cycleStartHour || 'Chu kỳ 4H'}) phân hóa mạnh mẽ giữa nhóm Crypto và Cổ phiếu VN30`,
-        source: 'CafeF / Bloomberg',
+        title: 'Thị trường Crypto: Bitcoin và Altcoins kiểm định vùng hỗ trợ nến 4H, dòng tiền ETF duy trì tích lũy',
+        source: 'CoinDesk / BlogTiềnẢo',
         timeAgo: 'Vừa cập nhật (Chu kỳ 4H)',
-        impactedAssets: ['BTC', 'ETH', 'VN-INDEX', 'TPB', 'VCB'],
+        impactedAssets: ['BTC', 'ETH', 'SOL'],
         impactType: 'VOLATILE',
-        impactSummary: 'Thanh khoản tập trung tại các vùng hỗ trợ then chốt; nhà đầu tư duy trì chiến lược giải ngân DCA an toàn.',
+        impactSummary: 'Thanh khoản On-chain và dòng vốn phái sinh duy trì thăm dò quanh các ngưỡng hỗ trợ nến 4H quan trọng.',
       },
       {
-        title: 'Áp lực điều chỉnh chỉ số cơ sở VN-Index kiểm định lại các ngưỡng hỗ trợ kỹ thuật',
-        source: 'VnEconomy',
+        title: `VN-Index nến 4H (${cycleInfo.cycleStartHour || 'Chu kỳ 4H'}): Áp lực cung phân hóa, dòng tiền khối ngoại cơ cấu nhóm VN30`,
+        source: 'CafeF / VnEconomy',
         timeAgo: 'Vừa cập nhật (Chu kỳ 4H)',
-        impactedAssets: ['VN-INDEX', 'MBB', 'FPT', 'HPG'],
+        impactedAssets: ['VN-INDEX', 'TPB', 'VCB', 'MBB'],
         impactType: 'BEARISH',
         impactSummary: 'Khối ngoại và dòng tiền lớn đang tái cơ cấu danh mục; ưu tiên kiểm soát tỷ lệ an toàn tài khoản.',
       },
       {
-        title: 'Thị trường Crypto ghi nhận dòng tiền săn đón quanh các mốc hỗ trợ nến 4H',
-        source: 'CoinDesk',
+        title: 'Hệ sinh thái Solana, Ethereum & Top Coin ghi nhận khối lượng giao dịch Spot phục hồi',
+        source: 'CoinTelegraph',
         timeAgo: 'Vừa cập nhật (Chu kỳ 4H)',
-        impactedAssets: ['BTC', 'ETH', 'SOL', 'SUI'],
+        impactedAssets: ['ETH', 'SOL', 'XRP', 'BTC'],
         impactType: 'BULLISH',
-        impactSummary: 'Lực gom ròng ở vùng giá chiết khấu tạo đà hồi phục cho các đồng coin nền tảng lớn.',
+        impactSummary: 'Lực gom ròng ở vùng giá chiết khấu tạo đà hồi phục kỹ thuật cho các đồng coin nền tảng lớn.',
       },
       {
-        title: 'Giá vàng SJC và kim loại quý quốc tế biến động theo định hướng lãi suất',
+        title: 'Cổ phiếu Bluechip và nhóm ngành Ngân hàng - Thép hình thành vùng đệm hỗ trợ nến 4H',
+        source: 'Vietstock',
+        timeAgo: 'Vừa cập nhật (Chu kỳ 4H)',
+        impactedAssets: ['HPG', 'FPT', 'TCB', 'ACB'],
+        impactType: 'NEUTRAL',
+        impactSummary: 'Dòng tiền nội tham gia hấp thụ cung chốt lời, duy trì trạng thái giằng co tích lũy.',
+      },
+      {
+        title: 'Giá vàng SJC và kim loại quý quốc tế biến động theo kỳ vọng lãi suất Fed',
         source: 'Reuters / Kitco',
         timeAgo: 'Vừa cập nhật (Chu kỳ 4H)',
         impactedAssets: ['SJC', 'PAXG', 'XAUT'],
         impactType: 'NEUTRAL',
-        impactSummary: 'Dòng tiền duy trì tỷ trọng phòng hộ rủi ro ổn định trước các dữ liệu kinh tế quan trọng.',
-      },
-      {
-        title: 'Chứng chỉ quỹ mở (VEOF, VESAF, DCDS) cập nhật giá trị tài sản ròng NAV mới nhất',
-        source: 'Fmarket / Vietstock',
-        timeAgo: 'Vừa cập nhật (Chu kỳ 4H)',
-        impactedAssets: ['VEOF', 'VESAF', 'DCDS', 'VN-INDEX'],
-        impactType: 'BULLISH',
-        impactSummary: 'Tối ưu hiệu quả phân bổ dài hạn cho nhà đầu tư tích sản định kỳ.',
+        impactSummary: 'Dòng tiền duy trì tỷ trọng phòng hộ rủi ro ổn định trước các dữ liệu kinh tế vĩ mô toàn cầu.',
       },
     ];
 

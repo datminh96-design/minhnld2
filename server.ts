@@ -2085,10 +2085,12 @@ YÊU CẦU QUAN TRỌNG:
   // Live RSS news fetcher & analyzer
   async function fetchLiveMarketNewsFeed(): Promise<any[]> {
     const feeds = [
+      { name: 'BlogTiềnẢo', source: 'BlogTiềnẢo', url: 'https://blogtienao.com/feed/', type: 'CRYPTO' },
+      { name: 'CoinDesk Crypto', source: 'CoinDesk', url: 'https://www.coindesk.com/arc/outboundfeeds/rss/', type: 'CRYPTO' },
+      { name: 'CoinTelegraph', source: 'CoinTelegraph', url: 'https://cointelegraph.com/rss', type: 'CRYPTO' },
       { name: 'CafeF Chứng khoán', source: 'CafeF', url: 'https://cafef.vn/thi-truong-chung-khoan.rss', type: 'VN_STOCK' },
       { name: 'VnEconomy Chứng khoán', source: 'VnEconomy', url: 'https://vneconomy.vn/chung-khoan.rss', type: 'VN_STOCK' },
       { name: 'CafeF Tài chính', source: 'CafeF', url: 'https://cafef.vn/tai-chinh-quoc-te.rss', type: 'MACRO' },
-      { name: 'CoinDesk Crypto', source: 'CoinDesk', url: 'https://www.coindesk.com/arc/outboundfeeds/rss/', type: 'CRYPTO' },
     ];
 
     const rawArticles: { title: string; desc: string; source: string; pubDate: string; type: string }[] = [];
@@ -2111,7 +2113,7 @@ YÊU CẦU QUAN TRỌNG:
           const itemRegex = /<item>([\s\S]*?)<\/item>/g;
           let match;
           let count = 0;
-          while ((match = itemRegex.exec(text)) !== null && count < 5) {
+          while ((match = itemRegex.exec(text)) !== null && count < 6) {
             const itemContent = match[1];
             const titleMatch = itemContent.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/);
             const descMatch = itemContent.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/);
@@ -2149,14 +2151,20 @@ YÊU CẦU QUAN TRỌNG:
       'SSI', 'VND', 'MWG', 'VIC', 'VHM', 'VNM', 'VEOF', 'VESAF', 'DCDS',
     ];
 
-    const results: any[] = [];
-    const seenTitles = new Set<string>();
+    const isCryptoArticle = (raw: any) => {
+      const txt = `${raw.title} ${raw.desc}`.toUpperCase();
+      return (
+        raw.type === 'CRYPTO' ||
+        raw.source === 'CoinDesk' ||
+        raw.source === 'BlogTiềnẢo' ||
+        raw.source === 'CoinTelegraph' ||
+        ['BITCOIN', 'CRYPTO', 'ETH', 'BTC', 'SOLANA', 'SOL', 'XRP', 'DOGE', 'ALTCOIN', 'TIỀN ĐIỆN TỬ', 'TIỀN MÃ HÓA', 'BLOCKCHAIN', 'DEFI', 'BINANCE', 'ETF BITCOIN'].some(k => txt.includes(k))
+      );
+    };
 
-    for (const raw of rawArticles) {
-      if (seenTitles.has(raw.title) || results.length >= 5) continue;
-      seenTitles.add(raw.title);
-
+    const convertSingleArticle = (raw: any) => {
       const fullText = `${raw.title} ${raw.desc}`.toUpperCase();
+      const isCrypto = isCryptoArticle(raw);
       const impactedAssets: string[] = [];
 
       for (const tick of KNOWN_TICKERS) {
@@ -2167,7 +2175,7 @@ YÊU CẦU QUAN TRỌNG:
       }
 
       if (impactedAssets.length === 0) {
-        if (raw.type === 'CRYPTO' || fullText.includes('BITCOIN') || fullText.includes('CRYPTO') || fullText.includes('TOKEN')) {
+        if (isCrypto) {
           impactedAssets.push('BTC', 'ETH', 'SOL');
         } else if (fullText.includes('VÀNG') || fullText.includes('GOLD')) {
           impactedAssets.push('SJC', 'PAXG');
@@ -2184,12 +2192,12 @@ YÊU CẦU QUAN TRỌNG:
       const bullishWords = [
         'TĂNG', 'MUA RÒNG', 'BỐC ĐẦU', 'KỶ TÍCH', 'LẬP ĐỈNH', 'GOM RÒNG',
         'HÚT TIỀN', 'LÃI', 'BỨT PHÁ', 'PHỤC HỒI', 'VƯỢT ĐỈNH', 'TĂNG TRƯỞNG',
-        'SURGE', 'RALLY', 'BULL', 'RECORD', 'GAIN', 'TOKENIZING',
+        'SURGE', 'RALLY', 'BULL', 'RECORD', 'GAIN', 'TOKENIZING', 'THÔNG QUA', 'ỦNG HỘ',
       ];
       const bearishWords = [
         'GIẢM', 'RƠI', 'THỦNG', 'BÁN RÒNG', 'XẢ', 'BÁN THÁO', 'LỖ', 'LAO DỐC',
         'ÉP', 'ÁP LỰC', 'SUY GIẢM', 'ĐỎ', 'PHÁ SẢN', 'LO NGẠI', 'DROP', 'FALL',
-        'LOSS', 'BEAR', 'PLUNGE', 'CRASH', 'XẢ MẠNH',
+        'LOSS', 'BEAR', 'PLUNGE', 'CRASH', 'XẢ MẠNH', 'LEAKS', 'THEFT',
       ];
       const volatileWords = ['BIẾN ĐỘNG', 'GIỜ G', 'TRANH CHẤP', 'CUỘC CHIẾN', 'RUNG LẮC', 'VOLATILITY', 'FIGHT', 'WARNS'];
 
@@ -2205,31 +2213,75 @@ YÊU CẦU QUAN TRỌNG:
       const targetList = Array.from(new Set(impactedAssets)).slice(0, 4);
 
       let impactSummary = '';
-      if (impactType === 'BULLISH') {
-        impactSummary = `Lực cầu và dòng tiền gia tăng tích cực, tạo động lực nâng đỡ kỳ vọng bứt phá cho nhóm ${targetList.join(', ')}.`;
-      } else if (impactType === 'BEARISH') {
-        impactSummary = `Áp lực bán tháo và điều chỉnh ngắn hạn gia tăng; cần quan sát kỹ các mốc hỗ trợ nến 4H của ${targetList.join(', ')}.`;
-      } else if (impactType === 'VOLATILE') {
-        impactSummary = `Thị trường xuất hiện rung lắc mạnh theo diễn biến tin tức; ưu tiên quản trị tỷ trọng và giải ngân chia nhỏ DCA.`;
+      if (isCrypto) {
+        if (impactType === 'BULLISH') {
+          impactSummary = `Dòng vốn và lực cầu Crypto gia tăng mạnh mẽ, củng cố đà bứt phá cho ${targetList.join(', ')}.`;
+        } else if (impactType === 'BEARISH') {
+          impactSummary = `Áp lực bán chốt lời và điều chỉnh ngắn hạn; quan sát mốc hỗ trợ nến 4H của ${targetList.join(', ')}.`;
+        } else if (impactType === 'VOLATILE') {
+          impactSummary = `Thị trường tiền số biến động mạnh theo tin tức vĩ mô; ưu tiên quản trị rủi ro và chia nhỏ DCA.`;
+        } else {
+          impactSummary = `Dòng tiền On-chain tích lũy chờ tín hiệu xác nhận xu hướng cho ${targetList.join(', ')}.`;
+        }
       } else {
-        impactSummary = `Dòng tiền đang ở trạng thái tích lũy thận trọng, tạo vùng đệm cân bằng cho ${targetList.join(', ')}.`;
+        if (impactType === 'BULLISH') {
+          impactSummary = `Lực cầu và dòng tiền gia tăng tích cực, tạo động lực nâng đỡ kỳ vọng bứt phá cho nhóm ${targetList.join(', ')}.`;
+        } else if (impactType === 'BEARISH') {
+          impactSummary = `Áp lực bán tháo và điều chỉnh ngắn hạn gia tăng; cần quan sát kỹ các mốc hỗ trợ nến 4H của ${targetList.join(', ')}.`;
+        } else if (impactType === 'VOLATILE') {
+          impactSummary = `Thị trường xuất hiện rung lắc mạnh theo diễn biến tin tức; ưu tiên quản trị tỷ trọng và giải ngân chia nhỏ DCA.`;
+        } else {
+          impactSummary = `Dòng tiền đang ở trạng thái tích lũy thận trọng, tạo vùng đệm cân bằng cho ${targetList.join(', ')}.`;
+        }
       }
 
-      results.push({
+      return {
         title: raw.title,
         source: raw.source || 'Tin tức Thị trường',
         timeAgo: 'Vừa cập nhật (Chu kỳ 4H)',
         impactedAssets: targetList,
         impactType,
         impactSummary,
-      });
+        isCrypto,
+      };
+    };
+
+    const cryptoPool: any[] = [];
+    const stockPool: any[] = [];
+    const seenTitles = new Set<string>();
+
+    for (const raw of rawArticles) {
+      if (!raw.title || seenTitles.has(raw.title)) continue;
+      seenTitles.add(raw.title);
+      const item = convertSingleArticle(raw);
+      if (item.isCrypto) {
+        cryptoPool.push(item);
+      } else {
+        stockPool.push(item);
+      }
     }
 
-    return results;
+    // Interleave to guarantee 2-3 Crypto and 2-3 VN Stock/Macro
+    const finalResults: any[] = [];
+    let cIdx = 0;
+    let sIdx = 0;
+
+    // Pattern: Crypto, Stock, Crypto, Stock, Crypto (or Stock)
+    while (finalResults.length < 5 && (cIdx < cryptoPool.length || sIdx < stockPool.length)) {
+      if (finalResults.length % 2 === 0 && cIdx < cryptoPool.length) {
+        finalResults.push(cryptoPool[cIdx++]);
+      } else if (sIdx < stockPool.length) {
+        finalResults.push(stockPool[sIdx++]);
+      } else if (cIdx < cryptoPool.length) {
+        finalResults.push(cryptoPool[cIdx++]);
+      }
+    }
+
+    return finalResults.map(({ isCrypto, ...rest }) => rest);
   }
 
   // Fast direct live news endpoint
-  app.get('/api/news/live', async (_req, res) => {
+  const handleLiveNews = async (_req: any, res: any) => {
     try {
       const rawFeeds = await fetchLiveMarketNewsFeed();
       const parsed = parseLiveNewsToImpactObjects(rawFeeds);
@@ -2241,7 +2293,10 @@ YÊU CẦU QUAN TRỌNG:
     } catch (e: any) {
       return res.status(500).json({ success: false, error: e?.message || 'Error fetching live news' });
     }
-  });
+  };
+
+  app.get('/api/news', handleLiveNews);
+  app.get('/api/news/live', handleLiveNews);
 
   app.post('/api/gemini/market-news', async (req, res) => {
     const { model, cycleTimestamp, forceRefresh } = req.body || {};
@@ -2277,30 +2332,30 @@ YÊU CẦU QUAN TRỌNG:
 
     // Build rich prompt containing real-time live headlines of TODAY
     const headlinesList = rawArticles
-      .slice(0, 12)
-      .map((a, i) => `${i + 1}. [${a.source}] ${a.title} - ${a.desc.slice(0, 140)}`)
+      .slice(0, 16)
+      .map((a, i) => `${i + 1}. [${a.source} - ${a.type}] ${a.title} - ${a.desc.slice(0, 140)}`)
       .join('\n');
 
     const prompt = `
 Bạn là chuyên gia phân tích vĩ mô và dòng tiền tài chính quốc tế (Crypto, Chứng khoán Việt Nam, Vàng).
 Thời điểm phân tích: ${new Date().toISOString()}.
 
-DƯỚI ĐÂY LÀ CÁC TIÊU ĐỀ TIN TỨC VỪA ĐƯỢC CẬP NHẬT TRỰC TIẾP TỪ THỊ TRƯỜNG HÔM NAY (CafeF, VnEconomy, CoinDesk, Vietstock):
-${headlinesList || 'Thị trường biến động mạnh, dòng tiền phân hóa trên nhóm Crypto, Ngân hàng, Bất động sản và Quỹ đầu tư.'}
+DƯỚI ĐÂY LÀ CÁC TIÊU ĐỀ TIN TỨC VỪA ĐƯỢC CẬP NHẬT TRỰC TIẾP TỪ CẢ THỊ TRƯỜNG CRYPTO VÀ CHỨNG KHOÁN VN HÔM NAY (BlogTiềnẢo, CoinDesk, CoinTelegraph, CafeF, VnEconomy):
+${headlinesList || 'Thị trường biến động mạnh, dòng tiền phân hóa trên nhóm Crypto (BTC, ETH, SOL) và Cổ phiếu VN (VN-Index, Ngân hàng).'}
 
-YÊU CẦU:
-Hãy chọn lọc và phân tích ĐÚNG 5 TIN TỨC / SỰ KIỆN QUAN TRỌNG NHẤT từ danh sách trên (hoặc tổng hợp diễn biến thực tế mới nhất của ngày hôm nay) có tác động mạnh mẽ nhất tới GIÁ và DÒNG TIỀN:
+YÊU CẦU BẮT BUỘC:
+Hãy chọn lọc và phân tích ĐÚNG 5 TIN TỨC / SỰ KIỆN QUAN TRỌNG NHẤT từ danh sách trên (hoặc diễn biến thực tế hôm nay) có tác động mạnh mẽ nhất tới GIÁ và DÒNG TIỀN:
 
-1. Phạm vi bao quát kết hợp:
-- Tiền mã hóa: Bitcoin (BTC), Ethereum (ETH), Solana (SOL), Altcoin, ETF flows.
-- Chứng khoán Việt Nam: VN-Index, Cổ phiếu Ngân hàng (TPB, VCB, MBB, TCB), Thép (HPG), Công nghệ (FPT), Quỹ mở (VEOF, VESAF, DCDS).
-- Vàng & Vĩ mô: Giá vàng thế giới & Vàng SJC, chính sách tiền tệ Ngân hàng Nhà nước và Fed.
+1. QUY TẮC PHÂN BỔ BẮT BUỘC (MANDATORY BALANCE):
+- BẮT BUỘC có từ 2 ĐẾN 3 TIN TỨC THUỘC MẢNG CRYPTO / TIỀN MÃ HÓA (Bitcoin BTC, Ethereum ETH, Solana SOL, XRP, Altcoins, dòng tiền ETF Bitcoin/Ethereum, quy định pháp lý tiền số, Onchain/Binance).
+- BẮT BUỘC có từ 2 ĐẾN 3 TIN TỨC THUỘC MẢNG CHỨNG KHOÁN VIỆT NAM, VÀNG & VĨ MÔ (VN-Index, Cổ phiếu Ngân hàng TPB/VCB/MBB, FPT/HPG, Vàng SJC/Thế giới, Tỷ giá).
+- TUYỆT ĐỐI KHÔNG để toàn bộ 5 tin chỉ nói về chứng khoán VN mà thiếu mảng Crypto! Phải luôn kết hợp đan xen cả Crypto và Cổ phiếu Việt Nam.
 
 2. Cấu trúc mỗi tin tức (JSON array gồm ĐÚNG 5 phần tử):
-- "title": Tiêu đề súc tích, phản ánh đúng tin tức thật mới nhất hôm nay.
-- "source": Nguồn tin uy tín (CafeF, VnEconomy, CoinDesk, Bloomberg, Vietstock, Reuters).
+- "title": Tiêu đề súc tích, phản ánh đúng tin tức thật mới nhất hôm nay (viết bằng tiếng Việt dễ hiểu).
+- "source": Nguồn tin uy tín (BlogTiềnẢo, CoinDesk, CoinTelegraph, CafeF, VnEconomy, Bloomberg, Reuters).
 - "timeAgo": "Vừa cập nhật (Chu kỳ 4H)"
-- "impactedAssets": Mảng 2-4 mã tài sản chịu tác động trực tiếp (ví dụ: ["VN-INDEX", "TPB", "MBB"] hoặc ["BTC", "ETH", "SOL"]).
+- "impactedAssets": Mảng 2-4 mã tài sản chịu tác động trực tiếp (ví dụ: ["BTC", "ETH", "SOL"] hoặc ["VN-INDEX", "TPB", "MBB"] hoặc ["SJC", "PAXG"]).
 - "impactType": "BULLISH" | "BEARISH" | "NEUTRAL" | "VOLATILE"
 - "impactSummary": 1-2 câu súc tích bằng tiếng Việt phân tích rõ tác động cụ thể đến giá và hướng dịch chuyển dòng tiền (rút ra hay bơm vào).
 `;

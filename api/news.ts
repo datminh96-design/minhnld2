@@ -10,10 +10,12 @@ export default async function handler(req: any, res: any) {
 
   try {
     const feeds = [
+      { name: 'BlogTiềnẢo', source: 'BlogTiềnẢo', url: 'https://blogtienao.com/feed/', type: 'CRYPTO' },
+      { name: 'CoinDesk Crypto', source: 'CoinDesk', url: 'https://www.coindesk.com/arc/outboundfeeds/rss/', type: 'CRYPTO' },
+      { name: 'CoinTelegraph', source: 'CoinTelegraph', url: 'https://cointelegraph.com/rss', type: 'CRYPTO' },
       { name: 'CafeF Chứng khoán', source: 'CafeF', url: 'https://cafef.vn/thi-truong-chung-khoan.rss', type: 'VN_STOCK' },
       { name: 'VnEconomy Chứng khoán', source: 'VnEconomy', url: 'https://vneconomy.vn/chung-khoan.rss', type: 'VN_STOCK' },
       { name: 'CafeF Tài chính', source: 'CafeF', url: 'https://cafef.vn/tai-chinh-quoc-te.rss', type: 'MACRO' },
-      { name: 'CoinDesk Crypto', source: 'CoinDesk', url: 'https://www.coindesk.com/arc/outboundfeeds/rss/', type: 'CRYPTO' },
     ];
 
     const rawArticles: { title: string; desc: string; source: string; pubDate: string; type: string }[] = [];
@@ -35,7 +37,7 @@ export default async function handler(req: any, res: any) {
           const itemRegex = /<item>([\s\S]*?)<\/item>/g;
           let match;
           let count = 0;
-          while ((match = itemRegex.exec(text)) !== null && count < 5) {
+          while ((match = itemRegex.exec(text)) !== null && count < 6) {
             const itemContent = match[1];
             const titleMatch = itemContent.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/);
             const descMatch = itemContent.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/);
@@ -67,14 +69,20 @@ export default async function handler(req: any, res: any) {
       'SSI', 'VND', 'MWG', 'VIC', 'VHM', 'VNM', 'VEOF', 'VESAF', 'DCDS',
     ];
 
-    const results: any[] = [];
-    const seenTitles = new Set<string>();
+    const isCryptoArticle = (raw: any) => {
+      const txt = `${raw.title} ${raw.desc}`.toUpperCase();
+      return (
+        raw.type === 'CRYPTO' ||
+        raw.source === 'CoinDesk' ||
+        raw.source === 'BlogTiềnẢo' ||
+        raw.source === 'CoinTelegraph' ||
+        ['BITCOIN', 'CRYPTO', 'ETH', 'BTC', 'SOLANA', 'SOL', 'XRP', 'DOGE', 'ALTCOIN', 'TIỀN ĐIỆN TỬ', 'TIỀN MÃ HÓA', 'BLOCKCHAIN', 'DEFI', 'BINANCE', 'ETF BITCOIN'].some(k => txt.includes(k))
+      );
+    };
 
-    for (const raw of rawArticles) {
-      if (seenTitles.has(raw.title) || results.length >= 5) continue;
-      seenTitles.add(raw.title);
-
+    const convertSingleArticle = (raw: any) => {
       const fullText = `${raw.title} ${raw.desc}`.toUpperCase();
+      const isCrypto = isCryptoArticle(raw);
       const impactedAssets: string[] = [];
 
       for (const tick of KNOWN_TICKERS) {
@@ -85,7 +93,7 @@ export default async function handler(req: any, res: any) {
       }
 
       if (impactedAssets.length === 0) {
-        if (raw.type === 'CRYPTO' || fullText.includes('BITCOIN') || fullText.includes('CRYPTO') || fullText.includes('TOKEN')) {
+        if (isCrypto) {
           impactedAssets.push('BTC', 'ETH', 'SOL');
         } else if (fullText.includes('VÀNG') || fullText.includes('GOLD')) {
           impactedAssets.push('SJC', 'PAXG');
@@ -98,8 +106,8 @@ export default async function handler(req: any, res: any) {
         }
       }
 
-      const bullishWords = ['TĂNG', 'MUA RÒNG', 'BỐC ĐẦU', 'KỶ TÍCH', 'LẬP ĐỈNH', 'GOM RÒNG', 'HÚT TIỀN', 'LÃI', 'BỨT PHÁ', 'PHỤC HỒI', 'VƯỢT ĐỈNH', 'TĂNG TRƯỞNG', 'SURGE', 'RALLY', 'BULL', 'RECORD', 'GAIN', 'TOKENIZING'];
-      const bearishWords = ['GIẢM', 'RƠI', 'THỦNG', 'BÁN RÒNG', 'XẢ', 'BÁN THÁO', 'LỖ', 'LAO DỐC', 'ÉP', 'ÁP LỰC', 'SUY GIẢM', 'ĐỎ', 'PHÁ SẢN', 'LO NGẠI', 'DROP', 'FALL', 'LOSS', 'BEAR', 'PLUNGE', 'CRASH', 'XẢ MẠNH'];
+      const bullishWords = ['TĂNG', 'MUA RÒNG', 'BỐC ĐẦU', 'KỶ TÍCH', 'LẬP ĐỈNH', 'GOM RÒNG', 'HÚT TIỀN', 'LÃI', 'BỨT PHÁ', 'PHỤC HỒI', 'VƯỢT ĐỈNH', 'TĂNG TRƯỞNG', 'SURGE', 'RALLY', 'BULL', 'RECORD', 'GAIN', 'TOKENIZING', 'THÔNG QUA', 'ỦNG HỘ'];
+      const bearishWords = ['GIẢM', 'RƠI', 'THỦNG', 'BÁN RÒNG', 'XẢ', 'BÁN THÁO', 'LỖ', 'LAO DỐC', 'ÉP', 'ÁP LỰC', 'SUY GIẢM', 'ĐỎ', 'PHÁ SẢN', 'LO NGẠI', 'DROP', 'FALL', 'LOSS', 'BEAR', 'PLUNGE', 'CRASH', 'XẢ MẠNH', 'LEAKS', 'THEFT'];
       const volatileWords = ['BIẾN ĐỘNG', 'GIỜ G', 'TRANH CHẤP', 'CUỘC CHIẾN', 'RUNG LẮC', 'VOLATILITY', 'FIGHT', 'WARNS'];
 
       let impactType: 'BULLISH' | 'BEARISH' | 'VOLATILE' | 'NEUTRAL' = 'NEUTRAL';
@@ -114,29 +122,72 @@ export default async function handler(req: any, res: any) {
       const targetList = Array.from(new Set(impactedAssets)).slice(0, 4);
 
       let impactSummary = '';
-      if (impactType === 'BULLISH') {
-        impactSummary = `Lực cầu và dòng tiền gia tăng tích cực, tạo động lực nâng đỡ kỳ vọng bứt phá cho nhóm ${targetList.join(', ')}.`;
-      } else if (impactType === 'BEARISH') {
-        impactSummary = `Áp lực bán tháo và điều chỉnh ngắn hạn gia tăng; cần quan sát kỹ các mốc hỗ trợ nến 4H của ${targetList.join(', ')}.`;
-      } else if (impactType === 'VOLATILE') {
-        impactSummary = `Thị trường xuất hiện rung lắc mạnh theo diễn biến tin tức; ưu tiên quản trị tỷ trọng và giải ngân chia nhỏ DCA.`;
+      if (isCrypto) {
+        if (impactType === 'BULLISH') {
+          impactSummary = `Dòng vốn và lực cầu Crypto gia tăng mạnh mẽ, củng cố đà bứt phá cho ${targetList.join(', ')}.`;
+        } else if (impactType === 'BEARISH') {
+          impactSummary = `Áp lực bán chốt lời và điều chỉnh ngắn hạn; quan sát mốc hỗ trợ nến 4H của ${targetList.join(', ')}.`;
+        } else if (impactType === 'VOLATILE') {
+          impactSummary = `Thị trường tiền số biến động mạnh theo tin tức vĩ mô; ưu tiên quản trị rủi ro và chia nhỏ DCA.`;
+        } else {
+          impactSummary = `Dòng tiền On-chain tích lũy chờ tín hiệu xác nhận xu hướng cho ${targetList.join(', ')}.`;
+        }
       } else {
-        impactSummary = `Dòng tiền đang ở trạng thái tích lũy thận trọng, tạo vùng đệm cân bằng cho ${targetList.join(', ')}.`;
+        if (impactType === 'BULLISH') {
+          impactSummary = `Lực cầu và dòng tiền gia tăng tích cực, tạo động lực nâng đỡ kỳ vọng bứt phá cho nhóm ${targetList.join(', ')}.`;
+        } else if (impactType === 'BEARISH') {
+          impactSummary = `Áp lực bán tháo và điều chỉnh ngắn hạn gia tăng; cần quan sát kỹ các mốc hỗ trợ nến 4H của ${targetList.join(', ')}.`;
+        } else if (impactType === 'VOLATILE') {
+          impactSummary = `Thị trường xuất hiện rung lắc mạnh theo diễn biến tin tức; ưu tiên quản trị tỷ trọng và giải ngân chia nhỏ DCA.`;
+        } else {
+          impactSummary = `Dòng tiền đang ở trạng thái tích lũy thận trọng, tạo vùng đệm cân bằng cho ${targetList.join(', ')}.`;
+        }
       }
 
-      results.push({
+      return {
         title: raw.title,
         source: raw.source || 'Tin tức Thị trường',
         timeAgo: 'Vừa cập nhật (Chu kỳ 4H)',
         impactedAssets: targetList,
         impactType,
         impactSummary,
-      });
+        isCrypto,
+      };
+    };
+
+    const cryptoPool: any[] = [];
+    const stockPool: any[] = [];
+    const seenTitles = new Set<string>();
+
+    for (const raw of rawArticles) {
+      if (!raw.title || seenTitles.has(raw.title)) continue;
+      seenTitles.add(raw.title);
+      const item = convertSingleArticle(raw);
+      if (item.isCrypto) {
+        cryptoPool.push(item);
+      } else {
+        stockPool.push(item);
+      }
+    }
+
+    const results: any[] = [];
+    let cIdx = 0;
+    let sIdx = 0;
+
+    // Guaranteed interleave: Crypto, Stock, Crypto, Stock, Crypto (or Stock)
+    while (results.length < 5 && (cIdx < cryptoPool.length || sIdx < stockPool.length)) {
+      if (results.length % 2 === 0 && cIdx < cryptoPool.length) {
+        results.push(cryptoPool[cIdx++]);
+      } else if (sIdx < stockPool.length) {
+        results.push(stockPool[sIdx++]);
+      } else if (cIdx < cryptoPool.length) {
+        results.push(cryptoPool[cIdx++]);
+      }
     }
 
     return res.status(200).json({
       success: true,
-      data: results,
+      data: results.map(({ isCrypto, ...rest }) => rest),
       timestamp: new Date().toISOString(),
     });
   } catch (err: any) {
