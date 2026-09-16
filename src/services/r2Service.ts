@@ -240,15 +240,10 @@ export const r2Service = {
           objects: data.objects,
         };
       }
-      if (data?.error && response.status !== 404) {
-        return {
-          success: false,
-          bucket: 'minhnld2',
-          objects: [],
-          error: data.error,
-        };
-      }
-    } catch {}
+      console.warn('[Cloudflare R2] API listBackups returned non-success, attempting direct S3 fallback:', data?.error);
+    } catch (apiErr) {
+      console.warn('[Cloudflare R2] API listBackups network exception, attempting direct S3 fallback:', apiErr);
+    }
 
     // Direct S3 Client fallback
     try {
@@ -298,10 +293,10 @@ export const r2Service = {
       if (response.ok && data?.success) {
         return data;
       }
-      if (data?.error && response.status !== 404) {
-        return { success: false, error: data.error };
-      }
-    } catch {}
+      console.warn('[Cloudflare R2] API saveBackup returned non-success, attempting direct S3 fallback:', data?.error);
+    } catch (apiErr) {
+      console.warn('[Cloudflare R2] API saveBackup network exception, attempting direct S3 fallback:', apiErr);
+    }
 
     // Direct S3 Client fallback
     try {
@@ -337,10 +332,10 @@ export const r2Service = {
       if (response.ok && data?.success && data?.data) {
         return data;
       }
-      if (data?.error && response.status !== 404) {
-        return { success: false, error: data.error };
-      }
-    } catch {}
+      console.warn('[Cloudflare R2] API getBackup returned non-success, attempting direct S3 fallback:', data?.error);
+    } catch (apiErr) {
+      console.warn('[Cloudflare R2] API getBackup network exception, attempting direct S3 fallback:', apiErr);
+    }
 
     // Direct S3 Client fallback
     try {
@@ -380,10 +375,10 @@ export const r2Service = {
       if (response.ok && data?.success) {
         return data;
       }
-      if (data?.error && response.status !== 404) {
-        return { success: false, error: data.error };
-      }
-    } catch {}
+      console.warn('[Cloudflare R2] API deleteBackup returned non-success, attempting direct S3 fallback:', data?.error);
+    } catch (apiErr) {
+      console.warn('[Cloudflare R2] API deleteBackup network exception, attempting direct S3 fallback:', apiErr);
+    }
 
     // Direct S3 Client fallback
     try {

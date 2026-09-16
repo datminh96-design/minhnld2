@@ -303,18 +303,23 @@ app.use(express.static(path.join(process.cwd(), 'public')));
   });
 
   // PayOS Webhook Endpoint (Receives Realtime Payment Notifications from VietQR bank transfers)
-  app.post(['/api/payos/webhook', '/api/payment/webhook'], async (req, res) => {
+  app.all(['/api/payos/webhook', '/api/payment/webhook'], async (req, res) => {
     try {
-      const webhookData = req.body;
-      const payos = getPayOSInstance();
-      
-      // Verify webhook data signature
+      if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+        return res.json({
+          success: true,
+          message: 'PayOS Webhook endpoint is healthy and ready to receive transactions.',
+        });
+      }
+
+      const webhookData = req.body || {};
       let verifiedData: any = webhookData;
+
       try {
+        const payos = getPayOSInstance();
         verifiedData = await payos.webhooks.verify(webhookData);
       } catch (verifyErr: any) {
         console.warn('[PayOS Webhook] Verification warning:', verifyErr?.message);
-        // If strict verification throws but we have data, we still log it
       }
 
       console.log('[PayOS Webhook Received]:', JSON.stringify(verifiedData));
@@ -327,9 +332,10 @@ app.use(express.static(path.join(process.cwd(), 'public')));
       });
     } catch (err: any) {
       console.error('[PayOS Webhook Error]:', err);
-      res.status(400).json({
-        success: false,
-        error: err?.message || 'Invalid webhook payload',
+      res.status(200).json({
+        success: true,
+        message: 'Webhook received',
+        error: err?.message,
       });
     }
   });
@@ -337,20 +343,49 @@ app.use(express.static(path.join(process.cwd(), 'public')));
   // PayOS Confirm Webhook URL with PayOS
   app.post(['/api/payos/confirm-webhook'], async (req, res) => {
     try {
-      const { webhookUrl } = req.body || {};
-      if (!webhookUrl) {
-        return res.status(400).json({ success: false, error: 'Thiếu webhookUrl' });
+      const { webhookUrl, clientId, apiKey, checksumKey } = req.body || {};
+      if (!webhookUrl || typeof webhookUrl !== 'string' || !webhookUrl.startsWith('http')) {
+        return res.status(400).json({ success: false, error: 'Thiếu hoặc URL webhook không hợp lệ (phải bắt đầu bằng https://)' });
       }
-      const payos = getPayOSInstance();
-      const result = await payos.webhooks.confirm(webhookUrl);
+
+      const activeClientId = clientId || req.headers['x-client-id'] || PAYOS_CONFIG.clientId || process.env.PAYOS_CLIENT_ID;
+      const activeApiKey = apiKey || req.headers['x-api-key'] || PAYOS_CONFIG.apiKey || process.env.PAYOS_API_KEY;
+
+      if (!activeClientId || !activeApiKey) {
+        return res.status(400).json({ success: false, error: 'Chưa cấu hình Client ID và API Key cho PayOS' });
+      }
+
+      // First try direct REST API to get exact error code and details
+      const response = await fetch('https://api-merchant.payos.vn/confirm-webhook', {
+        method: 'POST',
+        headers: {
+          'x-client-id': activeClientId.trim(),
+          'x-api-key': activeApiKey.trim(),
+          'Content-Type': 'application/json',
+          'User-Agent': 'PersonalFinanceApp/1.0',
+        },
+        body: JSON.stringify({ webhookUrl: webhookUrl.trim() }),
+      });
+
+      const data: any = await response.json().catch(() => null);
+
+      if (!response.ok || (data && data.code !== '00')) {
+        const desc = data?.desc || data?.data || data?.message || `Mã lỗi PayOS ${data?.code || response.status}`;
+        return res.status(200).json({
+          success: false,
+          error: `Không thể xác nhận webhook với PayOS: ${desc}`,
+          data,
+        });
+      }
+
       res.json({
         success: true,
-        data: result,
+        data: data.data || data,
         message: 'Đã xác nhận Webhook URL với PayOS thành công!',
       });
     } catch (err: any) {
       console.error('[PayOS Confirm Webhook Error]:', err);
-      res.status(500).json({
+      res.status(200).json({
         success: false,
         error: err?.message || 'Không thể xác nhận Webhook URL với PayOS',
       });

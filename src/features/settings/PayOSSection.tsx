@@ -29,15 +29,36 @@ export const PayOSSection: React.FC = () => {
   const [showTestModal, setShowTestModal] = useState<boolean>(false);
 
   // Form edit state
-  const [clientId, setClientId] = useState<string>('23a0f8b7-488b-4e8f-ade7-470dd0d51027');
-  const [apiKey, setApiKey] = useState<string>('9ca106c4-8a7f-4a99-952f-8116f70c42b3');
-  const [checksumKey, setChecksumKey] = useState<string>('f706c2a141c70c8d497611cd7962f4524ef639ec812118d27527766bae9d12e7');
+  const [clientId, setClientId] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('personal_finance_payos_keys');
+      if (saved) return JSON.parse(saved).clientId || '23a0f8b7-488b-4e8f-ade7-470dd0d51027';
+    } catch {}
+    return '23a0f8b7-488b-4e8f-ade7-470dd0d51027';
+  });
+  const [apiKey, setApiKey] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('personal_finance_payos_keys');
+      if (saved) return JSON.parse(saved).apiKey || '9ca106c4-8a7f-4a99-952f-8116f70c42b3';
+    } catch {}
+    return '9ca106c4-8a7f-4a99-952f-8116f70c42b3';
+  });
+  const [checksumKey, setChecksumKey] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('personal_finance_payos_keys');
+      if (saved) return JSON.parse(saved).checksumKey || 'f706c2a141c70c8d497611cd7962f4524ef639ec812118d27527766bae9d12e7';
+    } catch {}
+    return 'f706c2a141c70c8d497611cd7962f4524ef639ec812118d27527766bae9d12e7';
+  });
   const [showKeys, setShowKeys] = useState<boolean>(false);
   const [copiedWebhook, setCopiedWebhook] = useState<boolean>(false);
+  const [webhookConfirmedData, setWebhookConfirmedData] = useState<any>(null);
 
-  const webhookUrl = typeof window !== 'undefined'
+  const defaultWebhookUrl = typeof window !== 'undefined'
     ? `${window.location.origin}/api/payos/webhook`
     : 'https://ais-pre-vc2mudksye5gqgfzicn22t-115346028144.asia-east1.run.app/api/payos/webhook';
+
+  const [customWebhookUrl, setCustomWebhookUrl] = useState<string>(defaultWebhookUrl);
 
   const loadStatus = async () => {
     setIsLoading(true);
@@ -64,7 +85,15 @@ export const PayOSSection: React.FC = () => {
 
     setIsSaving(true);
     try {
-      const res = await payosClient.updateConfig({
+      try {
+        localStorage.setItem('personal_finance_payos_keys', JSON.stringify({
+          clientId: clientId.trim(),
+          apiKey: apiKey.trim(),
+          checksumKey: checksumKey.trim(),
+        }));
+      } catch {}
+
+      await payosClient.updateConfig({
         clientId: clientId.trim(),
         apiKey: apiKey.trim(),
         checksumKey: checksumKey.trim(),
@@ -79,16 +108,26 @@ export const PayOSSection: React.FC = () => {
   };
 
   const handleCopyWebhook = () => {
-    navigator.clipboard.writeText(webhookUrl);
+    navigator.clipboard.writeText(customWebhookUrl);
     setCopiedWebhook(true);
     setTimeout(() => setCopiedWebhook(false), 2000);
     addToast('Đã sao chép đường dẫn Webhook URL', 'success');
   };
 
   const handleConfirmWebhook = async () => {
+    if (!customWebhookUrl.trim() || !customWebhookUrl.startsWith('http')) {
+      addToast('Vui lòng nhập đường dẫn Webhook URL hợp lệ (bắt đầu bằng https://)', 'error');
+      return;
+    }
+
     setIsTestingWebhook(true);
     try {
-      await payosClient.confirmWebhook(webhookUrl);
+      const result = await payosClient.confirmWebhook(customWebhookUrl.trim(), {
+        clientId: clientId.trim(),
+        apiKey: apiKey.trim(),
+        checksumKey: checksumKey.trim(),
+      });
+      setWebhookConfirmedData(result.data || result);
       addToast('Đã kết nối và xác nhận Webhook thành công với PayOS!', 'success');
     } catch (err: any) {
       addToast(err?.message || 'Không thể xác nhận webhook với PayOS.', 'error');
@@ -227,41 +266,70 @@ export const PayOSSection: React.FC = () => {
 
       {/* Webhook & Realtime Notification Card */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 space-y-4">
-        <div className="flex items-center gap-2">
-          <Globe className="w-5 h-5 text-indigo-500" />
-          <h4 className="font-bold text-slate-900 dark:text-white text-sm">
-            Cấu Hình Webhook Tự Động Nhận Tiền
-          </h4>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Globe className="w-5 h-5 text-indigo-500" />
+            <h4 className="font-bold text-slate-900 dark:text-white text-sm">
+              Cấu Hình Webhook Tự Động Nhận Tiền
+            </h4>
+          </div>
+          {webhookConfirmedData && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-700">
+              <CheckCircle2 className="w-3 h-3" />
+              Đã xác nhận với PayOS
+            </span>
+          )}
         </div>
+        
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Dán URL này vào mục <strong>Webhook URL</strong> trên trang quản trị <a href="https://my.payos.vn" target="_blank" rel="noreferrer" className="text-blue-500 underline font-medium">PayOS Dashboard</a> để nhận thông báo chuyển khoản tự động ngay lập tức:
+          Nhập đường dẫn Webhook URL bên dưới và bấm <strong>Xác nhận Webhook</strong> để hệ thống tự động đăng ký với PayOS, hoặc dán URL này vào mục <strong>Webhook URL</strong> trên trang quản trị <a href="https://my.payos.vn" target="_blank" rel="noreferrer" className="text-blue-500 underline font-medium">PayOS Dashboard</a>:
         </p>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <input
             type="text"
-            readOnly
-            value={webhookUrl}
-            className="flex-1 px-3.5 py-2.5 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-slate-200 select-all outline-none"
+            value={customWebhookUrl}
+            onChange={(e) => setCustomWebhookUrl(e.target.value)}
+            placeholder="https://your-domain.com/api/payos/webhook"
+            className="flex-1 px-3.5 py-2.5 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500"
           />
-          <button
-            type="button"
-            onClick={handleCopyWebhook}
-            className="py-2.5 px-3.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-medium flex items-center gap-1.5 transition-all"
-          >
-            {copiedWebhook ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-            <span>Sao chép</span>
-          </button>
-          <button
-            type="button"
-            onClick={handleConfirmWebhook}
-            disabled={isTestingWebhook}
-            className="py-2.5 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all"
-          >
-            {isTestingWebhook ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-            <span>Xác nhận Webhook</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleCopyWebhook}
+              className="flex-1 sm:flex-initial py-2.5 px-3.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-medium flex items-center justify-center gap-1.5 transition-all"
+            >
+              {copiedWebhook ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+              <span>Sao chép</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmWebhook}
+              disabled={isTestingWebhook}
+              className="flex-1 sm:flex-initial py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow-sm transition-all whitespace-nowrap"
+            >
+              {isTestingWebhook ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+              <span>Xác nhận Webhook</span>
+            </button>
+          </div>
         </div>
+
+        {webhookConfirmedData && (
+          <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-xs text-emerald-900 dark:text-emerald-200 space-y-1">
+            <div className="font-semibold flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <span>Xác nhận thành công với tài khoản PayOS:</span>
+            </div>
+            <div className="text-[11px] text-emerald-700 dark:text-emerald-300 pl-5">
+              {webhookConfirmedData.accountName && (
+                <div>Chủ tài khoản: <strong>{webhookConfirmedData.accountName}</strong> ({webhookConfirmedData.shortName || 'Ngân hàng'}) - STK: <strong>{webhookConfirmedData.accountNumber}</strong></div>
+              )}
+              {webhookConfirmedData.webhookUrl && (
+                <div className="truncate text-slate-500 dark:text-slate-400 mt-0.5">URL đã duyệt: {webhookConfirmedData.webhookUrl}</div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Test PayOS VietQR Modal */}

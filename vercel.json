@@ -2,6 +2,14 @@
   "version": 2,
   "rewrites": [
     {
+      "source": "/api/upload/(.*)",
+      "destination": "/api/upload?subpath=$1"
+    },
+    {
+      "source": "/api/upload",
+      "destination": "/api/upload"
+    },
+    {
       "source": "/api/r2/(.*)",
       "destination": "/api/r2?subpath=$1"
     },

@@ -136,21 +136,29 @@ export const payosClient = {
     return data;
   },
 
-  async confirmWebhook(webhookUrl: string): Promise<any> {
+  async confirmWebhook(
+    webhookUrl: string,
+    credentials?: { clientId?: string; apiKey?: string; checksumKey?: string }
+  ): Promise<any> {
+    const payload: any = { webhookUrl };
+    if (credentials?.clientId) payload.clientId = credentials.clientId;
+    if (credentials?.apiKey) payload.apiKey = credentials.apiKey;
+    if (credentials?.checksumKey) payload.checksumKey = credentials.checksumKey;
+
     const res = await fetch('/api/payos/confirm-webhook', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ webhookUrl }),
+      body: JSON.stringify(payload),
     });
     const text = await res.text();
     let data: any;
     try {
       data = JSON.parse(text);
     } catch {
-      throw new Error(`Lỗi xác nhận webhook (${res.status})`);
+      throw new Error(`Máy chủ phản hồi không hợp lệ (${res.status}): ${text.substring(0, 100) || 'Lỗi kết nối'}`);
     }
-    if (!res.ok || !data.success) {
-      throw new Error(data.error || 'Không thể xác nhận webhook');
+    if (!res.ok || data.success === false) {
+      throw new Error(data?.error || data?.message || 'Không thể xác nhận webhook với PayOS');
     }
     return data;
   },
