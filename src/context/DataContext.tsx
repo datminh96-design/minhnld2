@@ -225,6 +225,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       localStorage.setItem('app_work_settings', JSON.stringify(workSettings));
       localStorage.setItem('app_user_settings', JSON.stringify(userSettings));
       localStorage.setItem('app_work_logs', JSON.stringify(workLogs));
+      localStorage.setItem('app_business_trips', JSON.stringify(businessTrips));
       localStorage.setItem('app_expense_categories', JSON.stringify(categories));
       localStorage.setItem('app_transactions', JSON.stringify(transactions));
       localStorage.setItem('app_investment_assets', JSON.stringify(investmentAssets));
@@ -232,7 +233,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       localStorage.setItem('app_portfolio_snapshots', JSON.stringify(portfolioSnapshots));
       localStorage.setItem('app_salary_records', JSON.stringify(salaryRecords));
     }
-  }, [workSettings, userSettings, workLogs, categories, transactions, investmentAssets, investmentTransactions, portfolioSnapshots, salaryRecords]);
+  }, [workSettings, userSettings, workLogs, businessTrips, categories, transactions, investmentAssets, investmentTransactions, portfolioSnapshots, salaryRecords]);
 
   const triggerCloudBackup = async (silent = true) => {
     setSyncStatus('syncing');
@@ -258,6 +259,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const effectiveUserId = user?.id || 'admin123';
 
       // 1. Tải work_settings (chứa cấu hình giờ công và salary_data)
+      let wsBusinessTripsFallback: BusinessTripExpense[] | null = null;
       try {
         let queryWs = client.from('work_settings').select('*');
         if (user?.id) {
@@ -277,12 +279,15 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             localStorage.setItem('app_work_settings', JSON.stringify(mergedWs));
           }
           if (wsData.salary_data && typeof wsData.salary_data === 'object') {
+            if (Array.isArray(wsData.salary_data._business_trips)) {
+              wsBusinessTripsFallback = wsData.salary_data._business_trips;
+            }
             setSalaryRecords(prev => {
               const merged = { ...prev, ...wsData.salary_data };
               if (typeof window !== 'undefined') {
                 localStorage.setItem('app_salary_records', JSON.stringify(merged));
                 Object.entries(wsData.salary_data).forEach(([k, v]) => {
-                  if (k !== '_employee_info') {
+                  if (k !== '_employee_info' && k !== '_business_trips') {
                     localStorage.setItem(`app_salary_${k}`, JSON.stringify(v));
                   }
                 });
@@ -354,6 +359,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (!wlError && wlData && wlData.length > 0) {
           const actualLogs: any[] = [];
           const foundSalaryFromLogs: Record<string, MonthlySalaryData> = {};
+          const foundTripsFromLogs: BusinessTripExpense[] = [];
 
           wlData.forEach((l: any) => {
             // Nhận diện bản ghi đồng bộ cấu hình nhân viên & giờ công dự phòng
@@ -400,7 +406,22 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               return; // Bỏ qua không đưa vào danh sách chấm công hàng ngày
             }
 
-            if (l.work_date === '1970-01-01' || l.work_status === 'Lương tháng' || l.work_status === 'Cấu hình') {
+            // Nhận diện bản ghi đồng bộ công tác phí đa tầng
+            if (l.notes && typeof l.notes === 'string' && l.notes.includes('[BUSINESS_TRIP_SYNC]:')) {
+              try {
+                const keyword = '[BUSINESS_TRIP_SYNC]:';
+                const jsonPart = l.notes.substring(l.notes.indexOf(keyword) + keyword.length);
+                const parsed = JSON.parse(jsonPart);
+                if (Array.isArray(parsed)) {
+                  foundTripsFromLogs.push(...parsed);
+                }
+              } catch (e) {
+                // ignore
+              }
+              return; // Bỏ qua không đưa vào danh sách chấm công hàng ngày
+            }
+
+            if (l.work_date === '1970-01-01' || l.work_status === 'Lương tháng' || l.work_status === 'Cấu hình' || l.work_status === 'Công tác phí') {
               return;
             }
 
@@ -443,28 +464,91 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               return merged;
             });
           }
+
+          if (foundTripsFromLogs.length > 0) {
+            setBusinessTrips(prev => {
+              const map = new Map<string, BusinessTripExpense>();
+              prev.forEach(t => map.set(t.id, t));
+              foundTripsFromLogs.forEach(t => {
+                if (t && t.id) map.set(t.id, t);
+              });
+              const combined = Array.from(map.values()).sort(
+                (a, b) => new Date(b.trip_date).getTime() - new Date(a.trip_date).getTime()
+              );
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('app_business_trips', JSON.stringify(combined));
+              }
+              return combined;
+            });
+          }
         }
       } catch (wlErr) {
         console.warn('Lỗi tải work_logs:', wlErr);
       }
 
-      // 5. Tải business_trips
+      // 5. Tải business_trips (Đồng bộ đa tầng: Bảng chuyên dụng + Fallback work_settings + Backup work_logs + Local Storage)
       try {
-        let queryBt = client.from('business_trips').select('*');
-        if (user?.id) queryBt = queryBt.or(`user_id.eq.${user.id},user_id.eq.admin123`);
-        const { data: btData, error: btError } = await queryBt.order('trip_date', { ascending: false });
-        if (!btError && btData && Array.isArray(btData) && btData.length > 0) {
-          setBusinessTrips(btData.map((t: any) => ({
-            ...t,
-            days_count: Number(t.days_count) || 1,
-            daily_allowance_rate: Number(t.daily_allowance_rate) || 160000,
-            total_daily_allowance: Number(t.total_daily_allowance) || 0,
-            hotel_cost: Number(t.hotel_cost) || 0,
-            outbound_cost: Number(t.outbound_cost) || 0,
-            return_cost: Number(t.return_cost) || 0,
-            total_amount: Number(t.total_amount) || 0,
-            is_paid: Boolean(t.is_paid)
-          })));
+        const foundTripsMap = new Map<string, BusinessTripExpense>();
+
+        // 5a. Lấy từ Local Storage ban đầu để tránh mất dữ liệu vừa tạo trên máy này
+        if (typeof window !== 'undefined') {
+          const localSaved = localStorage.getItem('app_business_trips');
+          if (localSaved) {
+            try {
+              const localList: BusinessTripExpense[] = JSON.parse(localSaved);
+              if (Array.isArray(localList)) {
+                localList.forEach(t => { if (t && t.id) foundTripsMap.set(t.id, t); });
+              }
+            } catch {}
+          }
+        }
+
+        // 5b. Thử tải từ bảng business_trips trên Supabase
+        try {
+          let queryBt = client.from('business_trips').select('*');
+          if (user?.id) queryBt = queryBt.or(`user_id.eq.${user.id},user_id.eq.admin123`);
+          const { data: btData, error: btError } = await queryBt.order('trip_date', { ascending: false });
+          if (!btError && btData && Array.isArray(btData) && btData.length > 0) {
+            btData.forEach((t: any) => {
+              if (t && t.id) {
+                foundTripsMap.set(t.id, {
+                  ...t,
+                  days_count: Number(t.days_count) || 1,
+                  daily_allowance_rate: Number(t.daily_allowance_rate) || 160000,
+                  total_daily_allowance: Number(t.total_daily_allowance) || 0,
+                  hotel_cost: Number(t.hotel_cost) || 0,
+                  outbound_cost: Number(t.outbound_cost) || 0,
+                  return_cost: Number(t.return_cost) || 0,
+                  total_amount: Number(t.total_amount) || 0,
+                  is_paid: Boolean(t.is_paid)
+                });
+              }
+            });
+          }
+        } catch (tableErr) {
+          console.warn('Lỗi đọc bảng business_trips:', tableErr);
+        }
+
+        // 5c. Tải từ fallback work_settings._business_trips
+        if (wsBusinessTripsFallback && Array.isArray(wsBusinessTripsFallback)) {
+          wsBusinessTripsFallback.forEach((t: any) => {
+            if (t && t.id) {
+              const existing = foundTripsMap.get(t.id);
+              if (!existing) {
+                foundTripsMap.set(t.id, t);
+              }
+            }
+          });
+        }
+
+        if (foundTripsMap.size > 0) {
+          const finalTrips = Array.from(foundTripsMap.values()).sort(
+            (a, b) => new Date(b.trip_date).getTime() - new Date(a.trip_date).getTime()
+          );
+          setBusinessTrips(finalTrips);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('app_business_trips', JSON.stringify(finalTrips));
+          }
         }
       } catch (btErr) {
         console.warn('Tải business_trips:', btErr);
@@ -625,6 +709,29 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 localStorage.setItem('app_work_settings', JSON.stringify(updated));
               }
               return updated;
+            });
+          }
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'business_trips_sync' },
+        (payload: any) => {
+          const item = payload?.payload;
+          if (item?.trips && Array.isArray(item.trips)) {
+            setBusinessTrips(prev => {
+              const map = new Map<string, BusinessTripExpense>();
+              prev.forEach(t => map.set(t.id, t));
+              item.trips.forEach((t: BusinessTripExpense) => {
+                if (t && t.id) map.set(t.id, t);
+              });
+              const merged = Array.from(map.values()).sort(
+                (a, b) => new Date(b.trip_date).getTime() - new Date(a.trip_date).getTime()
+              );
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('app_business_trips', JSON.stringify(merged));
+              }
+              return merged;
             });
           }
         }
@@ -1060,6 +1167,56 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
   };
 
+  const syncBusinessTripsToCloud = async (currentTrips: BusinessTripExpense[]) => {
+    const { client, isConfigured } = getSupabaseClient();
+    if (!isConfigured || !client) return;
+
+    const effectiveUserId = user?.id || 'admin123';
+
+    // 1. Broadcast Realtime message tới toàn bộ các thiết bị đang mở ngay tức thì
+    try {
+      const channel = client.channel('app_global_realtime_sync');
+      channel.send({
+        type: 'broadcast',
+        event: 'business_trips_sync',
+        payload: { trips: currentTrips, updated_at: new Date().toISOString() }
+      });
+    } catch (bcErr) {
+      console.warn('Realtime business trips broadcast error:', bcErr);
+    }
+
+    // 2. Lưu đồng bộ đa tầng vào work_settings (bảo đảm mọi máy đều tải được)
+    try {
+      const updatedSalaryData = {
+        ...(workSettings.salary_data || {}),
+        _business_trips: currentTrips
+      };
+      await runUpsert('work_settings', {
+        id: workSettings.id ? toValidUUID(workSettings.id) : toValidUUID(`ws_${effectiveUserId}`),
+        salary_data: updatedSalaryData
+      }, '');
+    } catch (wsErr) {
+      console.warn('Lỗi lưu dự phòng công tác phí vào work_settings:', wsErr);
+    }
+
+    // 3. Lưu đồng bộ đa tầng an toàn tuyệt đối vào work_logs
+    try {
+      const backupLogId = toValidUUID(`bt_backup_${effectiveUserId}`);
+      await runUpsert('work_logs', {
+        id: backupLogId,
+        work_date: '1970-01-01',
+        work_status: 'Công tác phí',
+        total_hours: 0,
+        break_duration_hours: 0,
+        overtime_hours: 0,
+        missing_hours: 0,
+        notes: `[BUSINESS_TRIP_SYNC]:${JSON.stringify(currentTrips)}`
+      }, '');
+    } catch (logErr) {
+      console.warn('Lỗi lưu dự phòng công tác phí vào work_logs:', logErr);
+    }
+  };
+
   const saveBusinessTrip = async (tripData: Omit<BusinessTripExpense, 'id'> & { id?: string }) => {
     const id = tripData.id || generateUUID();
     const days = Math.max(1, Number(tripData.days_count) || 1);
@@ -1085,27 +1242,31 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       updated_at: new Date().toISOString(),
     };
 
+    let nextTrips: BusinessTripExpense[] = [];
     setBusinessTrips(prev => {
       const idx = prev.findIndex(t => t.id === id);
-      const next = idx >= 0 ? prev.map(t => t.id === id ? fullTrip : t) : [fullTrip, ...prev];
+      nextTrips = idx >= 0 ? prev.map(t => t.id === id ? fullTrip : t) : [fullTrip, ...prev];
       if (typeof window !== 'undefined') {
-        localStorage.setItem('app_business_trips', JSON.stringify(next));
+        localStorage.setItem('app_business_trips', JSON.stringify(nextTrips));
       }
-      return next;
+      return nextTrips;
     });
 
     await runUpsert('business_trips', fullTrip, `Đã lưu công tác phí ngày ${fullTrip.trip_date}`);
+    await syncBusinessTripsToCloud(nextTrips.length > 0 ? nextTrips : [fullTrip]);
   };
 
   const deleteBusinessTrip = async (id: string) => {
+    let nextTrips: BusinessTripExpense[] = [];
     setBusinessTrips(prev => {
-      const next = prev.filter(t => t.id !== id);
+      nextTrips = prev.filter(t => t.id !== id);
       if (typeof window !== 'undefined') {
-        localStorage.setItem('app_business_trips', JSON.stringify(next));
+        localStorage.setItem('app_business_trips', JSON.stringify(nextTrips));
       }
-      return next;
+      return nextTrips;
     });
     await runDelete('business_trips', id, 'Đã xóa bản ghi công tác phí');
+    await syncBusinessTripsToCloud(nextTrips);
   };
 
   const toggleBusinessTripPayment = async (id: string) => {
@@ -1119,12 +1280,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       updated_at: new Date().toISOString()
     };
 
+    let nextTrips: BusinessTripExpense[] = [];
     setBusinessTrips(prev => {
-      const next = prev.map(t => t.id === id ? updatedTrip : t);
+      nextTrips = prev.map(t => t.id === id ? updatedTrip : t);
       if (typeof window !== 'undefined') {
-        localStorage.setItem('app_business_trips', JSON.stringify(next));
+        localStorage.setItem('app_business_trips', JSON.stringify(nextTrips));
       }
-      return next;
+      return nextTrips;
     });
 
     await runUpsert(
@@ -1134,6 +1296,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         ? 'Đã thanh toán (Màu xanh, chuyển xuống dưới)'
         : 'Chờ thanh toán (Chữ đỏ, đưa lên đầu)'
     );
+    await syncBusinessTripsToCloud(nextTrips);
   };
 
 
@@ -1429,6 +1592,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const payload: R2BackupPayload = {
         workLogs,
         workSettings,
+        businessTrips,
         salaryRecords,
         transactions,
         categories,
@@ -1438,7 +1602,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         userSettings,
         backupTimestamp: new Date().toISOString(),
         appVersion: '1.0.0',
-        totalRecords: workLogs.length + transactions.length + investmentAssets.length + investmentTransactions.length + portfolioSnapshots.length + Object.keys(salaryRecords).length,
+        totalRecords: workLogs.length + (businessTrips?.length || 0) + transactions.length + investmentAssets.length + investmentTransactions.length + portfolioSnapshots.length + Object.keys(salaryRecords).length,
       };
 
       const result = await r2Service.saveBackup(payload);
@@ -1480,6 +1644,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (backup.userSettings) setUserSettings(backup.userSettings);
       if (backup.salaryRecords) setSalaryRecords(backup.salaryRecords);
       if (Array.isArray(backup.workLogs)) setWorkLogs(backup.workLogs);
+      if (Array.isArray(backup.businessTrips)) {
+        setBusinessTrips(backup.businessTrips);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('app_business_trips', JSON.stringify(backup.businessTrips));
+        }
+      }
       if (Array.isArray(backup.categories)) setCategories(backup.categories);
       if (Array.isArray(backup.transactions)) setTransactions(backup.transactions);
       if (Array.isArray(backup.investmentAssets)) setInvestmentAssets(backup.investmentAssets);
@@ -1494,6 +1664,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             if (backup.workSettings) await client.from('work_settings').upsert({ ...backup.workSettings, user_id: user.id });
             if (backup.userSettings) await client.from('user_settings').upsert({ ...backup.userSettings, user_id: user.id });
             if (backup.workLogs?.length) await client.from('work_logs').upsert(backup.workLogs.map(l => ({ ...l, user_id: user.id })));
+            if (backup.businessTrips?.length) await client.from('business_trips').upsert(backup.businessTrips.map(bt => ({ ...bt, user_id: user.id })));
             if (backup.categories?.length) await client.from('expense_categories').upsert(backup.categories.map(c => ({ ...c, user_id: user.id })));
             if (backup.transactions?.length) await client.from('transactions').upsert(backup.transactions.map(t => ({ ...t, user_id: user.id })));
             if (backup.investmentAssets?.length) await client.from('investment_assets').upsert(backup.investmentAssets.map(a => ({ ...a, user_id: user.id })));

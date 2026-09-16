@@ -71,6 +71,7 @@ export interface R2ListResponse {
 export interface R2BackupPayload {
   workLogs: any[];
   workSettings: any;
+  businessTrips?: any[];
   salaryRecords?: Record<string, any>;
   transactions: any[];
   categories: any[];
