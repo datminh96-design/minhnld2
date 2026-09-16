@@ -154,7 +154,7 @@ export const AddAssetQuickSection: React.FC<AddAssetQuickSectionProps> = ({
         if (lookup && lookup.priceVnd > 0) {
           finalPrice = lookup.priceVnd;
         } else {
-          finalPrice = customType === 'Crypto' ? 1000000 : 20000;
+          finalPrice = customType === 'crypto' ? 1000000 : 20000;
         }
       }
 
@@ -165,7 +165,7 @@ export const AddAssetQuickSection: React.FC<AddAssetQuickSectionProps> = ({
         current_price: finalPrice,
         currency: 'VND',
         price_updated_at: new Date().toISOString(),
-        notes: `Tự động cập nhật trực tiếp từ sàn ${customExchange || (customType === 'Crypto' ? 'Binance' : 'HOSE')}`,
+        notes: `Tự động cập nhật trực tiếp từ sàn ${customExchange || (customType === 'crypto' ? 'Binance' : 'HOSE')}`,
       };
 
       await onAddAsset(newAssetData);
@@ -311,7 +311,9 @@ export const AddAssetQuickSection: React.FC<AddAssetQuickSectionProps> = ({
                   {preset.exchange}
                 </span>
                 {inPortfolio && (
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" title="Đã có trong danh mục" />
+                  <span title="Đã có trong danh mục">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                  </span>
                 )}
               </button>
             );

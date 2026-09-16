@@ -56,11 +56,11 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
 
     if (isOpening || isEditingTargetChanged) {
       if (editingTx) {
-        setFormType(editingTx.type);
+        setFormType(editingTx.transaction_type);
         setFormDate(editingTx.transaction_date || new Date().toISOString().split('T')[0]);
-        setFormCategoryName(editingTx.category);
+        setFormCategoryName(editingTx.category_name);
         setFormAmount(editingTx.amount ? editingTx.amount.toString() : '');
-        setFormNote(editingTx.description || '');
+        setFormNote(editingTx.note || '');
       } else {
         setFormType(defaultType);
         setFormDate(new Date().toISOString().split('T')[0]);

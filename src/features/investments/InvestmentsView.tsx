@@ -219,7 +219,17 @@ export const InvestmentsView: React.FC = () => {
 
   // Save Transaction Form
   const handleSaveTx = async (txData: Partial<InvestmentTransaction>) => {
-    await saveInvestmentTransaction(txData);
+    if (!txData.asset_id || !txData.transaction_type || !txData.quantity || !txData.price) return;
+    await saveInvestmentTransaction({
+      asset_id: txData.asset_id,
+      transaction_type: txData.transaction_type,
+      quantity: txData.quantity,
+      price: txData.price,
+      fee: txData.fee || 0,
+      transaction_date: txData.transaction_date || new Date().toISOString().split('T')[0],
+      note: txData.note,
+      id: txData.id,
+    });
   };
 
   return (
@@ -549,14 +559,14 @@ export const InvestmentsView: React.FC = () => {
                                     const type = h.asset.asset_type;
                                     const known = KNOWN_ASSET_NAMES[sym];
                                     const exchangeLabel = known?.exchange || (
-                                      type === 'crypto' || type === 'crypto' ? 'Binance' :
-                                      type === 'stock' || type === 'stock' ? 'HOSE' :
-                                      type === 'fund' || type === 'fund' ? 'VinaCapital' :
-                                      type === 'gold' || type === 'gold' ? 'SJC 9999' : 'Thị trường'
+                                      type === 'crypto' ? 'Binance' :
+                                      type === 'stock' ? 'HOSE' :
+                                      type === 'fund' ? 'VinaCapital' :
+                                      type === 'gold' ? 'SJC 9999' : 'Thị trường'
                                     );
-                                    const isCrypto = type === 'crypto' || type === 'crypto' || exchangeLabel === 'Binance';
-                                    const isStock = type === 'stock' || type === 'stock' || exchangeLabel === 'HOSE' || exchangeLabel === 'HNX';
-                                    const isFund = type === 'fund' || type === 'fund' || exchangeLabel.includes('VinaCapital') || exchangeLabel === 'Fmarket';
+                                    const isCrypto = type === 'crypto' || exchangeLabel === 'Binance';
+                                    const isStock = type === 'stock' || exchangeLabel === 'HOSE' || exchangeLabel === 'HNX';
+                                    const isFund = type === 'fund' || exchangeLabel.includes('VinaCapital') || exchangeLabel === 'Fmarket';
 
                                     return (
                                       <span

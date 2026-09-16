@@ -43,7 +43,7 @@ export function toValidUUID(str: string): string {
 
 export function formatCurrency(
   amount: number | undefined | null,
-  currency: 'VND' | 'USD' = 'VND',
+  currency: 'VND' | 'USD' | string = 'VND',
   compact: boolean = false
 ): string {
   const value = amount || 0;

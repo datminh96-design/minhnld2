@@ -53,7 +53,7 @@ interface DataContextType {
   toggleBusinessTripPayment: (id: string) => Promise<void>;
   saveTransaction: (tx: Omit<Transaction, 'id'> & { id?: string }) => Promise<void>;
   deleteTransaction: (id: string) => Promise<void>;
-  saveCategory: (cat: Omit<ExpenseCategory, 'id'> & { id?: string }) => Promise<void>;
+  saveCategory: (cat: Omit<ExpenseCategory, 'id'> & { id?: string }) => Promise<ExpenseCategory>;
   deleteCategory: (id: string) => Promise<void>;
   saveInvestmentAsset: (asset: Omit<InvestmentAsset, 'id'> & { id?: string }) => Promise<void>;
   updateAssetPrice: (assetId: string, newPrice: number) => Promise<void>;
@@ -66,6 +66,7 @@ interface DataContextType {
   addToast: (message: string, type?: ToastMessage['type'], title?: string) => void;
   removeToast: (id: string) => void;
   clearAllData: () => void;
+  resetToSampleData: () => void;
   syncWithSupabase: (showToast?: boolean) => Promise<void>;
   triggerCloudBackup: (silent?: boolean) => Promise<void>;
   backupToCloudflareR2: () => Promise<boolean>;
@@ -464,90 +465,77 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               return merged;
             });
           }
-
-          if (foundTripsFromLogs.length > 0) {
-            setBusinessTrips(prev => {
-              const map = new Map<string, BusinessTripExpense>();
-              prev.forEach(t => map.set(t.id, t));
-              foundTripsFromLogs.forEach(t => {
-                if (t && t.id) map.set(t.id, t);
-              });
-              const combined = Array.from(map.values()).sort(
-                (a, b) => new Date(b.trip_date).getTime() - new Date(a.trip_date).getTime()
-              );
-              if (typeof window !== 'undefined') {
-                localStorage.setItem('app_business_trips', JSON.stringify(combined));
-              }
-              return combined;
-            });
-          }
         }
       } catch (wlErr) {
         console.warn('Lỗi tải work_logs:', wlErr);
       }
 
-      // 5. Tải business_trips (Đồng bộ đa tầng: Bảng chuyên dụng + Fallback work_settings + Backup work_logs + Local Storage)
+      // 5. Tải business_trips chuẩn từ Cloud Database
       try {
-        const foundTripsMap = new Map<string, BusinessTripExpense>();
+        let loadedTrips: BusinessTripExpense[] | null = null;
 
-        // 5a. Lấy từ Local Storage ban đầu để tránh mất dữ liệu vừa tạo trên máy này
-        if (typeof window !== 'undefined') {
-          const localSaved = localStorage.getItem('app_business_trips');
-          if (localSaved) {
-            try {
-              const localList: BusinessTripExpense[] = JSON.parse(localSaved);
-              if (Array.isArray(localList)) {
-                localList.forEach(t => { if (t && t.id) foundTripsMap.set(t.id, t); });
-              }
-            } catch {}
-          }
-        }
-
-        // 5b. Thử tải từ bảng business_trips trên Supabase
+        // 5a. Thử tải trực tiếp từ bảng business_trips trên Supabase
         try {
           let queryBt = client.from('business_trips').select('*');
           if (user?.id) queryBt = queryBt.or(`user_id.eq.${user.id},user_id.eq.admin123`);
           const { data: btData, error: btError } = await queryBt.order('trip_date', { ascending: false });
-          if (!btError && btData && Array.isArray(btData) && btData.length > 0) {
-            btData.forEach((t: any) => {
-              if (t && t.id) {
-                foundTripsMap.set(t.id, {
-                  ...t,
-                  days_count: Number(t.days_count) || 1,
-                  daily_allowance_rate: Number(t.daily_allowance_rate) || 160000,
-                  total_daily_allowance: Number(t.total_daily_allowance) || 0,
-                  hotel_cost: Number(t.hotel_cost) || 0,
-                  outbound_cost: Number(t.outbound_cost) || 0,
-                  return_cost: Number(t.return_cost) || 0,
-                  total_amount: Number(t.total_amount) || 0,
-                  is_paid: Boolean(t.is_paid)
-                });
+          if (!btError && btData && Array.isArray(btData)) {
+            loadedTrips = btData.map((t: any) => {
+              let outType = t.outbound_type || (t.outbound_km ? 'motorbike' : 'bus');
+              let outKm = t.outbound_km;
+              let retType = t.return_type || (t.return_km ? 'motorbike' : 'bus');
+              let retKm = t.return_km;
+              let cleanNotes = t.notes || '';
+
+              if (cleanNotes && cleanNotes.includes('[TRIP_TRANSPORT]:')) {
+                try {
+                  const match = cleanNotes.match(/\[TRIP_TRANSPORT\]:(\{.*?\})/);
+                  if (match && match[1]) {
+                    const parsed = JSON.parse(match[1]);
+                    if (parsed.outbound_type) outType = parsed.outbound_type;
+                    if (parsed.outbound_km !== undefined && parsed.outbound_km !== null) outKm = Number(parsed.outbound_km);
+                    if (parsed.return_type) retType = parsed.return_type;
+                    if (parsed.return_km !== undefined && parsed.return_km !== null) retKm = Number(parsed.return_km);
+                    cleanNotes = cleanNotes.replace(/\[TRIP_TRANSPORT\]:\{.*?\}/g, '').trim();
+                  }
+                } catch {}
               }
+
+              return {
+                ...t,
+                days_count: Number(t.days_count) || 1,
+                daily_allowance_rate: Number(t.daily_allowance_rate) || 160000,
+                total_daily_allowance: Number(t.total_daily_allowance) || 0,
+                hotel_cost: Number(t.hotel_cost) || 0,
+                outbound_cost: Number(t.outbound_cost) || 0,
+                outbound_type: outType,
+                outbound_km: outKm !== undefined && outKm !== null ? Number(outKm) : undefined,
+                return_cost: Number(t.return_cost) || 0,
+                return_type: retType,
+                return_km: retKm !== undefined && retKm !== null ? Number(retKm) : undefined,
+                total_amount: Number(t.total_amount) || 0,
+                is_paid: Boolean(t.is_paid),
+                notes: cleanNotes || undefined,
+              };
             });
           }
         } catch (tableErr) {
           console.warn('Lỗi đọc bảng business_trips:', tableErr);
         }
 
-        // 5c. Tải từ fallback work_settings._business_trips
-        if (wsBusinessTripsFallback && Array.isArray(wsBusinessTripsFallback)) {
-          wsBusinessTripsFallback.forEach((t: any) => {
-            if (t && t.id) {
-              const existing = foundTripsMap.get(t.id);
-              if (!existing) {
-                foundTripsMap.set(t.id, t);
-              }
-            }
-          });
+        // 5b. Nếu bảng business_trips chưa có hoặc lỗi, fallback qua work_settings._business_trips
+        if (loadedTrips === null && wsBusinessTripsFallback && Array.isArray(wsBusinessTripsFallback)) {
+          loadedTrips = wsBusinessTripsFallback;
         }
 
-        if (foundTripsMap.size > 0) {
-          const finalTrips = Array.from(foundTripsMap.values()).sort(
+        // 5c. Áp dụng dữ liệu đồng bộ
+        if (loadedTrips !== null) {
+          const sorted = [...loadedTrips].sort(
             (a, b) => new Date(b.trip_date).getTime() - new Date(a.trip_date).getTime()
           );
-          setBusinessTrips(finalTrips);
+          setBusinessTrips(sorted);
           if (typeof window !== 'undefined') {
-            localStorage.setItem('app_business_trips', JSON.stringify(finalTrips));
+            localStorage.setItem('app_business_trips', JSON.stringify(sorted));
           }
         }
       } catch (btErr) {
@@ -719,20 +707,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         (payload: any) => {
           const item = payload?.payload;
           if (item?.trips && Array.isArray(item.trips)) {
-            setBusinessTrips(prev => {
-              const map = new Map<string, BusinessTripExpense>();
-              prev.forEach(t => map.set(t.id, t));
-              item.trips.forEach((t: BusinessTripExpense) => {
-                if (t && t.id) map.set(t.id, t);
-              });
-              const merged = Array.from(map.values()).sort(
-                (a, b) => new Date(b.trip_date).getTime() - new Date(a.trip_date).getTime()
-              );
-              if (typeof window !== 'undefined') {
-                localStorage.setItem('app_business_trips', JSON.stringify(merged));
-              }
-              return merged;
-            });
+            const sorted = [...item.trips].sort(
+              (a, b) => new Date(b.trip_date).getTime() - new Date(a.trip_date).getTime()
+            );
+            setBusinessTrips(sorted);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('app_business_trips', JSON.stringify(sorted));
+            }
           }
         }
       )
@@ -796,15 +777,63 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         const { client } = getSupabaseClient();
         if (client) {
-          // Wrap with a 3.5s timeout to prevent cold-start hangs or paused Supabase DB from blocking UI
-          const upsertPromise = client.from(table).upsert({ ...data, user_id: effectiveUserId });
+          // Special handling for business_trips: make sure payload is resilient to DB column schemas
+          let payloadToSave = { ...data, user_id: effectiveUserId };
+          
+          const upsertPromise = client.from(table).upsert(payloadToSave);
           const timeoutPromise = new Promise<{ error: any }>((_, reject) =>
-            setTimeout(() => reject(new Error('Cloud sync timeout (tự động chuyển sang lưu nền)')), 3500)
+            setTimeout(() => reject(new Error('Cloud sync timeout (tự động chuyển sang lưu nền)')), 4000)
           );
           const { error } = await Promise.race([upsertPromise, timeoutPromise]) as any;
+          
           if (error) {
+            // Check if error is due to missing columns (e.g. outbound_type, outbound_km in business_trips)
+            if (table === 'business_trips' && (
+              error.code === '42703' || 
+              error.code === 'PGRST204' || 
+              error.message?.includes('column') || 
+              (error.message?.includes('schema cache') && !error.message?.includes('Could not find the table'))
+            )) {
+              try {
+                const cleanNotes = (data.notes || '').replace(/\[TRIP_TRANSPORT\]:\{.*?\}/g, '').trim();
+                const meta = (data.outbound_type || data.outbound_km || data.return_type || data.return_km) ? ` [TRIP_TRANSPORT]:${JSON.stringify({
+                  outbound_type: data.outbound_type,
+                  outbound_km: data.outbound_km,
+                  return_type: data.return_type,
+                  return_km: data.return_km
+                })}` : '';
+                
+                const safeCoreData = {
+                  id: data.id,
+                  user_id: effectiveUserId,
+                  trip_date: data.trip_date,
+                  end_date: data.end_date || null,
+                  days_count: Number(data.days_count) || 1,
+                  daily_allowance_rate: Number(data.daily_allowance_rate) || 160000,
+                  total_daily_allowance: Number(data.total_daily_allowance) || 0,
+                  hotel_cost: Number(data.hotel_cost) || 0,
+                  outbound_cost: Number(data.outbound_cost) || 0,
+                  return_cost: Number(data.return_cost) || 0,
+                  total_amount: Number(data.total_amount) || 0,
+                  is_paid: Boolean(data.is_paid),
+                  paid_at: data.paid_at || null,
+                  location: data.location || null,
+                  notes: (cleanNotes + meta).trim() || null,
+                  updated_at: new Date().toISOString()
+                };
+                
+                const { error: retryErr } = await client.from('business_trips').upsert(safeCoreData);
+                if (!retryErr) {
+                  if (successMsg) addToast(successMsg, 'success');
+                  return { success: true, error: null };
+                }
+              } catch (retryE) {
+                console.warn('Lỗi retry business_trips:', retryE);
+              }
+            }
+
             // If table doesn't exist yet on remote Supabase instance
-            if (error.message?.includes('schema cache') || error.message?.includes('Could not find the table') || error.code === 'PGRST205' || error.code === '42P01') {
+            if (error.message?.includes('Could not find the table') || error.code === 'PGRST205' || error.code === '42P01') {
               console.warn(`[Supabase Sync] Bảng '${table}' chưa được tạo trên Supabase:`, error.message);
               if (successMsg) {
                 addToast(successMsg, 'success');
@@ -821,7 +850,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       } catch (err: any) {
         if (
-          err.message?.includes('schema cache') ||
           err.message?.includes('Could not find the table') ||
           err.code === 'PGRST205' ||
           err.code === '42P01' ||
@@ -1191,6 +1219,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         ...(workSettings.salary_data || {}),
         _business_trips: currentTrips
       };
+      setWorkSettings(prev => {
+        const nextWs = { ...prev, salary_data: updatedSalaryData };
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('app_work_settings', JSON.stringify(nextWs));
+        }
+        return nextWs;
+      });
       await runUpsert('work_settings', {
         id: workSettings.id ? toValidUUID(workSettings.id) : toValidUUID(`ws_${effectiveUserId}`),
         salary_data: updatedSalaryData
@@ -1334,7 +1369,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     await runDelete('transactions', id, 'Đã xóa giao dịch');
   };
 
-  const saveCategory = async (catData: Omit<ExpenseCategory, 'id'> & { id?: string }) => {
+  const saveCategory = async (catData: Omit<ExpenseCategory, 'id'> & { id?: string }): Promise<ExpenseCategory> => {
     const id = catData.id || generateUUID();
     const isNew = !catData.id;
     const fullCat: ExpenseCategory = { ...catData, id, is_default: false };
@@ -1350,6 +1385,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setCategories(prev => prev.filter(c => c.id !== id));
       }
     }
+    return fullCat;
   };
 
   const deleteCategory = async (id: string) => {
@@ -1581,6 +1617,21 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     addToast('Đã xóa toàn bộ dữ liệu', 'success');
   };
 
+  const resetToSampleData = () => {
+    setWorkSettings(DEFAULT_WORK_SETTINGS);
+    setUserSettings(DEFAULT_USER_SETTINGS);
+    setWorkLogs(getInitialWorkLogs());
+    setBusinessTrips(getInitialBusinessTrips());
+    setCategories(DEFAULT_EXPENSE_CATEGORIES);
+    setTransactions(getInitialTransactions());
+    setInvestmentAssets(getInitialInvestmentAssets());
+    setInvestmentTransactions(getInitialInvestmentTransactions());
+    setPortfolioSnapshots(getInitialPortfolioSnapshots());
+    setSalaryRecords({});
+    triggerCloudBackup(false);
+    addToast('Đã nạp lại dữ liệu mẫu thành công', 'success');
+  };
+
   /**
    * Backup full application state snapshot directly to Cloudflare R2 S3 storage
    */
@@ -1714,7 +1765,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       saveTransaction, deleteTransaction,
       saveCategory, deleteCategory, saveInvestmentAsset, updateAssetPrice, deleteInvestmentAsset,
       saveInvestmentTransaction, deleteInvestmentTransaction, refreshMarketPrices, takeDailySnapshot, updateUserSettings,
-      addToast, removeToast, clearAllData, syncWithSupabase, triggerCloudBackup,
+      addToast, removeToast, clearAllData, resetToSampleData, syncWithSupabase, triggerCloudBackup,
       backupToCloudflareR2, restoreFromCloudflareR2, sendTransactionalEmailNotification
     }}>
       {children}

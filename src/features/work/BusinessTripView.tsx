@@ -69,7 +69,11 @@ CREATE TABLE IF NOT EXISTS public.business_trips (
     total_daily_allowance NUMERIC(18,2) NOT NULL DEFAULT 0,
     hotel_cost NUMERIC(18,2) NOT NULL DEFAULT 0,
     outbound_cost NUMERIC(18,2) NOT NULL DEFAULT 0,
+    outbound_type TEXT DEFAULT 'bus',
+    outbound_km NUMERIC(10,2),
     return_cost NUMERIC(18,2) NOT NULL DEFAULT 0,
+    return_type TEXT DEFAULT 'bus',
+    return_km NUMERIC(10,2),
     total_amount NUMERIC(18,2) NOT NULL DEFAULT 0,
     is_paid BOOLEAN NOT NULL DEFAULT FALSE,
     paid_at TIMESTAMPTZ,
@@ -78,6 +82,11 @@ CREATE TABLE IF NOT EXISTS public.business_trips (
     created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()) NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()) NOT NULL
 );
+
+ALTER TABLE public.business_trips ADD COLUMN IF NOT EXISTS outbound_type TEXT DEFAULT 'bus';
+ALTER TABLE public.business_trips ADD COLUMN IF NOT EXISTS outbound_km NUMERIC(10,2);
+ALTER TABLE public.business_trips ADD COLUMN IF NOT EXISTS return_type TEXT DEFAULT 'bus';
+ALTER TABLE public.business_trips ADD COLUMN IF NOT EXISTS return_km NUMERIC(10,2);
 
 CREATE INDEX IF NOT EXISTS idx_business_trips_user_date ON public.business_trips(user_id, trip_date DESC);
 CREATE INDEX IF NOT EXISTS idx_business_trips_user_paid ON public.business_trips(user_id, is_paid);

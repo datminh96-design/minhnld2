@@ -71,16 +71,16 @@ export const TransactionalEmailSection: React.FC = () => {
   });
 
   const totalIncome = currentMonthTxs
-    .filter(t => t.type === 'income')
+    .filter(t => t.transaction_type === 'income')
     .reduce((sum, t) => sum + t.amount, 0);
 
   const totalExpense = currentMonthTxs
-    .filter(t => t.type === 'expense')
+    .filter(t => t.transaction_type === 'expense')
     .reduce((sum, t) => sum + t.amount, 0);
 
   const balance = totalIncome - totalExpense;
   const savingRate = totalIncome > 0 ? `${Math.max(0, Math.round((balance / totalIncome) * 100))}%` : '50%';
-  const investValue = calculatedHoldings.reduce((sum, h) => sum + h.current_value, 0) || 185000000;
+  const investValue = calculatedHoldings.reduce((sum, h) => sum + h.currentValue, 0) || 185000000;
 
   // Work Stats
   const currentMonthLogs = workLogs.filter(l => {
@@ -88,7 +88,7 @@ export const TransactionalEmailSection: React.FC = () => {
     return d.getMonth() + 1 === currentMonth && d.getFullYear() === currentYear;
   });
   const totalWorkDays = currentMonthLogs.length || 22;
-  const totalWorkHours = currentMonthLogs.reduce((sum, l) => sum + (l.actual_work_hours || 8), 0) || 176;
+  const totalWorkHours = currentMonthLogs.reduce((sum, l) => sum + (l.total_hours || 8), 0) || 176;
   const totalOtHours = currentMonthLogs.reduce((sum, l) => sum + (l.overtime_hours || 0), 0) || 8.5;
 
   const loadStatus = async () => {

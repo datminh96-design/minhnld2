@@ -414,7 +414,21 @@ export const WorkView: React.FC = () => {
 
   // Save Modal Form
   const handleSaveForm = async (data: Partial<WorkLog>) => {
-    await saveWorkLog(data);
+    if (!data.work_date) return;
+    await saveWorkLog({
+      work_date: data.work_date,
+      check_in: data.check_in || '08:00',
+      check_out: data.check_out || '17:00',
+      break_start: data.break_start || '12:00',
+      break_end: data.break_end || '13:00',
+      break_duration_hours: data.break_duration_hours ?? 1,
+      total_hours: data.total_hours ?? 8,
+      overtime_hours: data.overtime_hours ?? 0,
+      missing_hours: data.missing_hours ?? 0,
+      work_status: data.work_status || 'Làm việc',
+      notes: data.notes,
+      id: data.id,
+    });
   };
 
   // Export to Excel handler

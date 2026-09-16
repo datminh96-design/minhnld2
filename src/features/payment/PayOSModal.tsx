@@ -56,7 +56,7 @@ export const PayOSModal: React.FC<PayOSModalProps> = ({
   defaultDescription = 'Gui tien cho Nguyen Le Dat Minh',
   onPaymentSuccess,
 }) => {
-  const { addTransaction, addToast } = useData();
+  const { saveTransaction, addToast } = useData();
 
   const [step, setStep] = useState<'create' | 'payment' | 'success'>('create');
   const [amount, setAmount] = useState<number>(defaultAmount);
@@ -225,12 +225,12 @@ export const PayOSModal: React.FC<PayOSModalProps> = ({
 
     // Auto record transaction to system as Income/Donation
     try {
-      addTransaction({
-        type: 'income',
+      saveTransaction({
+        transaction_type: 'income',
         amount: amount,
-        category: 'Thu Nhập Khác',
-        description: `Quyên góp ủng hộ VietQR #${paymentData?.orderCode || ''} (${donorName ? `từ ${donorName}` : 'Ẩn danh'})`,
-        date: new Date().toISOString().substring(0, 10),
+        category_name: 'Thu Nhập Khác',
+        note: `Quyên góp ủng hộ VietQR #${paymentData?.orderCode || ''} (${donorName ? `từ ${donorName}` : 'Ẩn danh'})`,
+        transaction_date: new Date().toISOString().substring(0, 10),
       });
     } catch (err) {
       console.warn('Lỗi ghi tự động giao dịch:', err);
