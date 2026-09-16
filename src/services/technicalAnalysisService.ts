@@ -124,6 +124,8 @@ export interface Gemini4HInsight {
   confidence: number;
   upProbability?: number;
   downProbability?: number;
+  expectedUpRange?: { min: number; max: number };
+  expectedDownRange?: { min: number; max: number };
   trendAnalysis: string;
   keyDrivers: string[];
   customDcaAdvice: string;
@@ -539,17 +541,33 @@ class TechnicalAnalysisService {
     else if (upProbability <= 35) primaryTrend = 'GIẢM MẠNH';
     else if (upProbability <= 45) primaryTrend = 'ĐIỀU CHỈNH GIẢM';
 
-    // Expected moves based on asset type
-    let volatilityFactor = 1.0;
-    if (symbol === 'BTC') volatilityFactor = 1.2;
-    else if (symbol === 'TPB' || holding.asset.asset_type === 'stock') volatilityFactor = 0.8;
-    else if (holding.asset.asset_type === 'gold') volatilityFactor = 0.4;
-    else if (holding.asset.asset_type === 'fund') volatilityFactor = 0.5;
+    // Dynamic expected moves based on Bollinger Bandwidth & RSI volatility & asset category
+    let assetClassMultiplier = 1.0;
+    if (isCrypto) {
+      assetClassMultiplier = symbol === 'BTC' ? 1.25 : symbol === 'ETH' || symbol === 'SOL' ? 1.4 : 1.6;
+    } else if (holding.asset.asset_type === 'stock') {
+      assetClassMultiplier = 0.85;
+    } else if (holding.asset.asset_type === 'gold') {
+      assetClassMultiplier = 0.45;
+    } else if (holding.asset.asset_type === 'fund') {
+      assetClassMultiplier = 0.35;
+    }
 
-    const expectedUpMin = Number((2.8 * volatilityFactor).toFixed(1));
-    const expectedUpMax = Number((7.5 * volatilityFactor).toFixed(1));
-    const expectedDownMin = Number((1.8 * volatilityFactor).toFixed(1));
-    const expectedDownMax = Number((4.5 * volatilityFactor).toFixed(1));
+    // Dynamic volatility ratio from Bollinger Bands (e.g. 3% width -> 0.75x, 8% width -> 1.35x)
+    const bbVolRatio = Math.max(0.6, Math.min(2.2, bollinger.bandWidthPercent / 6.0));
+    const rsiMomentumRatio = 1.0 + (Math.abs(rsi14 - 50) / 100);
+
+    const baseUpMin = isCrypto ? 3.0 : 1.5;
+    const baseUpMax = isCrypto ? 8.0 : 4.5;
+    const baseDownMin = isCrypto ? 2.0 : 1.0;
+    const baseDownMax = isCrypto ? 5.5 : 3.0;
+
+    const volatilityFactor = assetClassMultiplier * bbVolRatio;
+
+    const expectedUpMin = Number((baseUpMin * volatilityFactor * rsiMomentumRatio).toFixed(1));
+    const expectedUpMax = Number((baseUpMax * volatilityFactor * rsiMomentumRatio).toFixed(1));
+    const expectedDownMin = Number((baseDownMin * volatilityFactor).toFixed(1));
+    const expectedDownMax = Number((baseDownMax * volatilityFactor).toFixed(1));
 
     // 4. Calculate 3 BEST BUY POINTS & 3 BEST SELL POINTS
     // Ratio conversion for crypto USDT/VND
@@ -771,6 +789,12 @@ class TechnicalAnalysisService {
             else if (geminiData.upProbability <= 45) analysis.primaryTrend = 'ĐIỀU CHỈNH GIẢM';
             else analysis.primaryTrend = 'ĐI NGANG (SWING)';
           }
+          if (geminiData.expectedUpRange && geminiData.expectedUpRange.max > 0) {
+            analysis.expectedUpRange = geminiData.expectedUpRange;
+          }
+          if (geminiData.expectedDownRange && geminiData.expectedDownRange.max > 0) {
+            analysis.expectedDownRange = geminiData.expectedDownRange;
+          }
           if (geminiData.marketCatalyst) {
             analysis.marketCatalyst = geminiData.marketCatalyst;
           }
@@ -798,7 +822,17 @@ class TechnicalAnalysisService {
     }>,
     model: string = 'gemini-3.1-flash-lite',
     forceRefresh: boolean = false
-  ): Promise<Record<string, { upProbability: number; downProbability: number; primaryTrend: string; confidence: number; marketCatalyst: string }> | null> {
+  ): Promise<Record<string, {
+    upProbability: number;
+    downProbability: number;
+    expectedUpMin?: number;
+    expectedUpMax?: number;
+    expectedDownMin?: number;
+    expectedDownMax?: number;
+    primaryTrend: string;
+    confidence: number;
+    marketCatalyst: string;
+  }> | null> {
     try {
       const cycleTimestamp = Math.floor(Date.now() / (4 * 3600 * 1000));
       const items = holdings.map((h) => {

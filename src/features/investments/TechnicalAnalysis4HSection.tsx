@@ -180,10 +180,19 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
               for (const sym of Object.keys(batchProbs)) {
                 if (next[sym]) {
                   const probInfo = batchProbs[sym];
+                  const hasUpRange = typeof probInfo.expectedUpMin === 'number' && typeof probInfo.expectedUpMax === 'number';
+                  const hasDownRange = typeof probInfo.expectedDownMin === 'number' && typeof probInfo.expectedDownMax === 'number';
+
                   next[sym] = {
                     ...next[sym],
                     upProbability: probInfo.upProbability,
                     downProbability: probInfo.downProbability,
+                    expectedUpRange: hasUpRange
+                      ? { min: probInfo.expectedUpMin!, max: probInfo.expectedUpMax! }
+                      : next[sym].expectedUpRange,
+                    expectedDownRange: hasDownRange
+                      ? { min: probInfo.expectedDownMin!, max: probInfo.expectedDownMax! }
+                      : next[sym].expectedDownRange,
                     primaryTrend: (probInfo.primaryTrend as any) || next[sym].primaryTrend,
                     marketCatalyst: probInfo.marketCatalyst || next[sym].marketCatalyst,
                     isAiEnhanced: true,
@@ -197,6 +206,12 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
                           confidence: probInfo.confidence || next[sym].geminiInsight!.confidence,
                           upProbability: probInfo.upProbability,
                           downProbability: probInfo.downProbability,
+                          expectedUpRange: hasUpRange
+                            ? { min: probInfo.expectedUpMin!, max: probInfo.expectedUpMax! }
+                            : next[sym].geminiInsight!.expectedUpRange,
+                          expectedDownRange: hasDownRange
+                            ? { min: probInfo.expectedDownMin!, max: probInfo.expectedDownMax! }
+                            : next[sym].geminiInsight!.expectedDownRange,
                           marketCatalyst: probInfo.marketCatalyst,
                         }
                       : next[sym].geminiInsight,
