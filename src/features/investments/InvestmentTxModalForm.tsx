@@ -133,7 +133,7 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
 
     setIsSubmitting(true);
     try {
-      await onSave({
+      const savePromise = onSave({
         asset_id: txAssetId,
         transaction_type: txType,
         tx_type: txType,
@@ -149,6 +149,15 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
         fee_currency: txFeeCurrency,
         exchange_rate: txPriceCurrency === 'USDT' ? usdtRate : 1,
       });
+
+      // Race with a 2-second timeout to guarantee the modal always closes quickly and never hangs
+      await Promise.race([
+        savePromise,
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ]);
+      onClose();
+    } catch (err) {
+      console.warn('Lỗi khi lưu giao dịch đầu tư:', err);
       onClose();
     } finally {
       setIsSubmitting(false);
