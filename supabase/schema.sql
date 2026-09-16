@@ -195,9 +195,11 @@ CREATE TABLE IF NOT EXISTS public.business_trips (
     outbound_cost NUMERIC(18,2) NOT NULL DEFAULT 0,
     outbound_type TEXT DEFAULT 'bus',
     outbound_km NUMERIC(10,2),
+    outbound_route TEXT,
     return_cost NUMERIC(18,2) NOT NULL DEFAULT 0,
     return_type TEXT DEFAULT 'bus',
     return_km NUMERIC(10,2),
+    return_route TEXT,
     total_amount NUMERIC(18,2) NOT NULL DEFAULT 0,
     is_paid BOOLEAN NOT NULL DEFAULT FALSE,
     paid_at TIMESTAMPTZ,
@@ -209,8 +211,10 @@ CREATE TABLE IF NOT EXISTS public.business_trips (
 
 ALTER TABLE public.business_trips ADD COLUMN IF NOT EXISTS outbound_type TEXT DEFAULT 'bus';
 ALTER TABLE public.business_trips ADD COLUMN IF NOT EXISTS outbound_km NUMERIC(10,2);
+ALTER TABLE public.business_trips ADD COLUMN IF NOT EXISTS outbound_route TEXT;
 ALTER TABLE public.business_trips ADD COLUMN IF NOT EXISTS return_type TEXT DEFAULT 'bus';
 ALTER TABLE public.business_trips ADD COLUMN IF NOT EXISTS return_km NUMERIC(10,2);
+ALTER TABLE public.business_trips ADD COLUMN IF NOT EXISTS return_route TEXT;
 
 -- ==============================================================================
 -- 3. TỐI ƯU HÓA HIỆU NĂNG - CHỈ MỤC TÌM KIẾM (INDEXES)

@@ -225,9 +225,11 @@ export interface BusinessTripExpense {
   outbound_cost: number; // Tiền lượt đi
   outbound_type?: TransportType; // 'motorbike' hoặc 'bus'
   outbound_km?: number; // Số km nếu chọn xe máy
+  outbound_route?: string; // Tuyến đường lượt đi (VD: "DLK - LDG", "Buôn Ma Thuột - Đà Lạt")
   return_cost: number; // Tiền lượt về
   return_type?: TransportType; // 'motorbike' hoặc 'bus'
   return_km?: number; // Số km nếu chọn xe máy
+  return_route?: string; // Tuyến đường lượt về (VD: "LDG - DLK", "Đà Lạt - Buôn Ma Thuột")
   total_amount: number; // Tổng tiền = Tiền phụ cấp ngày + Khách sạn + Lượt đi + Lượt về
   is_paid: boolean; // false = Chờ thanh toán (đỏ), true = Đã thanh toán (xanh mờ, đưa xuống dưới cùng)
   paid_at?: string; // Thời gian đánh dấu thanh toán

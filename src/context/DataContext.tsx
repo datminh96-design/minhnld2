@@ -483,8 +483,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             loadedTrips = btData.map((t: any) => {
               let outType = t.outbound_type || (t.outbound_km ? 'motorbike' : 'bus');
               let outKm = t.outbound_km;
+              let outRoute = t.outbound_route || '';
               let retType = t.return_type || (t.return_km ? 'motorbike' : 'bus');
               let retKm = t.return_km;
+              let retRoute = t.return_route || '';
               let cleanNotes = t.notes || '';
 
               if (cleanNotes && cleanNotes.includes('[TRIP_TRANSPORT]:')) {
@@ -494,8 +496,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     const parsed = JSON.parse(match[1]);
                     if (parsed.outbound_type) outType = parsed.outbound_type;
                     if (parsed.outbound_km !== undefined && parsed.outbound_km !== null) outKm = Number(parsed.outbound_km);
+                    if (parsed.outbound_route) outRoute = parsed.outbound_route;
                     if (parsed.return_type) retType = parsed.return_type;
                     if (parsed.return_km !== undefined && parsed.return_km !== null) retKm = Number(parsed.return_km);
+                    if (parsed.return_route) retRoute = parsed.return_route;
                     cleanNotes = cleanNotes.replace(/\[TRIP_TRANSPORT\]:\{.*?\}/g, '').trim();
                   }
                 } catch {}
@@ -510,9 +514,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 outbound_cost: Number(t.outbound_cost) || 0,
                 outbound_type: outType,
                 outbound_km: outKm !== undefined && outKm !== null ? Number(outKm) : undefined,
+                outbound_route: outRoute || undefined,
                 return_cost: Number(t.return_cost) || 0,
                 return_type: retType,
                 return_km: retKm !== undefined && retKm !== null ? Number(retKm) : undefined,
+                return_route: retRoute || undefined,
                 total_amount: Number(t.total_amount) || 0,
                 is_paid: Boolean(t.is_paid),
                 notes: cleanNotes || undefined,
@@ -796,11 +802,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             )) {
               try {
                 const cleanNotes = (data.notes || '').replace(/\[TRIP_TRANSPORT\]:\{.*?\}/g, '').trim();
-                const meta = (data.outbound_type || data.outbound_km || data.return_type || data.return_km) ? ` [TRIP_TRANSPORT]:${JSON.stringify({
+                const meta = (data.outbound_type || data.outbound_km || data.outbound_route || data.return_type || data.return_km || data.return_route) ? ` [TRIP_TRANSPORT]:${JSON.stringify({
                   outbound_type: data.outbound_type,
                   outbound_km: data.outbound_km,
+                  outbound_route: data.outbound_route,
                   return_type: data.return_type,
-                  return_km: data.return_km
+                  return_km: data.return_km,
+                  return_route: data.return_route,
                 })}` : '';
                 
                 const safeCoreData = {

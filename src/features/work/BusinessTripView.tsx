@@ -30,7 +30,9 @@ import {
   Copy,
   Check,
   Eye,
-  FileText
+  FileText,
+  Compass,
+  ArrowLeftRight
 } from 'lucide-react';
 
 interface BusinessTripViewProps {
@@ -71,9 +73,11 @@ CREATE TABLE IF NOT EXISTS public.business_trips (
     outbound_cost NUMERIC(18,2) NOT NULL DEFAULT 0,
     outbound_type TEXT DEFAULT 'bus',
     outbound_km NUMERIC(10,2),
+    outbound_route TEXT,
     return_cost NUMERIC(18,2) NOT NULL DEFAULT 0,
     return_type TEXT DEFAULT 'bus',
     return_km NUMERIC(10,2),
+    return_route TEXT,
     total_amount NUMERIC(18,2) NOT NULL DEFAULT 0,
     is_paid BOOLEAN NOT NULL DEFAULT FALSE,
     paid_at TIMESTAMPTZ,
@@ -85,8 +89,10 @@ CREATE TABLE IF NOT EXISTS public.business_trips (
 
 ALTER TABLE public.business_trips ADD COLUMN IF NOT EXISTS outbound_type TEXT DEFAULT 'bus';
 ALTER TABLE public.business_trips ADD COLUMN IF NOT EXISTS outbound_km NUMERIC(10,2);
+ALTER TABLE public.business_trips ADD COLUMN IF NOT EXISTS outbound_route TEXT;
 ALTER TABLE public.business_trips ADD COLUMN IF NOT EXISTS return_type TEXT DEFAULT 'bus';
 ALTER TABLE public.business_trips ADD COLUMN IF NOT EXISTS return_km NUMERIC(10,2);
+ALTER TABLE public.business_trips ADD COLUMN IF NOT EXISTS return_route TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_business_trips_user_date ON public.business_trips(user_id, trip_date DESC);
 CREATE INDEX IF NOT EXISTS idx_business_trips_user_paid ON public.business_trips(user_id, is_paid);
@@ -126,19 +132,21 @@ CREATE POLICY "business_trips_all_policy" ON public.business_trips FOR ALL USING
   const formatTransportDetail = (
     type?: TransportType,
     km?: number | string,
-    cost: number = 0
+    cost: number = 0,
+    route?: string
   ) => {
     const numKm = Number(km) || 0;
+    const routePrefix = route ? `[${route}] ` : '';
     if (type === 'motorbike' || (!type && numKm > 0)) {
-      return `xe máy ${numKm > 0 ? `${numKm}km ` : ''}${cost > 0 ? formatCurrency(cost) : '0 đ'}`;
+      return `${routePrefix}xe máy ${numKm > 0 ? `${numKm}km ` : ''}${cost > 0 ? formatCurrency(cost) : '0 đ'}`;
     }
     if (type === 'bus') {
-      return `xe khách ${cost > 0 ? formatCurrency(cost) : '0 đ'}`;
+      return `${routePrefix}xe khách ${cost > 0 ? formatCurrency(cost) : '0 đ'}`;
     }
     if (cost > 0) {
-      return `${formatCurrency(cost)}`;
+      return `${routePrefix}${formatCurrency(cost)}`;
     }
-    return '0 đ';
+    return routePrefix ? `${routePrefix}0 đ` : '0 đ';
   };
 
   const generateTripReportText = (trip: BusinessTripExpense) => {
@@ -148,12 +156,12 @@ CREATE POLICY "business_trips_all_policy" ON public.business_trips FOR ALL USING
     const hotelText = trip.hotel_cost > 0 ? formatCurrency(trip.hotel_cost) : '0 đ';
 
     let transportText = '';
-    const hasOutbound = trip.outbound_cost > 0 || (trip.outbound_km && Number(trip.outbound_km) > 0);
-    const hasReturn = trip.return_cost > 0 || (trip.return_km && Number(trip.return_km) > 0);
+    const hasOutbound = trip.outbound_cost > 0 || (trip.outbound_km && Number(trip.outbound_km) > 0) || Boolean(trip.outbound_route);
+    const hasReturn = trip.return_cost > 0 || (trip.return_km && Number(trip.return_km) > 0) || Boolean(trip.return_route);
 
     if (hasOutbound || hasReturn) {
-      const outDesc = formatTransportDetail(trip.outbound_type, trip.outbound_km, trip.outbound_cost);
-      const retDesc = formatTransportDetail(trip.return_type, trip.return_km, trip.return_cost);
+      const outDesc = formatTransportDetail(trip.outbound_type, trip.outbound_km, trip.outbound_cost, trip.outbound_route);
+      const retDesc = formatTransportDetail(trip.return_type, trip.return_km, trip.return_cost, trip.return_route);
       transportText = `Đi: ${outDesc} | Về: ${retDesc}`;
     } else {
       transportText = '0 đ';
@@ -197,11 +205,13 @@ Di chuyển: ${transportText}`;
   const [formOutboundType, setFormOutboundType] = useState<TransportType>('motorbike');
   const [formOutboundKm, setFormOutboundKm] = useState<number | string>('');
   const [formOutboundCost, setFormOutboundCost] = useState<number | string>('');
+  const [formOutboundRoute, setFormOutboundRoute] = useState<string>('');
 
   // Lượt về: Xe máy (1.500đ/km) hoặc Xe khách
   const [formReturnType, setFormReturnType] = useState<TransportType>('motorbike');
   const [formReturnKm, setFormReturnKm] = useState<number | string>('');
   const [formReturnCost, setFormReturnCost] = useState<number | string>('');
+  const [formReturnRoute, setFormReturnRoute] = useState<string>('');
 
   const [formLocation, setFormLocation] = useState<string>('');
   const [formNotes, setFormNotes] = useState<string>('');
@@ -292,9 +302,11 @@ Di chuyển: ${transportText}`;
     setFormOutboundType('bus');
     setFormOutboundKm('');
     setFormOutboundCost('');
+    setFormOutboundRoute('');
     setFormReturnType('bus');
     setFormReturnKm('');
     setFormReturnCost('');
+    setFormReturnRoute('');
     setFormLocation('');
     setFormNotes('');
     setIsModalOpen(true);
@@ -309,17 +321,19 @@ Di chuyển: ${transportText}`;
     setFormDailyRate(trip.daily_allowance_rate || 160000);
     setFormHotelCost(trip.hotel_cost || '');
     
-    // Phương tiện lượt đi
+    // Phương tiện & Tuyến lượt đi
     const outType: TransportType = trip.outbound_type || (trip.outbound_km ? 'motorbike' : 'bus');
     setFormOutboundType(outType);
     setFormOutboundKm(trip.outbound_km !== undefined && trip.outbound_km !== null ? trip.outbound_km : (outType === 'motorbike' && trip.outbound_cost ? Math.round(trip.outbound_cost / KM_RATE) : ''));
     setFormOutboundCost(outType === 'motorbike' ? '' : (trip.outbound_cost || ''));
+    setFormOutboundRoute(trip.outbound_route || '');
 
-    // Phương tiện lượt về
+    // Phương tiện & Tuyến lượt về
     const retType: TransportType = trip.return_type || (trip.return_km ? 'motorbike' : 'bus');
     setFormReturnType(retType);
     setFormReturnKm(trip.return_km !== undefined && trip.return_km !== null ? trip.return_km : (retType === 'motorbike' && trip.return_cost ? Math.round(trip.return_cost / KM_RATE) : ''));
     setFormReturnCost(retType === 'motorbike' ? '' : (trip.return_cost || ''));
+    setFormReturnRoute(trip.return_route || '');
 
     setFormLocation(trip.location || '');
     setFormNotes(trip.notes || '');
@@ -409,9 +423,11 @@ Di chuyển: ${transportText}`;
       outbound_type: formOutboundType,
       outbound_km: formOutboundType === 'motorbike' ? (Number(formOutboundKm) || 0) : undefined,
       outbound_cost: outboundCost,
+      outbound_route: formOutboundRoute.trim() || undefined,
       return_type: formReturnType,
       return_km: formReturnType === 'motorbike' ? (Number(formReturnKm) || 0) : undefined,
       return_cost: returnCost,
+      return_route: formReturnRoute.trim() || undefined,
       total_amount: grandTotal,
       is_paid: editingTrip ? Boolean(editingTrip.is_paid) : false,
       paid_at: editingTrip?.paid_at,
@@ -442,7 +458,9 @@ Di chuyển: ${transportText}`;
       'Mức công tác phí (đ/ngày)',
       'Tổng tiền công tác phí (đ)',
       'Tiền khách sạn (đ)',
+      'Tuyến lượt đi',
       'Tiền lượt đi (đ)',
+      'Tuyến lượt về',
       'Tiền lượt về (đ)',
       'Tổng tiền (đ)',
       'Trạng thái thanh toán',
@@ -458,7 +476,9 @@ Di chuyển: ${transportText}`;
       t.daily_allowance_rate,
       t.total_daily_allowance,
       t.hotel_cost,
+      `"${(t.outbound_route || '').replace(/"/g, '""')}"`,
       t.outbound_cost,
+      `"${(t.return_route || '').replace(/"/g, '""')}"`,
       t.return_cost,
       t.total_amount,
       t.is_paid ? 'Đã thanh toán' : 'Chờ thanh toán',
@@ -776,17 +796,30 @@ Di chuyển: ${transportText}`;
 
                       {/* Lượt đi */}
                       <td className="py-3 px-3 text-right font-mono text-slate-700 dark:text-slate-300">
-                        {trip.outbound_cost > 0 ? (
+                        {trip.outbound_cost > 0 || trip.outbound_route ? (
                           <div>
-                            <div className="font-semibold text-slate-800 dark:text-slate-200">
-                              {formatCurrency(trip.outbound_cost)}
-                            </div>
+                            {trip.outbound_cost > 0 ? (
+                              <div className="font-semibold text-slate-800 dark:text-slate-200">
+                                {formatCurrency(trip.outbound_cost)}
+                              </div>
+                            ) : (
+                              <div className="text-slate-400">0 đ</div>
+                            )}
+                            {trip.outbound_route && (
+                              <div
+                                className="text-[10px] font-bold text-sky-700 dark:text-sky-300 truncate max-w-[130px] ml-auto text-right flex items-center justify-end gap-1"
+                                title={`Tuyến đi: ${trip.outbound_route}`}
+                              >
+                                <Compass className="w-2.5 h-2.5 text-sky-500 shrink-0" />
+                                <span className="truncate">{trip.outbound_route}</span>
+                              </div>
+                            )}
                             {trip.outbound_type === 'motorbike' && trip.outbound_km ? (
                               <div className="text-[10px] text-sky-600 dark:text-sky-400 flex items-center justify-end gap-0.5">
                                 <Bike className="w-3 h-3 text-sky-500" />
                                 <span>{trip.outbound_km}km</span>
                               </div>
-                            ) : trip.outbound_type === 'bus' ? (
+                            ) : trip.outbound_type === 'bus' && trip.outbound_cost > 0 ? (
                               <div className="text-[10px] text-slate-400 flex items-center justify-end gap-0.5">
                                 <Bus className="w-3 h-3 text-slate-400" />
                                 <span>Xe khách</span>
@@ -800,17 +833,30 @@ Di chuyển: ${transportText}`;
 
                       {/* Lượt về */}
                       <td className="py-3 px-3 text-right font-mono text-slate-700 dark:text-slate-300">
-                        {trip.return_cost > 0 ? (
+                        {trip.return_cost > 0 || trip.return_route ? (
                           <div>
-                            <div className="font-semibold text-slate-800 dark:text-slate-200">
-                              {formatCurrency(trip.return_cost)}
-                            </div>
+                            {trip.return_cost > 0 ? (
+                              <div className="font-semibold text-slate-800 dark:text-slate-200">
+                                {formatCurrency(trip.return_cost)}
+                              </div>
+                            ) : (
+                              <div className="text-slate-400">0 đ</div>
+                            )}
+                            {trip.return_route && (
+                              <div
+                                className="text-[10px] font-bold text-sky-700 dark:text-sky-300 truncate max-w-[130px] ml-auto text-right flex items-center justify-end gap-1"
+                                title={`Tuyến về: ${trip.return_route}`}
+                              >
+                                <Compass className="w-2.5 h-2.5 text-sky-500 shrink-0" />
+                                <span className="truncate">{trip.return_route}</span>
+                              </div>
+                            )}
                             {trip.return_type === 'motorbike' && trip.return_km ? (
                               <div className="text-[10px] text-sky-600 dark:text-sky-400 flex items-center justify-end gap-0.5">
                                 <Bike className="w-3 h-3 text-sky-500" />
                                 <span>{trip.return_km}km</span>
                               </div>
-                            ) : trip.return_type === 'bus' ? (
+                            ) : trip.return_type === 'bus' && trip.return_cost > 0 ? (
                               <div className="text-[10px] text-slate-400 flex items-center justify-end gap-0.5">
                                 <Bus className="w-3 h-3 text-slate-400" />
                                 <span>Xe khách</span>
@@ -1133,6 +1179,21 @@ Di chuyển: ${transportText}`;
                 </button>
               </div>
 
+              {/* Tuyến đường Lượt đi */}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1">
+                  <Compass className="w-3.5 h-3.5 text-sky-500" />
+                  Tuyến đường lượt đi (Từ đâu tới đâu)
+                </label>
+                <input
+                  type="text"
+                  value={formOutboundRoute}
+                  onChange={(e) => setFormOutboundRoute(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500 placeholder:text-slate-400 font-medium"
+                  placeholder="VD: DLK - LDG hoặc BMT - Đà Lạt..."
+                />
+              </div>
+
               {/* Ô nhập tương ứng với loại xe */}
               {formOutboundType === 'motorbike' ? (
                 <div>
@@ -1212,6 +1273,42 @@ Di chuyển: ${transportText}`;
                   <Bus className="w-3.5 h-3.5" />
                   Xe khách (Vé xe)
                 </button>
+              </div>
+
+              {/* Tuyến đường Lượt về */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                    <Compass className="w-3.5 h-3.5 text-sky-500" />
+                    Tuyến đường lượt về (Từ đâu tới đâu)
+                  </label>
+                  {formOutboundRoute.trim() && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const raw = formOutboundRoute.trim();
+                        const parts = raw.split(/[-–—>]/).map(s => s.trim()).filter(Boolean);
+                        if (parts.length === 2) {
+                          setFormReturnRoute(`${parts[1]} - ${parts[0]}`);
+                        } else {
+                          setFormReturnRoute(raw);
+                        }
+                      }}
+                      className="text-[10px] text-sky-600 dark:text-sky-400 hover:underline font-semibold flex items-center gap-0.5 cursor-pointer"
+                      title="Tự động đảo ngược tuyến đi"
+                    >
+                      <ArrowLeftRight className="w-2.5 h-2.5" />
+                      Đảo tuyến đi
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={formReturnRoute}
+                  onChange={(e) => setFormReturnRoute(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500 placeholder:text-slate-400 font-medium"
+                  placeholder="VD: LDG - DLK hoặc Đà Lạt - BMT..."
+                />
               </div>
 
               {/* Ô nhập tương ứng với loại xe */}
