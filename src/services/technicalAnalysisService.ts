@@ -87,9 +87,13 @@ export interface MarketNewsImpact {
   title: string;
   source?: string;
   timeAgo?: string;
+  pubDate?: string;
   impactedAssets: string[];
   impactType: 'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'VOLATILE';
   impactSummary: string;
+  description?: string;
+  desc?: string;
+  actionableAdvice?: string;
   badge?: string;
   category?: 'ai_radar' | 'live_feed';
   isAiGenerated?: boolean;
@@ -1348,7 +1352,7 @@ class TechnicalAnalysisService {
       const combined: MarketNewsImpact[] = [];
       let cI = 0;
       let sI = 0;
-      while (combined.length < 5 && (cI < cryptoNews.length || sI < stockNews.length)) {
+      while (combined.length < 10 && (cI < cryptoNews.length || sI < stockNews.length)) {
         if (combined.length % 2 === 0 && cI < cryptoNews.length) {
           combined.push(cryptoNews[cI++]);
         } else if (sI < stockNews.length) {
@@ -1358,7 +1362,7 @@ class TechnicalAnalysisService {
         }
       }
 
-      if (combined.length >= 3) {
+      if (combined.length >= 6) {
         this.cache.set(cacheKey, { analysis: combined as any, timestamp: Date.now() });
         return combined;
       }

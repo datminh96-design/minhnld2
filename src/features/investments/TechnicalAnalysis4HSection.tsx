@@ -42,7 +42,12 @@ import {
   Flame,
   Globe,
   Coins,
-  Building2
+  Building2,
+  ExternalLink,
+  Eye,
+  BookOpen,
+  Share2,
+  ChevronRight
 } from 'lucide-react';
 import { MarketTopMoversView } from './MarketTopMoversView';
 
@@ -757,6 +762,8 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
                 isNewsRefreshing={isNewsRefreshing}
                 lastNewsUpdatedAt={lastNewsUpdatedAt}
                 globalMarketNews={globalMarketNews}
+                onSelectSymbol={handleSelectAssetTab}
+                addToast={addToast}
               />
             ))}
           </div>
@@ -775,6 +782,8 @@ export const TechnicalAnalysis4HSection: React.FC<Props> = ({
             isNewsRefreshing={isNewsRefreshing}
             lastNewsUpdatedAt={lastNewsUpdatedAt}
             globalMarketNews={globalMarketNews}
+            onSelectSymbol={handleSelectAssetTab}
+            addToast={addToast}
           />
         ) : (
           <div className="py-8 text-center text-slate-400 text-xs">
@@ -915,6 +924,8 @@ const AssetAnalysisCard: React.FC<{
   isNewsRefreshing?: boolean;
   lastNewsUpdatedAt?: string | null;
   globalMarketNews?: MarketNewsImpact[];
+  onSelectSymbol?: (sym: string) => void;
+  addToast?: (msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
 }> = ({
   analysis,
   userCurrency,
@@ -928,20 +939,119 @@ const AssetAnalysisCard: React.FC<{
   isNewsRefreshing,
   lastNewsUpdatedAt,
   globalMarketNews = [],
+  onSelectSymbol,
+  addToast,
 }) => {
   const isBullish = analysis.upProbability >= 50;
   const isProfitable = analysis.pnlPercent >= 0;
   const hasAi = !!analysis.geminiInsight;
   const currentModelDisplayName = analysis.geminiInsight?.model || activeModelOption.name;
 
-  // 10 items: 5 Gemini AI Săn Lùng + 5 Tin Nhanh Thị Trường
+  // 10 items: 5 Gemini AI Săn Lùng + 5 Tin Nhanh Thị Trường (Deduplicated & Distinct)
   const [newsFilter, setNewsFilter] = useState<'all' | 'ai' | 'live'>('all');
+  const [selectedNewsDetail, setSelectedNewsDetail] = useState<MarketNewsImpact | null>(null);
+  const [isCopiedNewsItem, setIsCopiedNewsItem] = useState(false);
+
+  const handleCopyNewsItem = (item: MarketNewsImpact) => {
+    const isAi = item.category === 'ai_radar' || item.isAiGenerated || item.badge?.includes('Gemini');
+    const badgeText = item.badge || (isAi ? '🤖 Gemini AI Săn Lùng' : '⚡ Tin Nhanh Thị Trường');
+    const impactText =
+      item.impactType === 'BULLISH'
+        ? '🟢 TÍCH CỰC (TĂNG)'
+        : item.impactType === 'BEARISH'
+        ? '🔴 ÁP LỰC GIẢM'
+        : item.impactType === 'VOLATILE'
+        ? '⚡ BIẾN ĐỘNG MẠNH'
+        : '🟡 TRUNG LẬP';
+
+    const textToCopy = `📰 ${badgeText.toUpperCase()}: ${item.title}\n\n• Nguồn: ${item.source || 'Thị trường'} | Thời gian: ${item.timeAgo || 'Vừa cập nhật'}\n• Xu hướng tác động: ${impactText}\n• Mã ảnh hưởng: ${item.impactedAssets?.join(', ')}\n\n💡 TÁC ĐỘNG TỚI GIÁ & DÒNG TIỀN:\n${item.impactSummary}\n\n📖 NỘI DUNG CHI TIẾT & BỐI CẢNH:\n${item.description || item.desc || item.impactSummary}\n\n🎯 KHUYẾN NGHỊ GIAO DỊCH 4H:\n${item.actionableAdvice || 'Quản trị tỷ trọng an toàn, tuân thủ các điểm mua/bán theo kế hoạch 4H.'}${item.url ? `\n\n🔗 Nguồn bài viết: ${item.url}` : ''}`;
+
+    navigator.clipboard.writeText(textToCopy);
+    setIsCopiedNewsItem(true);
+    if (addToast) {
+      addToast('Đã sao chép toàn bộ nội dung tin tức vào bộ nhớ tạm!', 'success');
+    }
+    setTimeout(() => setIsCopiedNewsItem(false), 2000);
+  };
 
   const effectiveNews: MarketNewsImpact[] = useMemo(() => {
-    if (analysis.geminiInsight?.topMarketNews && analysis.geminiInsight.topMarketNews.length > 0) {
-      return analysis.geminiInsight.topMarketNews;
+    const normalize = (t: string) =>
+      (t || '')
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const isSimilar = (a: MarketNewsImpact, b: MarketNewsImpact) => {
+      if (!a?.title || !b?.title) return false;
+      const nA = normalize(a.title);
+      const nB = normalize(b.title);
+      if (nA === nB) return true;
+      if (nA.length > 20 && nB.length > 20 && (nA.includes(nB) || nB.includes(nA))) return true;
+      const wA = new Set(nA.split(' ').filter((w) => w.length > 3));
+      const wB = new Set(nB.split(' ').filter((w) => w.length > 3));
+      if (wA.size === 0 || wB.size === 0) return false;
+      let c = 0;
+      for (const w of wA) {
+        if (wB.has(w)) c++;
+      }
+      const minS = Math.min(wA.size, wB.size);
+      return minS >= 3 && c / minS >= 0.45;
+    };
+
+    const isAi = (n: MarketNewsImpact) =>
+      n.category === 'ai_radar' ||
+      n.isAiGenerated ||
+      n.badge?.includes('Gemini') ||
+      (n.source && n.source.toLowerCase().includes('gemini'));
+
+    const rawAiItems: MarketNewsImpact[] = [];
+    const rawLiveItems: MarketNewsImpact[] = [];
+
+    const candidates = [
+      ...(analysis.geminiInsight?.topMarketNews || []),
+      ...(globalMarketNews || []),
+    ];
+
+    for (const item of candidates) {
+      if (!item?.title) continue;
+      if (isAi(item)) {
+        if (!rawAiItems.some((ex) => isSimilar(ex, item))) {
+          rawAiItems.push({
+            ...item,
+            badge: item.badge || '🤖 Gemini AI Săn Lùng',
+            category: 'ai_radar',
+            isAiGenerated: true,
+          });
+        }
+      } else {
+        if (!rawLiveItems.some((ex) => isSimilar(ex, item))) {
+          rawLiveItems.push({
+            ...item,
+            badge: item.badge || '⚡ Tin Nhanh Thị Trường',
+            category: 'live_feed',
+            isAiGenerated: false,
+          });
+        }
+      }
     }
-    return globalMarketNews;
+
+    // Select top 5 AI items
+    const selectedAi = rawAiItems.slice(0, 5);
+    // Filter live items to strictly exclude any that duplicate or overlap with the 5 AI items
+    const nonOverlappingLive = rawLiveItems.filter((live) => !selectedAi.some((ai) => isSimilar(live, ai)));
+    const selectedLive = nonOverlappingLive.slice(0, 5);
+
+    const merged = [...selectedAi, ...selectedLive];
+    if (merged.length >= 8) {
+      return merged;
+    }
+
+    if (globalMarketNews && globalMarketNews.length > 0) {
+      return globalMarketNews;
+    }
+
+    return merged;
   }, [analysis.geminiInsight?.topMarketNews, globalMarketNews]);
 
   const aiNews = useMemo(() => {
@@ -1572,11 +1682,13 @@ const AssetAnalysisCard: React.FC<{
               return (
                 <div
                   key={idx}
-                  className={`p-3 rounded-xl border text-xs space-y-2 transition-all ${
+                  onClick={() => setSelectedNewsDetail(news)}
+                  className={`p-3 rounded-xl border text-xs space-y-2 transition-all cursor-pointer hover:shadow-md hover:border-purple-400 dark:hover:border-purple-600 hover:-translate-y-0.5 active:scale-[0.995] group ${
                     isAiItem
                       ? 'bg-gradient-to-r from-purple-50/50 to-indigo-50/30 dark:from-purple-950/20 dark:to-indigo-950/10 border-purple-200/80 dark:border-purple-900/60 hover:border-purple-400 dark:hover:border-purple-700'
                       : 'bg-slate-50/90 dark:bg-slate-900/70 border-slate-200/80 dark:border-slate-800/90 hover:border-amber-300 dark:hover:border-amber-800/80'
                   }`}
+                  title="Bấm vào để xem toàn bộ nội dung chi tiết của tin tức này"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-1.5">
                     <div className="flex items-start gap-2 min-w-0">
@@ -1589,7 +1701,7 @@ const AssetAnalysisCard: React.FC<{
                       >
                         {idx + 1}
                       </span>
-                      <span className="font-bold text-slate-900 dark:text-white leading-snug text-xs sm:text-sm">
+                      <span className="font-bold text-slate-900 dark:text-white leading-snug text-xs sm:text-sm group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
                         {news.title}
                       </span>
                     </div>
@@ -1640,9 +1752,209 @@ const AssetAnalysisCard: React.FC<{
                   <div className="text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed bg-white/90 dark:bg-slate-800/90 p-2.5 rounded-lg border border-slate-200/80 dark:border-slate-700/80">
                     💡 <strong>Tác động giá & dòng tiền:</strong> {news.impactSummary}
                   </div>
+
+                  {/* Click to read full prompt indicator */}
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800/60 text-[10px] text-slate-400 font-medium">
+                    <span className="flex items-center gap-1 text-purple-600 dark:text-purple-400 group-hover:underline">
+                      <Eye className="w-3 h-3" />
+                      <span>Bấm để mở bảng toàn bộ nội dung tin tức & bối cảnh</span>
+                    </span>
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-purple-600 group-hover:translate-x-0.5 transition-all" />
+                  </div>
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* News Detail Full Popup Modal */}
+      {selectedNewsDetail && (
+        <div
+          className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200"
+          onClick={() => setSelectedNewsDetail(null)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl flex flex-col transition-all"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Top Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3 sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm z-10">
+              <div className="flex items-center gap-2 flex-wrap">
+                {selectedNewsDetail.category === 'ai_radar' || selectedNewsDetail.isAiGenerated || selectedNewsDetail.badge?.includes('Gemini') ? (
+                  <span className="text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 px-3 py-1 rounded-full shadow-2xs flex items-center gap-1.5">
+                    <span>🤖</span>
+                    <span>Gemini AI Săn Lùng</span>
+                  </span>
+                ) : (
+                  <span className="text-xs font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-1 rounded-full shadow-2xs flex items-center gap-1.5">
+                    <span>⚡</span>
+                    <span>Tin Nhanh Thị Trường Live</span>
+                  </span>
+                )}
+
+                <span
+                  className={`px-2.5 py-1 rounded-full text-xs font-bold border ${
+                    selectedNewsDetail.impactType === 'BULLISH'
+                      ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                      : selectedNewsDetail.impactType === 'BEARISH'
+                      ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800'
+                      : selectedNewsDetail.impactType === 'VOLATILE'
+                      ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                  }`}
+                >
+                  {selectedNewsDetail.impactType === 'BULLISH'
+                    ? '🟢 Tích Cực (Tăng Giá)'
+                    : selectedNewsDetail.impactType === 'BEARISH'
+                    ? '🔴 Áp Lực Giảm'
+                    : selectedNewsDetail.impactType === 'VOLATILE'
+                    ? '⚡ Biến Động Mạnh'
+                    : '🟡 Trung Lập'}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedNewsDetail(null)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                title="Đóng bảng tin"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Main Content */}
+            <div className="p-4 sm:p-6 space-y-5 overflow-y-auto">
+              {/* Title */}
+              <div>
+                <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white leading-snug font-display">
+                  {selectedNewsDetail.title}
+                </h3>
+
+                <div className="flex items-center gap-3 mt-2 text-xs text-slate-500 dark:text-slate-400 flex-wrap">
+                  {selectedNewsDetail.source && (
+                    <span className="flex items-center gap-1 font-medium bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                      <Globe className="w-3 h-3 text-slate-400" />
+                      Nguồn: <strong className="text-slate-700 dark:text-slate-200">{selectedNewsDetail.source}</strong>
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-3 h-3 text-slate-400" />
+                    {selectedNewsDetail.timeAgo || 'Vừa cập nhật (Chu kỳ 4H)'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Highlighted Price & Money Flow Impact */}
+              <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-br from-purple-500/10 via-indigo-500/5 to-amber-500/10 border border-purple-200/80 dark:border-purple-900/60 space-y-1.5">
+                <div className="flex items-center gap-2 text-xs font-bold text-purple-900 dark:text-purple-200 uppercase tracking-wider">
+                  <Sparkles className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
+                  <span>Đánh Giá Tác Động Tới Giá & Dòng Tiền</span>
+                </div>
+                <p className="text-xs sm:text-sm text-slate-800 dark:text-slate-200 leading-relaxed font-medium">
+                  {selectedNewsDetail.impactSummary}
+                </p>
+              </div>
+
+              {/* Impacted Assets Tags */}
+              {selectedNewsDetail.impactedAssets && selectedNewsDetail.impactedAssets.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <Target className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>Mã tài sản trực tiếp chịu ảnh hưởng:</span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {selectedNewsDetail.impactedAssets.map((assetSym, aIdx) => (
+                      <button
+                        key={aIdx}
+                        type="button"
+                        onClick={() => {
+                          if (onSelectSymbol) {
+                            onSelectSymbol(assetSym);
+                            setSelectedNewsDetail(null);
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold font-mono bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                        title={`Bấm để chuyển sang phân tích mã ${assetSym}`}
+                      >
+                        <span>{assetSym}</span>
+                        <ArrowUpRight className="w-3 h-3 opacity-60" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Detailed News Content & Context */}
+              <div className="space-y-2">
+                <div className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <BookOpen className="w-3.5 h-3.5 text-purple-500" />
+                  <span>Toàn Bộ Chi Tiết & Bối Cảnh Thị Trường:</span>
+                </div>
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed space-y-2 whitespace-pre-line">
+                  <p>
+                    {selectedNewsDetail.description || selectedNewsDetail.desc || selectedNewsDetail.impactSummary}
+                  </p>
+                </div>
+              </div>
+
+              {/* Tactical Recommendation / Advice */}
+              {selectedNewsDetail.actionableAdvice && (
+                <div className="p-3.5 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 space-y-1">
+                  <div className="text-xs font-bold text-emerald-800 dark:text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Khuyến Nghị Quản Trị Vị Thế & DCA (Khung 4H):</span>
+                  </div>
+                  <p className="text-xs sm:text-sm text-emerald-900 dark:text-emerald-200 leading-relaxed font-medium">
+                    {selectedNewsDetail.actionableAdvice}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Bottom Actions */}
+            <div className="p-4 sm:p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => handleCopyNewsItem(selectedNewsDetail)}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/80 hover:bg-purple-200 dark:hover:bg-purple-900/80 border border-purple-300 dark:border-purple-800 flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                >
+                  {isCopiedNewsItem ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="text-emerald-600">Đã sao chép</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Sao chép toàn bộ tin</span>
+                    </>
+                  )}
+                </button>
+
+                {selectedNewsDetail.url && (
+                  <a
+                    href={selectedNewsDetail.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 flex items-center gap-1.5 transition-all shadow-2xs"
+                  >
+                    <span>Xem bài viết gốc</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedNewsDetail(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 dark:hover:bg-slate-600 transition-all cursor-pointer shadow-2xs"
+              >
+                Đóng
+              </button>
+            </div>
           </div>
         </div>
       )}
