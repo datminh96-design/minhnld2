@@ -10,6 +10,8 @@ export interface WorkExportSummary {
   leaveDaysCount: number;
   completionRate: number;
   standardDaysInMonth?: number;
+  standardHoursPerDay?: number;
+  totalOvertimeMinutes?: number;
 }
 
 export interface EmployeeExportInfo {
@@ -187,6 +189,12 @@ export async function exportWorkLogsToExcel(
     ]);
   }
 
+  // Standard norm: 26 days * 8h = 208h (12,480 mins)
+  const monthlyStandardMinutes = (summary.standardDaysInMonth || 26) * (summary.standardHoursPerDay || 8) * 60;
+  const totalWorkedMinutes = Math.round(summary.totalHours * 60);
+  const excessMinutesOverStandard = Math.max(0, totalWorkedMinutes - monthlyStandardMinutes);
+  const effectiveExcessMinutes = Math.max(totalExcessMinutes, excessMinutesOverStandard, summary.totalOvertimeMinutes || 0);
+
   // Bottom Summary Row
   const totalRowIndex = sheet1Data.length;
   sheet1Data.push([
@@ -196,9 +204,11 @@ export async function exportWorkLogsToExcel(
     '',
     '',
     '',
-    totalExcessMinutes,
+    effectiveExcessMinutes,
     totalOffDays,
-    ''
+    excessMinutesOverStandard > 0
+      ? `Đã chuyển +${(excessMinutesOverStandard / 60).toFixed(1)}h vượt mốc ${monthlyStandardMinutes / 60}h sang OT`
+      : ''
   ]);
 
   const worksheet1 = XLSX.utils.aoa_to_sheet(sheet1Data);
@@ -242,7 +252,7 @@ export async function exportWorkLogsToExcel(
     [],
     ['Chỉ Số Tổng Quan', 'Giá Trị', 'Đơn Vị', 'Ghi Chú'],
     ['Tổng số phút làm việc thực tế', summary.totalHours * 60, 'Phút', `${summary.totalHours.toFixed(1)} giờ`],
-    ['Tổng phút dư / tăng ca (OT)', totalExcessMinutes, 'Phút', `${(totalExcessMinutes / 60).toFixed(1)} giờ`],
+    ['Tổng phút dư / tăng ca (OT)', effectiveExcessMinutes, 'Phút', `${(effectiveExcessMinutes / 60).toFixed(1)} giờ${excessMinutesOverStandard > 0 ? ` (bao gồm +${(excessMinutesOverStandard / 60).toFixed(1)}h vượt mốc ${monthlyStandardMinutes / 60}h)` : ''}`],
     ['Tổng số ngày nghỉ (Off)', totalOffDays, 'Ngày', 'Nghỉ phép / việc riêng'],
     ['Số ca có làm thêm giờ (OT)', otLogs.length, 'Ca', 'Có phát sinh giờ công vượt chuẩn'],
     [],

@@ -189,15 +189,20 @@ export const WorkView: React.FC = () => {
     const standardHoursPerDay = workSettings.standard_hours_per_day || 8.0;
     const standardDaysInMonth = workSettings.standard_days_per_month || 26; // Chuẩn 26 ngày (208h)
     
-    // Định mức chuẩn = số ngày bạn làm nhân cho 8 (không cộng số giờ tăng ca)
-    const standardHoursWorked = workDaysCount * standardHoursPerDay;
-    const standardMinutesWorked = Math.round(standardHoursWorked * 60);
-
-    // Chuẩn định mức tháng (26 ngày x 8h = 208h)
+    // Chuẩn định mức tháng (26 ngày x 8h = 208h = 12.480 phút)
     const monthlyStandardHours = standardDaysInMonth * standardHoursPerDay;
     const monthlyStandardMinutes = Math.round(monthlyStandardHours * 60);
 
-    const completionRate = monthlyStandardHours > 0 ? (totalHours / monthlyStandardHours) * 100 : 0;
+    // Khi làm trên 208h, định mức giờ công chuẩn tính tối đa 208h (100%),
+    // toàn bộ phần thời gian làm vượt trên 208h được chuyển sang thời gian tăng ca (OT).
+    const standardHoursWorked = Math.min(totalHours, monthlyStandardHours);
+    const standardMinutesWorked = Math.min(totalMinutes, monthlyStandardMinutes);
+
+    // Phần dôi dư vượt mốc định mức chuẩn tháng 208h
+    const excessMinutesOver208 = Math.max(0, totalMinutes - monthlyStandardMinutes);
+    const excessHoursOver208 = excessMinutesOver208 / 60;
+
+    const completionRate = monthlyStandardHours > 0 ? Math.min(100, (totalHours / monthlyStandardHours) * 100) : 0;
 
     return {
       totalHours,
@@ -209,6 +214,8 @@ export const WorkView: React.FC = () => {
       monthlyStandardHours,
       standardDaysInMonth,
       standardHoursPerDay,
+      excessMinutesOver208,
+      excessHoursOver208,
       totalOvertime,
       totalOvertimeMinutes,
       totalMissing,
@@ -442,6 +449,13 @@ export const WorkView: React.FC = () => {
     addToast(`Đã xuất file Excel mẫu chuẩn: Bang_Ghi_Gio_Lam_Thang_${monthStr}_${selectedYear}.xlsx`, 'success');
   };
 
+  const effectiveOvertimeMinutes = Math.max(
+    simpleSheetData.totalExcess,
+    summary.totalOvertimeMinutes,
+    summary.excessMinutesOver208
+  );
+  const effectiveOvertimeHours = effectiveOvertimeMinutes / 60;
+
   return (
     <div className="space-y-6 pb-12">
       {/* Top Controls: Month Selector, Mode Switcher, and Excel Export */}
@@ -509,7 +523,7 @@ export const WorkView: React.FC = () => {
           </div>
 
           <div className="hidden md:flex items-center gap-1 text-xs text-slate-400">
-            <Clock className="w-3.5 h-3.5" /> Chuẩn: {workSettings.standard_hours_per_day}h/ngày (208h/tháng)
+            <Clock className="w-3.5 h-3.5" /> Chuẩn: {workSettings.standard_hours_per_day}h/ngày ({summary.monthlyStandardHours}h/tháng)
           </div>
         </div>
 
@@ -602,9 +616,16 @@ export const WorkView: React.FC = () => {
             <span className="text-xs font-medium">Tổng Thời Gian Làm</span>
             <Clock className="w-4 h-4 text-emerald-500" />
           </div>
-          <p className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white font-display">
-            {summary.totalHours.toFixed(1)}h
-          </p>
+          <div className="flex items-baseline gap-2">
+            <p className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white font-display">
+              {summary.totalHours.toFixed(1)}h
+            </p>
+            {summary.excessHoursOver208 > 0 && (
+              <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                +{(summary.excessHoursOver208).toFixed(1)}h OT
+              </span>
+            )}
+          </div>
           <p className="text-[11px] text-slate-400 mt-0.5">
             {summary.totalMinutes.toLocaleString('vi-VN')} phút ({summary.workDaysCount} ngày làm)
           </p>
@@ -616,10 +637,10 @@ export const WorkView: React.FC = () => {
             <TrendingUp className="w-4 h-4 text-amber-500" />
           </div>
           <p className="text-lg sm:text-xl font-bold text-amber-600 dark:text-amber-400 font-display">
-            +{simpleSheetData.totalExcess.toLocaleString('vi-VN')}p
+            +{effectiveOvertimeMinutes.toLocaleString('vi-VN')}p
           </p>
           <p className="text-[11px] text-amber-600/80 dark:text-amber-400/80 mt-0.5">
-            ≈ {(simpleSheetData.totalExcess / 60).toFixed(1)} giờ làm thêm
+            ≈ {effectiveOvertimeHours.toFixed(1)} giờ làm thêm{summary.excessHoursOver208 > 0 ? ' (chuyển từ >208h)' : ''}
           </p>
         </div>
 
@@ -643,10 +664,29 @@ export const WorkView: React.FC = () => {
             {summary.standardHoursWorked.toFixed(1)}h
           </p>
           <p className="text-[11px] text-slate-400 mt-0.5">
-            {summary.workDaysCount} ngày x {summary.standardHoursPerDay}h (Chuẩn: {summary.monthlyStandardHours}h)
+            {summary.totalHours >= summary.monthlyStandardHours
+              ? `${summary.standardDaysInMonth} ngày x ${summary.standardHoursPerDay}h = ${summary.monthlyStandardHours}h (Đạt 100%)`
+              : `${summary.workDaysCount} ngày x ${summary.standardHoursPerDay}h (Chuẩn: ${summary.monthlyStandardHours}h)`}
           </p>
         </div>
       </div>
+
+      {/* Thông báo tự động chuyển giờ dôi dư trên 208h sang tăng ca */}
+      {summary.excessHoursOver208 > 0 && (
+        <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/15 border border-amber-500/30 text-slate-800 dark:text-slate-100 text-xs sm:text-sm shadow-2xs">
+          <div className="p-2 rounded-xl bg-amber-500 text-white shrink-0 shadow-xs">
+            <TrendingUp className="w-4 h-4" />
+          </div>
+          <div className="flex-1 leading-relaxed">
+            <div className="font-bold text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+              <span>Đã chuyển thời gian làm trên {summary.monthlyStandardHours}h sang Tăng Ca (OT)</span>
+            </div>
+            <p className="text-slate-600 dark:text-slate-300 mt-0.5">
+              Tổng thời gian làm tháng này là <strong>{summary.totalHours.toFixed(1)}h</strong> (vượt định mức 26 ngày x 8h = {summary.monthlyStandardHours}h). Toàn bộ <strong>+{summary.excessHoursOver208.toFixed(1)} giờ (+{summary.excessMinutesOver208.toLocaleString('vi-VN')} phút)</strong> dôi dư đã được tự động chuyển sang <strong>Thời Gian Tăng Ca (OT)</strong> để tính đầy đủ tiền lương làm thêm.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Main View Area */}
       {viewMode === 'business_trip' ? (
@@ -659,7 +699,7 @@ export const WorkView: React.FC = () => {
           month={selectedMonth}
           year={selectedYear}
           totalWorkedMinutes={summary.totalMinutes}
-          totalOvertimeMinutes={summary.totalOvertimeMinutes}
+          totalOvertimeMinutes={effectiveOvertimeMinutes}
         />
       ) : viewMode === 'simple' ? (
         /* ========================================================================= */
@@ -829,15 +869,28 @@ export const WorkView: React.FC = () => {
                 {/* BOTTOM SUMMARY ROW */}
                 <tr className="bg-amber-200/90 dark:bg-amber-900/60 font-bold border-t-2 border-slate-400 dark:border-slate-600 divide-x divide-slate-300 dark:divide-slate-700">
                   <td colSpan={6} className="py-3 px-4 text-center text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                    TỔNG CỘNG
+                    TỔNG CỘNG ({summary.totalHours.toFixed(1)}h làm việc)
                   </td>
                   <td className="py-3 px-3 text-center font-mono font-bold text-rose-600 dark:text-rose-400 text-sm bg-rose-50/50 dark:bg-rose-950/30">
-                    {simpleSheetData.totalExcess}
+                    +{effectiveOvertimeMinutes.toLocaleString('vi-VN')}p
+                    {summary.excessMinutesOver208 > simpleSheetData.totalExcess && (
+                      <span className="block text-[10px] font-normal text-rose-700 dark:text-rose-300">
+                        (Đã gồm phần vượt 208h)
+                      </span>
+                    )}
                   </td>
                   <td className="py-3 px-2 text-center font-mono font-bold text-rose-600 dark:text-rose-400 text-sm bg-rose-50/50 dark:bg-rose-950/30">
                     {simpleSheetData.totalOff}
                   </td>
-                  <td colSpan={2} className="py-3 px-4 text-slate-600 dark:text-slate-400"></td>
+                  <td colSpan={2} className="py-3 px-4 text-slate-700 dark:text-slate-300 text-xs">
+                    {summary.excessHoursOver208 > 0 ? (
+                      <span className="text-amber-700 dark:text-amber-300 font-semibold">
+                        Vượt chuẩn {summary.monthlyStandardHours}h: Chuyển +{summary.excessHoursOver208.toFixed(1)}h (+{summary.excessMinutesOver208}p) sang OT
+                      </span>
+                    ) : (
+                      <span>Định mức {summary.monthlyStandardHours}h chuẩn</span>
+                    )}
+                  </td>
                 </tr>
               </tbody>
             </table>
