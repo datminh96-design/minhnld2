@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useData } from '../../context/DataContext';
 import { WorkLog, WorkStatus } from '../../types';
 import { 
@@ -95,12 +95,43 @@ export const WorkView: React.FC = () => {
     addToast 
   } = useData();
 
-  // State
-  const [selectedMonth, setSelectedMonth] = useState<number>(9);
-  const [selectedYear, setSelectedYear] = useState<number>(2026);
+  // Current calendar date
+  const todayDate = new Date();
+  const currentCalendarMonth = todayDate.getMonth() + 1;
+  const currentCalendarYear = todayDate.getFullYear();
+
+  // State with localStorage persistence & dynamic calendar fallback
+  const [selectedMonth, setSelectedMonth] = useState<number>(() => {
+    const saved = localStorage.getItem('preferred_work_month');
+    if (saved) {
+      const num = Number(saved);
+      if (!isNaN(num) && num >= 1 && num <= 12) return num;
+    }
+    return currentCalendarMonth;
+  });
+
+  const [selectedYear, setSelectedYear] = useState<number>(() => {
+    const saved = localStorage.getItem('preferred_work_year');
+    if (saved) {
+      const num = Number(saved);
+      if (!isNaN(num) && num >= 2020 && num <= 2099) return num;
+    }
+    return currentCalendarYear;
+  });
+
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'simple' | 'table' | 'charts' | 'salary' | 'business_trip'>('simple');
+
+  // Persist month & year to localStorage so navigating back never resets
+  useEffect(() => {
+    try {
+      localStorage.setItem('preferred_work_month', String(selectedMonth));
+      localStorage.setItem('preferred_work_year', String(selectedYear));
+    } catch {
+      // ignore
+    }
+  }, [selectedMonth, selectedYear]);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -422,6 +453,18 @@ export const WorkView: React.FC = () => {
   // Save Modal Form
   const handleSaveForm = async (data: Partial<WorkLog>) => {
     if (!data.work_date) return;
+
+    // Auto-sync viewed month/year to match the saved work_date so the user stays on the month they just entered
+    const parts = data.work_date.split('-').map(Number);
+    if (parts.length === 3) {
+      const logYear = parts[0];
+      const logMonth = parts[1];
+      if (logMonth >= 1 && logMonth <= 12 && (logMonth !== selectedMonth || logYear !== selectedYear)) {
+        setSelectedMonth(logMonth);
+        setSelectedYear(logYear);
+      }
+    }
+
     await saveWorkLog({
       work_date: data.work_date,
       check_in: data.check_in || '08:00',
@@ -456,12 +499,14 @@ export const WorkView: React.FC = () => {
   );
   const effectiveOvertimeHours = effectiveOvertimeMinutes / 60;
 
+  const isNotCurrentCalendarMonth = selectedMonth !== currentCalendarMonth || selectedYear !== currentCalendarYear;
+
   return (
     <div className="space-y-6 pb-12">
       {/* Top Controls: Month Selector, Mode Switcher, and Excel Export */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
         {/* Month Selector */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
             <button
               type="button"
@@ -521,6 +566,20 @@ export const WorkView: React.FC = () => {
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
+
+          {isNotCurrentCalendarMonth && (
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedMonth(currentCalendarMonth);
+                setSelectedYear(currentCalendarYear);
+              }}
+              className="px-2.5 py-1 rounded-lg text-xs font-semibold text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 dark:hover:bg-sky-900/60 border border-sky-200 dark:border-sky-800/80 transition-colors cursor-pointer"
+              title="Nhảy về tháng hiện tại"
+            >
+              Về tháng {currentCalendarMonth < 10 ? `0${currentCalendarMonth}` : currentCalendarMonth}/{currentCalendarYear}
+            </button>
+          )}
 
           <div className="hidden md:flex items-center gap-1 text-xs text-slate-400">
             <Clock className="w-3.5 h-3.5" /> Chuẩn: {workSettings.standard_hours_per_day}h/ngày ({summary.monthlyStandardHours}h/tháng)

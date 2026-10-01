@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useData } from '../../context/DataContext';
 import { BusinessTripExpense, TransportType } from '../../types';
 import { formatCurrency, formatDateVN, getDayOfWeek, cn } from '../../lib/utils';
@@ -54,6 +54,12 @@ export const BusinessTripView: React.FC<BusinessTripViewProps> = ({ month, year 
   const [filterYear, setFilterYear] = useState<number>(year);
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'paid'>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
+
+  // Sync with prop changes when parent month/year changes
+  useEffect(() => {
+    setFilterMonth(month);
+    setFilterYear(year);
+  }, [month, year]);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
