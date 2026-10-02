@@ -219,15 +219,21 @@ export const InvestmentsView: React.FC = () => {
 
   // Save Transaction Form
   const handleSaveTx = async (txData: Partial<InvestmentTransaction>) => {
-    if (!txData.asset_id || !txData.transaction_type || !txData.quantity || !txData.price) return;
+    if (!txData.asset_id || !txData.transaction_type) return;
     await saveInvestmentTransaction({
       asset_id: txData.asset_id,
       transaction_type: txData.transaction_type,
-      quantity: txData.quantity,
-      price: txData.price,
+      dividend_type: txData.dividend_type,
+      quantity: txData.quantity ?? 0,
+      price: txData.price ?? 0,
+      price_per_unit: txData.price_per_unit ?? txData.price ?? 0,
+      total_amount: txData.total_amount,
       fee: txData.fee || 0,
       transaction_date: txData.transaction_date || new Date().toISOString().split('T')[0],
-      note: txData.note,
+      note: txData.note || txData.notes,
+      notes: txData.notes || txData.note,
+      fee_currency: txData.fee_currency,
+      usdt_rate: txData.usdt_rate,
       id: txData.id,
     });
   };
@@ -729,6 +735,8 @@ export const InvestmentsView: React.FC = () => {
                     const asset = investmentAssets.find((a) => a.id === tx.asset_id);
                     const isBuy = tx.transaction_type === 'buy';
                     const isSell = tx.transaction_type === 'sell';
+                    const isCashDiv = tx.transaction_type === 'dividend' && (tx.dividend_type === 'cash' || tx.quantity === 0 || (tx.total_amount && tx.total_amount > 0 && tx.dividend_type !== 'stock'));
+                    const isStockDiv = tx.transaction_type === 'dividend' && !isCashDiv;
 
                     return (
                       <tr key={tx.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
@@ -745,18 +753,30 @@ export const InvestmentsView: React.FC = () => {
                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
                                 : isSell
                                 ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
-                                : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800'
+                                : isCashDiv
+                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-800'
+                                : 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800'
                             }`}
                           >
-                            {isBuy ? '🟢 Mua' : isSell ? '🔴 Bán' : '🎁 Cổ tức'}
+                            {isBuy ? '🟢 Mua' : isSell ? '🔴 Bán' : isCashDiv ? '💵 Cổ tức tiền (+Chốt lời)' : '🎁 Cổ tức cổ phiếu'}
                           </span>
                         </td>
                         <td className="py-3 px-3 text-right font-mono font-medium text-slate-800 dark:text-slate-200">
-                          {tx.quantity}
+                          {isCashDiv ? (
+                            <span className="text-slate-400 text-[11px] italic">-- (nhận tiền)</span>
+                          ) : (
+                            tx.quantity
+                          )}
                         </td>
                         <td className="py-3 px-3 text-right font-mono text-slate-600 dark:text-slate-400">
                           <div>
-                            {tx.price_currency === 'USDT' && tx.original_price ? (
+                            {isCashDiv ? (
+                              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                                +{formatCurrency(tx.price_per_unit || tx.price || tx.total_amount || 0, userSettings.currency)}
+                              </span>
+                            ) : isStockDiv ? (
+                              <span className="text-slate-400 text-[11px]">0 đ (Thưởng)</span>
+                            ) : tx.price_currency === 'USDT' && tx.original_price ? (
                               <>
                                 <span className="font-semibold text-slate-900 dark:text-slate-100">
                                   ${tx.original_price.toLocaleString('en-US', { maximumFractionDigits: 4 })} USDT
@@ -796,10 +816,16 @@ export const InvestmentsView: React.FC = () => {
                           </div>
                         </td>
                         <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 dark:text-white">
-                          {formatCurrency(tx.total_amount || 0, userSettings.currency)}
+                          {isCashDiv ? (
+                            <span className="text-emerald-600 dark:text-emerald-400">
+                              +{formatCurrency(tx.total_amount || tx.price || 0, userSettings.currency)}
+                            </span>
+                          ) : (
+                            formatCurrency(tx.total_amount || 0, userSettings.currency)
+                          )}
                         </td>
                         <td className="py-3 px-4 text-slate-500 truncate max-w-xs">
-                          {tx.notes || tx.note || '--'}
+                          {tx.notes || tx.note || (isCashDiv ? 'Cổ tức tiền mặt tính thẳng vào chốt lời' : isStockDiv ? 'Cổ tức cổ phiếu' : '--')}
                         </td>
                         <td className="py-3 px-3 text-right whitespace-nowrap">
                           <button

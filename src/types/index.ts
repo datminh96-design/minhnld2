@@ -150,6 +150,7 @@ export interface InvestmentTransaction {
   user_id?: string;
   asset_id: string;
   transaction_type: InvestmentTransactionType;
+  dividend_type?: 'cash' | 'stock'; // 'cash' (tiền mặt tính vào chốt lời) hoặc 'stock' (thưởng cổ phiếu)
   transaction_date: string; // 'YYYY-MM-DD'
   quantity: number;
   price?: number;
@@ -187,9 +188,10 @@ export interface CalculatedAssetHolding {
   averageCost: number;   // Alias for avgBuyPrice
   currentPrice: number;
   currentValue: number;  // Giá trị hiện tại
-  totalProfit: number;   // Lợi nhuận/lỗ tuyệt đối
+  totalProfit: number;   // Lợi nhuận/lỗ tuyệt đối (bao gồm cả lãi chưa chốt và lãi đã chốt/cổ tức tiền mặt)
   profitPercentage: number; // % Lợi nhuận/lỗ
-  realizedProfit: number; // Lợi nhuận đã chốt khi bán
+  realizedProfit: number; // Lợi nhuận đã chốt khi bán & cổ tức tiền mặt
+  totalDividendCash?: number; // Tổng cổ tức tiền mặt đã nhận
   portfolioWeight: number; // Tỷ trọng %
   transactionsCount: number;
 }

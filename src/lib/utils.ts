@@ -312,38 +312,56 @@ export function calculateInvestmentHoldings(assets: any[], transactions: any[], 
     let currentQuantity = 0;
     let totalInvested = 0;
     let realizedProfit = 0;
+    let totalDividendCash = 0;
     
     // Simple weighted average implementation
     txs.forEach(tx => {
+      const price = Number(tx.price || tx.price_per_unit || 0);
+      const qty = Number(tx.quantity || 0);
+      const fee = Number(tx.fee || 0);
+      const totalAmount = Number(tx.total_amount || 0);
+
       if (tx.transaction_type === 'buy') {
-        currentQuantity += tx.quantity;
-        totalInvested += (tx.quantity * (tx.price || tx.price_per_unit || 0)) + (tx.fee || 0);
+        currentQuantity += qty;
+        totalInvested += (qty * price) + fee;
       } else if (tx.transaction_type === 'sell') {
         if (currentQuantity > 0) {
           const avgBuyPrice = totalInvested / currentQuantity;
-          const costOfSold = avgBuyPrice * tx.quantity;
-          const revenue = (tx.quantity * (tx.price || tx.price_per_unit || 0)) - (tx.fee || 0);
+          const soldQty = Math.min(qty, currentQuantity);
+          const costOfSold = avgBuyPrice * soldQty;
+          const revenue = (soldQty * price) - fee;
           realizedProfit += revenue - costOfSold;
-          currentQuantity -= tx.quantity;
+          currentQuantity -= soldQty;
           totalInvested -= costOfSold;
+          if (totalInvested < 0) totalInvested = 0;
         }
       } else if (tx.transaction_type === 'dividend' || tx.transaction_type === 'reward') {
-         // Free coins/money
-         if (tx.price === 0 || !tx.price) {
-            currentQuantity += tx.quantity;
-         } else {
-            // cash dividend treated as realized profit if quantity is 0?
-            if (tx.quantity === 0 && tx.total_amount) {
-               realizedProfit += tx.total_amount;
-            }
-         }
+        // Cổ tức tiền mặt (Cash Dividend) vs Cổ tức cổ phiếu/token (Stock Dividend)
+        const isCash = 
+          tx.dividend_type === 'cash' ||
+          (qty === 0 && (totalAmount > 0 || price > 0)) ||
+          (tx.dividend_type !== 'stock' && totalAmount > 0 && qty === 0);
+
+        if (isCash) {
+          // Nhận cổ tức tiền mặt -> Tính thẳng vào phần chốt lời (Realized Profit)
+          const rawCash = totalAmount > 0 ? totalAmount : (qty > 0 && price > 0 ? qty * price : price);
+          const netCash = Math.max(0, rawCash - fee);
+          realizedProfit += netCash;
+          totalDividendCash += netCash;
+        } else {
+          // Cổ tức bằng cổ phiếu / thưởng token -> Thêm số lượng cổ phiếu vào danh mục (kéo giảm giá vốn)
+          currentQuantity += qty;
+          if (fee > 0) {
+            totalInvested += fee;
+          }
+        }
       }
     });
 
     const currentPrice = asset.current_price || 0;
     const currentValue = currentQuantity * currentPrice;
     const avgBuyPrice = currentQuantity > 0 ? totalInvested / currentQuantity : 0;
-    const totalProfit = currentValue - totalInvested;
+    const totalProfit = (currentValue - totalInvested) + realizedProfit;
     const profitPercentage = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0;
 
     totalPortfolioValue += currentValue;
@@ -360,6 +378,7 @@ export function calculateInvestmentHoldings(assets: any[], transactions: any[], 
       totalProfit,
       profitPercentage,
       realizedProfit,
+      totalDividendCash,
       portfolioWeight: 0,
       transactionsCount: txs.length
     };
