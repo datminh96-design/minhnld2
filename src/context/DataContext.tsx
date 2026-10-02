@@ -261,6 +261,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       // 1. Tải work_settings (chứa cấu hình giờ công và salary_data)
       let wsBusinessTripsFallback: BusinessTripExpense[] | null = null;
+      let wsInvestmentTxsFallback: InvestmentTransaction[] | null = null;
       try {
         let queryWs = client.from('work_settings').select('*');
         if (user?.id) {
@@ -279,9 +280,15 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (typeof window !== 'undefined') {
             localStorage.setItem('app_work_settings', JSON.stringify(mergedWs));
           }
+          if (Array.isArray((wsData as any)._investment_txs)) {
+            wsInvestmentTxsFallback = (wsData as any)._investment_txs;
+          }
           if (wsData.salary_data && typeof wsData.salary_data === 'object') {
             if (Array.isArray(wsData.salary_data._business_trips)) {
               wsBusinessTripsFallback = wsData.salary_data._business_trips;
+            }
+            if (Array.isArray(wsData.salary_data._investment_txs)) {
+              wsInvestmentTxsFallback = wsData.salary_data._investment_txs;
             }
             setSalaryRecords(prev => {
               const merged = { ...prev, ...wsData.salary_data };
@@ -616,16 +623,73 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       // 9. Tải investment_transactions
       try {
+        let loadedItxs: InvestmentTransaction[] | null = null;
         let queryItx = client.from('investment_transactions').select('*');
         if (user?.id) queryItx = queryItx.or(`user_id.eq.${user.id},user_id.eq.admin123`);
         const { data: itxData, error: itxError } = await queryItx.order('transaction_date', { ascending: false });
         if (!itxError && itxData) {
-          setInvestmentTransactions(itxData.map(t => ({ 
-            ...t, 
-            quantity: Number(t.quantity) || 0, 
-            price: Number(t.price) || 0, 
-            fee: Number(t.fee) || 0 
-          })));
+          loadedItxs = itxData.map(t => {
+            let divType = t.dividend_type as 'cash' | 'stock' | undefined;
+            let totAmt = Number(t.total_amount) || 0;
+            let price = Number(t.price) || 0;
+            let qty = Number(t.quantity) || 0;
+            let fee = Number(t.fee) || 0;
+            let txType = (t.transaction_type || 'buy') as any;
+
+            if (t.note && t.note.includes('[DIVIDEND_META]:')) {
+              try {
+                const match = t.note.match(/\[DIVIDEND_META\]:(\{.*?\})/);
+                if (match && match[1]) {
+                  const meta = JSON.parse(match[1]);
+                  txType = 'dividend';
+                  if (meta.dividend_type) divType = meta.dividend_type;
+                  if (meta.total_amount !== undefined) totAmt = Number(meta.total_amount);
+                  if (meta.price !== undefined) price = Number(meta.price);
+                  if (meta.quantity !== undefined) qty = Number(meta.quantity);
+                  if (meta.fee !== undefined) fee = Number(meta.fee);
+                }
+              } catch {}
+            }
+
+            if (txType === 'dividend' || (t.note && t.note.toLowerCase().includes('cổ tức'))) {
+              txType = 'dividend';
+              if (!divType) {
+                divType = (qty === 0 || totAmt > 0 || (price > 0 && qty === 0)) ? 'cash' : 'stock';
+              }
+              if (divType === 'cash') {
+                if (totAmt === 0 && price > 0) totAmt = Math.max(0, price - fee);
+              }
+            }
+
+            return {
+              ...t,
+              transaction_type: txType,
+              dividend_type: divType,
+              quantity: qty,
+              price: price,
+              price_per_unit: price,
+              total_amount: totAmt > 0 ? totAmt : (qty * price + fee),
+              fee: fee,
+            };
+          });
+        }
+
+        // Fallback from work_settings._investment_txs if database table failed or missing rows
+        if (!loadedItxs && wsInvestmentTxsFallback && Array.isArray(wsInvestmentTxsFallback)) {
+          loadedItxs = wsInvestmentTxsFallback;
+        }
+
+        if (loadedItxs) {
+          const finalItxs = loadedItxs;
+          setInvestmentTransactions(prev => {
+            const remoteMap = new Map(finalItxs.map(r => [r.id, r]));
+            const localOnly = prev.filter(p => !remoteMap.has(p.id));
+            const merged = [...finalItxs, ...localOnly];
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('app_investment_txs', JSON.stringify(merged));
+            }
+            return merged;
+          });
         }
       } catch (itxErr) {
         console.warn('Lỗi tải investment_transactions:', itxErr);
@@ -1458,19 +1522,55 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const txQty = Number(txData.quantity ?? txData.units ?? 0);
     const txPrice = Number(txData.price ?? txData.price_per_unit ?? 0);
     const txFee = Number(txData.fee ?? 0);
-    const txNote = txData.note || txData.notes || '';
+    const rawNote = (txData.note || txData.notes || '').replace(/\[DIVIDEND_META\]:\{.*?\}/g, '').trim();
+
+    // Determine dividend type and total amount
+    let dividendType = txData.dividend_type as 'cash' | 'stock' | undefined;
+    if (txType === 'dividend' && !dividendType) {
+      dividendType = (txQty === 0 || (txPrice > 0 && txQty === 0)) ? 'cash' : 'stock';
+    }
+
+    let totalAmount = Number(txData.total_amount);
+    if (!totalAmount || isNaN(totalAmount)) {
+      if (txType === 'dividend') {
+        if (dividendType === 'cash') {
+          totalAmount = Math.max(0, txPrice - txFee);
+        } else {
+          totalAmount = txFee;
+        }
+      } else if (txType === 'buy') {
+        totalAmount = txQty * txPrice + txFee;
+      } else {
+        totalAmount = Math.max(0, txQty * txPrice - txFee);
+      }
+    }
+
+    // Build encoded note with meta for robust storage & cloud roundtrip
+    let fullNote = rawNote;
+    if (txType === 'dividend' || dividendType) {
+      const meta = {
+        dividend_type: dividendType || 'cash',
+        total_amount: totalAmount,
+        price: txPrice,
+        quantity: txQty,
+        fee: txFee,
+      };
+      fullNote = `${rawNote} [DIVIDEND_META]:${JSON.stringify(meta)}`.trim();
+    }
 
     const fullTx: InvestmentTransaction = {
       ...txData,
       id,
       asset_id: txData.asset_id,
       transaction_type: txType,
+      dividend_type: dividendType,
       transaction_date: txDate,
       quantity: txQty,
       price: txPrice,
       price_per_unit: txPrice,
+      total_amount: totalAmount,
       fee: txFee,
-      note: txNote,
+      note: fullNote,
     };
     
     // 1. Save optimistically to state and local storage immediately
@@ -1483,7 +1583,29 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return next;
     });
 
-    // 2. Ensure the parent asset exists on Supabase so foreign key constraints never block
+    // 2. Also back up full transaction list into workSettings._investment_txs for multi-device resilience
+    setWorkSettings(prev => {
+      const existingTxs = Array.isArray((prev as any)._investment_txs) ? [...(prev as any)._investment_txs] : [];
+      const idx = existingTxs.findIndex((t: any) => t.id === id);
+      const updatedTxs = idx >= 0 ? existingTxs.map((t: any) => t.id === id ? fullTx : t) : [fullTx, ...existingTxs];
+      const updatedSettings = {
+        ...prev,
+        _investment_txs: updatedTxs,
+      };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_work_settings', JSON.stringify(updatedSettings));
+      }
+      // Save settings to cloud
+      runUpsert('work_settings', {
+        id: (prev as any).id || 'default_settings',
+        user_id: user?.id || 'admin123',
+        setting_data: JSON.stringify(updatedSettings),
+        updated_at: new Date().toISOString()
+      }, '').catch(() => {});
+      return updatedSettings;
+    });
+
+    // 3. Ensure the parent asset exists on Supabase so foreign key constraints never block
     const matchedAsset = investmentAssets.find(a => a.id === fullTx.asset_id);
     if (matchedAsset && !isDemoUser) {
       runUpsert('investment_assets', {
@@ -1497,8 +1619,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }, '').catch(() => {});
     }
     
-    // 3. Upsert to Supabase with non-blocking resilience
-    await runUpsert('investment_transactions', {
+    // 4. Upsert to Supabase with non-blocking resilience & fallback handling for constraints
+    const toastMsg = txType === 'dividend' && dividendType === 'cash'
+      ? `Đã ghi nhận nhận cổ tức tiền mặt +${totalAmount.toLocaleString('vi-VN')} đ (tính vào chốt lời)`
+      : txType === 'dividend'
+      ? `Đã ghi nhận nhận cổ tức +${txQty} cổ phiếu thưởng (kéo giảm giá vốn DCA)`
+      : 'Đã ghi nhận lệnh giao dịch đầu tư';
+
+    const res = await runUpsert('investment_transactions', {
       id: fullTx.id,
       asset_id: fullTx.asset_id,
       transaction_type: fullTx.transaction_type,
@@ -1507,11 +1635,52 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       price: fullTx.price,
       fee: fullTx.fee,
       note: fullTx.note
-    }, 'Đã ghi nhận lệnh giao dịch đầu tư');
+    }, toastMsg);
+
+    // If Supabase table rejected transaction_type = 'dividend' (e.g. check constraint 23514 or enum mismatch)
+    if (res && res.success === false && txType === 'dividend') {
+      try {
+        const { client } = getSupabaseClient();
+        if (client) {
+          // Retry with safe transaction_type 'buy' while preserving full dividend metadata in note
+          await client.from('investment_transactions').upsert({
+            id: fullTx.id,
+            user_id: user?.id || 'admin123',
+            asset_id: fullTx.asset_id,
+            transaction_type: 'buy', // fallback for DB constraint
+            transaction_date: fullTx.transaction_date,
+            quantity: 0,
+            price: fullTx.price,
+            fee: fullTx.fee,
+            note: fullTx.note,
+          });
+        }
+      } catch (retryErr) {
+        console.warn('Fallback save dividend transaction:', retryErr);
+      }
+    }
   };
 
   const deleteInvestmentTransaction = async (id: string) => {
-    setInvestmentTransactions(prev => prev.filter(t => t.id !== id));
+    setInvestmentTransactions(prev => {
+      const next = prev.filter(t => t.id !== id);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_investment_txs', JSON.stringify(next));
+      }
+      return next;
+    });
+    setWorkSettings(prev => {
+      const existingTxs = Array.isArray((prev as any)._investment_txs) ? [...(prev as any)._investment_txs] : [];
+      const updatedTxs = existingTxs.filter((t: any) => t.id !== id);
+      const updatedSettings = {
+        ...prev,
+        _investment_txs: updatedTxs,
+      };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_work_settings', JSON.stringify(updatedSettings));
+      }
+      return updatedSettings;
+    });
     await runDelete('investment_transactions', id, 'Đã xóa giao dịch đầu tư');
   };
 

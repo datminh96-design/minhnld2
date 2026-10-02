@@ -825,7 +825,7 @@ export const InvestmentsView: React.FC = () => {
                           )}
                         </td>
                         <td className="py-3 px-4 text-slate-500 truncate max-w-xs">
-                          {tx.notes || tx.note || (isCashDiv ? 'Cổ tức tiền mặt tính thẳng vào chốt lời' : isStockDiv ? 'Cổ tức cổ phiếu' : '--')}
+                          {((tx.notes || tx.note || '').replace(/\[DIVIDEND_META\]:\{.*?\}/g, '').trim()) || (isCashDiv ? 'Cổ tức tiền mặt tính thẳng vào chốt lời' : isStockDiv ? 'Cổ tức cổ phiếu' : '--')}
                         </td>
                         <td className="py-3 px-3 text-right whitespace-nowrap">
                           <button
