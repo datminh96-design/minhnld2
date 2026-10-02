@@ -1806,6 +1806,29 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         notes: matchedAsset.notes
       }, '').catch(() => {});
     }
+
+    // 6. If Cash Dividend, also mirror into General Finance Transactions (Income)
+    if (txType === 'dividend' && dividendType === 'cash' && totalAmount > 0) {
+      const incId = toValidUUID(`div_inc_${fullTx.id}`);
+      const assetSym = matchedAsset?.asset_symbol || '';
+      const incTx: Transaction = {
+        id: incId,
+        amount: totalAmount,
+        transaction_type: 'income',
+        category_name: 'Cổ tức / Đầu tư',
+        transaction_date: txDate,
+        note: `Nhận cổ tức tiền mặt ${assetSym} [INVESTMENT_DIVIDEND_LINK]:${fullTx.id} ${rawNote}`.trim(),
+      };
+      setTransactions(prev => {
+        const idx = prev.findIndex(t => t.id === incId);
+        const next = idx >= 0 ? prev.map(t => t.id === incId ? incTx : t) : [incTx, ...prev];
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('app_transactions', JSON.stringify(next));
+        }
+        return next;
+      });
+      runUpsert('transactions', incTx, '').catch(() => {});
+    }
     
     // 6. Upsert to Supabase with non-blocking resilience & fallback handling for constraints
     const toastMsg = txType === 'dividend' && dividendType === 'cash'
@@ -1886,6 +1909,17 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         notes: `[INVESTMENTS_SYNC]:${JSON.stringify(updatedTxs)}`
       }, '');
     } catch (logErr) {}
+
+    // Clean up mirrored income transaction if linked
+    const linkedIncId = toValidUUID(`div_inc_${id}`);
+    setTransactions(prev => {
+      const next = prev.filter(t => t.id !== linkedIncId);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_transactions', JSON.stringify(next));
+      }
+      return next;
+    });
+    runDelete('transactions', linkedIncId, '').catch(() => {});
 
     setWorkSettings(prev => {
       const updatedSettings = {

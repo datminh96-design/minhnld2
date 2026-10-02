@@ -81,6 +81,11 @@ export const InvestmentsView: React.FC = () => {
   const [sortField, setSortField] = useState<'totalInvested' | 'currentValue' | 'totalProfit' | 'symbol' | 'currentQuantity' | 'averageCost' | 'currentPrice'>('totalInvested');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
+  // Transaction History Filter States
+  const [txFilterType, setTxFilterType] = useState<'all' | 'buy' | 'sell' | 'cash_dividend' | 'stock_dividend'>('all');
+  const [txSearchTerm, setTxSearchTerm] = useState<string>('');
+  const [txAssetFilter, setTxAssetFilter] = useState<string>('all');
+
   const handleToggleSort = (field: typeof sortField) => {
     if (sortField === field) {
       setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
@@ -236,7 +241,84 @@ export const InvestmentsView: React.FC = () => {
       usdt_rate: txData.usdt_rate,
       id: txData.id,
     });
+    // Automatically switch to the 'transactions' tab so user sees their new transaction immediately!
+    setActiveTab('transactions');
   };
+
+  // Transaction History Filtered & Sorted
+  const filteredInvestmentTransactions = useMemo(() => {
+    return [...investmentTransactions]
+      .sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime())
+      .filter((tx) => {
+        const isBuy = tx.transaction_type === 'buy';
+        const isSell = tx.transaction_type === 'sell';
+        const isCashDiv = tx.transaction_type === 'dividend' && (tx.dividend_type === 'cash' || tx.quantity === 0 || (tx.total_amount && tx.total_amount > 0 && tx.dividend_type !== 'stock'));
+        const isStockDiv = tx.transaction_type === 'dividend' && !isCashDiv;
+
+        if (txFilterType === 'buy' && !isBuy) return false;
+        if (txFilterType === 'sell' && !isSell) return false;
+        if (txFilterType === 'cash_dividend' && !isCashDiv) return false;
+        if (txFilterType === 'stock_dividend' && !isStockDiv) return false;
+
+        if (txAssetFilter !== 'all' && tx.asset_id !== txAssetFilter) return false;
+
+        if (txSearchTerm.trim()) {
+          const term = txSearchTerm.toLowerCase();
+          const asset = investmentAssets.find(a => a.id === tx.asset_id);
+          const sym = (asset?.asset_symbol || '').toLowerCase();
+          const name = (asset?.asset_name || '').toLowerCase();
+          const note = (tx.note || tx.notes || '').toLowerCase();
+          if (!sym.includes(term) && !name.includes(term) && !note.includes(term)) return false;
+        }
+
+        return true;
+      });
+  }, [investmentTransactions, txFilterType, txAssetFilter, txSearchTerm, investmentAssets]);
+
+  // Summary stats for transaction history
+  const txSummaryStats = useMemo(() => {
+    let totalBuy = 0;
+    let totalSell = 0;
+    let totalCashDiv = 0;
+    let buyCount = 0;
+    let sellCount = 0;
+    let cashDivCount = 0;
+    let stockDivCount = 0;
+
+    investmentTransactions.forEach((tx) => {
+      const isBuy = tx.transaction_type === 'buy';
+      const isSell = tx.transaction_type === 'sell';
+      const isCashDiv = tx.transaction_type === 'dividend' && (tx.dividend_type === 'cash' || tx.quantity === 0 || (tx.total_amount && tx.total_amount > 0 && tx.dividend_type !== 'stock'));
+      const isStockDiv = tx.transaction_type === 'dividend' && !isCashDiv;
+
+      const amt = Number(tx.total_amount) || (Number(tx.quantity) * Number(tx.price || 0) + Number(tx.fee || 0));
+
+      if (isBuy) {
+        totalBuy += amt;
+        buyCount++;
+      } else if (isSell) {
+        totalSell += amt;
+        sellCount++;
+      } else if (isCashDiv) {
+        const netCash = Number(tx.total_amount) > 0 ? Number(tx.total_amount) : Number(tx.price || 0) - Number(tx.fee || 0);
+        totalCashDiv += Math.max(0, netCash);
+        cashDivCount++;
+      } else if (isStockDiv) {
+        stockDivCount++;
+      }
+    });
+
+    return {
+      totalBuy,
+      totalSell,
+      totalCashDiv,
+      buyCount,
+      sellCount,
+      cashDivCount,
+      stockDivCount,
+      totalCount: investmentTransactions.length,
+    };
+  }, [investmentTransactions]);
 
   return (
     <div className="space-y-6 pb-12">
@@ -698,151 +780,282 @@ export const InvestmentsView: React.FC = () => {
 
       {/* Main Tab 2: Transaction History Table */}
       {activeTab === 'transactions' && (
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
-            {investmentTransactions.length === 0 ? (
-              <EmptyState
-                icon={History}
-                title="Chưa có lịch sử giao dịch"
-                description="Các lệnh mua, bán hoặc nhận cổ tức sẽ hiển thị tại đây."
-                action={
-                  <button
-                    type="button"
-                    onClick={() => handleOpenAddTx()}
-                    className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-medium text-xs shadow-xs"
-                  >
-                    + Thêm Lệnh Mua / Bán
-                  </button>
-                }
-              />
-            ) : (
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
-                    <th className="py-3 px-4">Ngày</th>
-                    <th className="py-3 px-3">Mã tài sản</th>
-                    <th className="py-3 px-3">Lệnh</th>
-                    <th className="py-3 px-3 text-right">Số lượng</th>
-                    <th className="py-3 px-3 text-right">Đơn giá</th>
-                    <th className="py-3 px-3 text-right">Phí giao dịch</th>
-                    <th className="py-3 px-4 text-right">Tổng thanh toán</th>
-                    <th className="py-3 px-4">Ghi chú</th>
-                    <th className="py-3 px-3 text-right">Xóa</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {investmentTransactions.map((tx) => {
-                    const asset = investmentAssets.find((a) => a.id === tx.asset_id);
-                    const isBuy = tx.transaction_type === 'buy';
-                    const isSell = tx.transaction_type === 'sell';
-                    const isCashDiv = tx.transaction_type === 'dividend' && (tx.dividend_type === 'cash' || tx.quantity === 0 || (tx.total_amount && tx.total_amount > 0 && tx.dividend_type !== 'stock'));
-                    const isStockDiv = tx.transaction_type === 'dividend' && !isCashDiv;
+        <div className="space-y-4">
+          {/* Summary Mini KPIs for Transactions */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+              <span className="text-[11px] font-medium text-slate-400">Tổng số lệnh</span>
+              <p className="text-lg font-bold text-slate-900 dark:text-white mt-0.5 font-display">
+                {txSummaryStats.totalCount} <span className="text-xs font-normal text-slate-400">lệnh</span>
+              </p>
+            </div>
+            <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+              <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">🟢 Tổng vốn Mua vào</span>
+              <p className="text-lg font-bold text-slate-900 dark:text-white mt-0.5 font-display">
+                {formatCurrency(txSummaryStats.totalBuy, userSettings.currency, true)}
+              </p>
+            </div>
+            <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+              <span className="text-[11px] font-medium text-rose-600 dark:text-rose-400">🔴 Tổng thu Bán ra</span>
+              <p className="text-lg font-bold text-slate-900 dark:text-white mt-0.5 font-display">
+                {formatCurrency(txSummaryStats.totalSell, userSettings.currency, true)}
+              </p>
+            </div>
+            <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 shadow-xs">
+              <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300">💵 Cổ tức tiền (+Chốt lời)</span>
+              <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400 mt-0.5 font-display">
+                +{formatCurrency(txSummaryStats.totalCashDiv, userSettings.currency, true)}
+              </p>
+            </div>
+          </div>
 
-                    return (
-                      <tr key={tx.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
-                        <td className="py-3 px-4 font-semibold text-slate-900 dark:text-white whitespace-nowrap">
-                          {formatDateVN(tx.transaction_date)}
-                        </td>
-                        <td className="py-3 px-3 font-bold text-slate-800 dark:text-slate-200">
-                          {asset?.asset_symbol || 'N/A'}
-                        </td>
-                        <td className="py-3 px-3 whitespace-nowrap">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                              isBuy
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
-                                : isSell
-                                ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
-                                : isCashDiv
-                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-800'
-                                : 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800'
-                            }`}
-                          >
-                            {isBuy ? '🟢 Mua' : isSell ? '🔴 Bán' : isCashDiv ? '💵 Cổ tức tiền (+Chốt lời)' : '🎁 Cổ tức cổ phiếu'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono font-medium text-slate-800 dark:text-slate-200">
-                          {isCashDiv ? (
-                            <span className="text-slate-400 text-[11px] italic">-- (nhận tiền)</span>
-                          ) : (
-                            tx.quantity
-                          )}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono text-slate-600 dark:text-slate-400">
-                          <div>
-                            {isCashDiv ? (
-                              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                                +{formatCurrency(tx.price_per_unit || tx.price || tx.total_amount || 0, userSettings.currency)}
-                              </span>
-                            ) : isStockDiv ? (
-                              <span className="text-slate-400 text-[11px]">0 đ (Thưởng)</span>
-                            ) : tx.price_currency === 'USDT' && tx.original_price ? (
-                              <>
-                                <span className="font-semibold text-slate-900 dark:text-slate-100">
-                                  ${tx.original_price.toLocaleString('en-US', { maximumFractionDigits: 4 })} USDT
-                                </span>
-                                <span className="block text-[10px] text-slate-400">
-                                  ≈ {formatCurrency(tx.price_per_unit || tx.price || 0, userSettings.currency)}
-                                </span>
-                              </>
-                            ) : (
-                              formatCurrency(tx.price_per_unit || tx.price || 0, userSettings.currency)
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono text-slate-400">
-                          <div>
-                            {tx.fee_currency === 'BNB' && tx.original_fee ? (
-                              <>
-                                <span className="font-semibold text-amber-600 dark:text-amber-400">
-                                  {tx.original_fee} BNB
-                                </span>
-                                <span className="block text-[10px] text-slate-400">
-                                  ≈ {formatCurrency(tx.fee, userSettings.currency)}
-                                </span>
-                              </>
-                            ) : tx.fee_currency === 'USDT' && tx.original_fee ? (
-                              <>
-                                <span className="font-semibold text-purple-600 dark:text-purple-400">
-                                  ${tx.original_fee} USDT
-                                </span>
-                                <span className="block text-[10px] text-slate-400">
-                                  ≈ {formatCurrency(tx.fee, userSettings.currency)}
-                                </span>
-                              </>
-                            ) : (
-                              formatCurrency(tx.fee, userSettings.currency)
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 dark:text-white">
-                          {isCashDiv ? (
-                            <span className="text-emerald-600 dark:text-emerald-400">
-                              +{formatCurrency(tx.total_amount || tx.price || 0, userSettings.currency)}
+          {/* Filter Bar */}
+          <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-wrap items-center justify-between gap-3">
+            {/* Type Filter Chips */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setTxFilterType('all')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  txFilterType === 'all'
+                    ? 'bg-purple-600 text-white shadow-xs'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                }`}
+              >
+                Tất cả ({txSummaryStats.totalCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setTxFilterType('cash_dividend')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  txFilterType === 'cash_dividend'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 hover:bg-emerald-100'
+                }`}
+              >
+                💵 Cổ tức tiền mặt ({txSummaryStats.cashDivCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setTxFilterType('stock_dividend')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  txFilterType === 'stock_dividend'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 hover:bg-indigo-100'
+                }`}
+              >
+                🎁 Cổ tức cổ phiếu ({txSummaryStats.stockDivCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setTxFilterType('buy')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  txFilterType === 'buy'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                }`}
+              >
+                🟢 Lệnh Mua ({txSummaryStats.buyCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setTxFilterType('sell')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  txFilterType === 'sell'
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                }`}
+              >
+                🔴 Lệnh Bán ({txSummaryStats.sellCount})
+              </button>
+            </div>
+
+            {/* Right side: Asset filter & Search */}
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <select
+                value={txAssetFilter}
+                onChange={(e) => setTxAssetFilter(e.target.value)}
+                className="px-3 py-1.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              >
+                <option value="all">Tất cả mã tài sản</option>
+                {investmentAssets.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.asset_symbol} ({a.asset_name})
+                  </option>
+                ))}
+              </select>
+
+              <div className="relative flex-1 sm:w-48">
+                <input
+                  type="text"
+                  placeholder="Tìm mã hoặc ghi chú..."
+                  value={txSearchTerm}
+                  onChange={(e) => setTxSearchTerm(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              </div>
+            </div>
+          </div>
+
+          {/* Table Container */}
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              {filteredInvestmentTransactions.length === 0 ? (
+                <EmptyState
+                  icon={History}
+                  title="Không tìm thấy lịch sử giao dịch phù hợp"
+                  description={
+                    investmentTransactions.length === 0
+                      ? 'Các lệnh mua, bán hoặc nhận cổ tức sẽ hiển thị tại đây.'
+                      : 'Hãy thử đổi bộ lọc hoặc từ khóa tìm kiếm.'
+                  }
+                  action={
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAddTx()}
+                      className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-medium text-xs shadow-xs"
+                    >
+                      + Thêm Lệnh Giao Dịch
+                    </button>
+                  }
+                />
+              ) : (
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
+                      <th className="py-3 px-4">Ngày</th>
+                      <th className="py-3 px-3">Mã tài sản</th>
+                      <th className="py-3 px-3">Lệnh</th>
+                      <th className="py-3 px-3 text-right">Số lượng</th>
+                      <th className="py-3 px-3 text-right">Đơn giá</th>
+                      <th className="py-3 px-3 text-right">Phí giao dịch</th>
+                      <th className="py-3 px-4 text-right">Tổng thanh toán / Thực nhận</th>
+                      <th className="py-3 px-4">Ghi chú</th>
+                      <th className="py-3 px-3 text-right">Xóa</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {filteredInvestmentTransactions.map((tx) => {
+                      const asset = investmentAssets.find((a) => a.id === tx.asset_id);
+                      const isBuy = tx.transaction_type === 'buy';
+                      const isSell = tx.transaction_type === 'sell';
+                      const isCashDiv = tx.transaction_type === 'dividend' && (tx.dividend_type === 'cash' || tx.quantity === 0 || (tx.total_amount && tx.total_amount > 0 && tx.dividend_type !== 'stock'));
+                      const isStockDiv = tx.transaction_type === 'dividend' && !isCashDiv;
+
+                      return (
+                        <tr
+                          key={tx.id}
+                          className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors ${
+                            isCashDiv ? 'bg-emerald-50/25 dark:bg-emerald-950/10' : ''
+                          }`}
+                        >
+                          <td className="py-3 px-4 font-semibold text-slate-900 dark:text-white whitespace-nowrap">
+                            {formatDateVN(tx.transaction_date)}
+                          </td>
+                          <td className="py-3 px-3 font-bold text-slate-800 dark:text-slate-200">
+                            <span className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 font-mono">
+                              {asset?.asset_symbol || 'N/A'}
                             </span>
-                          ) : (
-                            formatCurrency(tx.total_amount || 0, userSettings.currency)
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-slate-500 truncate max-w-xs">
-                          {((tx.notes || tx.note || '').replace(/\[DIVIDEND_META\]:\{.*?\}/g, '').trim()) || (isCashDiv ? 'Cổ tức tiền mặt tính thẳng vào chốt lời' : isStockDiv ? 'Cổ tức cổ phiếu' : '--')}
-                        </td>
-                        <td className="py-3 px-3 text-right whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => deleteInvestmentTransaction(tx.id)}
-                            className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
-                            title="Xóa lệnh"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
+                          </td>
+                          <td className="py-3 px-3 whitespace-nowrap">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                                isBuy
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                                  : isSell
+                                  ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
+                                  : isCashDiv
+                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-800 font-bold'
+                                  : 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800'
+                              }`}
+                            >
+                              {isBuy ? '🟢 Mua' : isSell ? '🔴 Bán' : isCashDiv ? '💵 Cổ tức tiền (+Chốt lời)' : '🎁 Cổ tức cổ phiếu'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono font-medium text-slate-800 dark:text-slate-200">
+                            {isCashDiv ? (
+                              <span className="text-emerald-600 dark:text-emerald-400 text-[11px] font-semibold">-- (nhận tiền)</span>
+                            ) : (
+                              tx.quantity
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono text-slate-600 dark:text-slate-400">
+                            <div>
+                              {isCashDiv ? (
+                                <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                                  +{formatCurrency(tx.price_per_unit || tx.price || tx.total_amount || 0, userSettings.currency)}
+                                </span>
+                              ) : isStockDiv ? (
+                                <span className="text-slate-400 text-[11px]">0 đ (Thưởng)</span>
+                              ) : tx.price_currency === 'USDT' && tx.original_price ? (
+                                <>
+                                  <span className="font-semibold text-slate-900 dark:text-slate-100">
+                                    ${tx.original_price.toLocaleString('en-US', { maximumFractionDigits: 4 })} USDT
+                                  </span>
+                                  <span className="block text-[10px] text-slate-400">
+                                    ≈ {formatCurrency(tx.price_per_unit || tx.price || 0, userSettings.currency)}
+                                  </span>
+                                </>
+                              ) : (
+                                formatCurrency(tx.price_per_unit || tx.price || 0, userSettings.currency)
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono text-slate-400">
+                            <div>
+                              {tx.fee_currency === 'BNB' && tx.original_fee ? (
+                                <>
+                                  <span className="font-semibold text-amber-600 dark:text-amber-400">
+                                    {tx.original_fee} BNB
+                                  </span>
+                                  <span className="block text-[10px] text-slate-400">
+                                    ≈ {formatCurrency(tx.fee, userSettings.currency)}
+                                  </span>
+                                </>
+                              ) : tx.fee_currency === 'USDT' && tx.original_fee ? (
+                                <>
+                                  <span className="font-semibold text-purple-600 dark:text-purple-400">
+                                    ${tx.original_fee} USDT
+                                  </span>
+                                  <span className="block text-[10px] text-slate-400">
+                                    ≈ {formatCurrency(tx.fee, userSettings.currency)}
+                                  </span>
+                                </>
+                              ) : (
+                                formatCurrency(tx.fee, userSettings.currency)
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 dark:text-white">
+                            {isCashDiv ? (
+                              <span className="text-emerald-600 dark:text-emerald-400 text-sm">
+                                +{formatCurrency(tx.total_amount || tx.price || 0, userSettings.currency)}
+                              </span>
+                            ) : (
+                              formatCurrency(tx.total_amount || 0, userSettings.currency)
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-slate-500 truncate max-w-xs">
+                            {((tx.notes || tx.note || '').replace(/\[DIVIDEND_META\]:\{.*?\}/g, '').trim()) || (isCashDiv ? 'Cổ tức tiền mặt tính thẳng vào chốt lời' : isStockDiv ? 'Cổ tức cổ phiếu' : '--')}
+                          </td>
+                          <td className="py-3 px-3 text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => deleteInvestmentTransaction(tx.id)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                              title="Xóa lệnh"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         </div>
       )}
