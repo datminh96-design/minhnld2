@@ -262,6 +262,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // 1. Tải work_settings (chứa cấu hình giờ công và salary_data)
       let wsBusinessTripsFallback: BusinessTripExpense[] | null = null;
       let wsInvestmentTxsFallback: InvestmentTransaction[] | null = null;
+      const foundItxsFromLogs: InvestmentTransaction[] = [];
+      const foundAssetsFromLogs: InvestmentAsset[] = [];
       try {
         let queryWs = client.from('work_settings').select('*');
         if (user?.id) {
@@ -429,7 +431,37 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               return; // Bỏ qua không đưa vào danh sách chấm công hàng ngày
             }
 
-            if (l.work_date === '1970-01-01' || l.work_status === 'Lương tháng' || l.work_status === 'Cấu hình' || l.work_status === 'Công tác phí') {
+            // Nhận diện bản ghi đồng bộ giao dịch đầu tư & cổ tức tiền mặt
+            if (l.notes && typeof l.notes === 'string' && l.notes.includes('[INVESTMENTS_SYNC]:')) {
+              try {
+                const keyword = '[INVESTMENTS_SYNC]:';
+                const jsonPart = l.notes.substring(l.notes.indexOf(keyword) + keyword.length);
+                const parsed = JSON.parse(jsonPart);
+                if (Array.isArray(parsed)) {
+                  foundItxsFromLogs.push(...parsed);
+                }
+              } catch (e) {
+                // ignore
+              }
+              return;
+            }
+
+            // Nhận diện bản ghi đồng bộ danh mục tài sản đầu tư
+            if (l.notes && typeof l.notes === 'string' && l.notes.includes('[INVESTMENT_ASSETS_SYNC]:')) {
+              try {
+                const keyword = '[INVESTMENT_ASSETS_SYNC]:';
+                const jsonPart = l.notes.substring(l.notes.indexOf(keyword) + keyword.length);
+                const parsed = JSON.parse(jsonPart);
+                if (Array.isArray(parsed)) {
+                  foundAssetsFromLogs.push(...parsed);
+                }
+              } catch (e) {
+                // ignore
+              }
+              return;
+            }
+
+            if (l.work_date === '1970-01-01' || l.work_status === 'Lương tháng' || l.work_status === 'Cấu hình' || l.work_status === 'Công tác phí' || l.work_status === 'Đầu tư') {
               return;
             }
 
@@ -580,7 +612,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // 8. Tải investment_assets
       try {
         let queryAssets = client.from('investment_assets').select('*');
-        if (user?.id) queryAssets = queryAssets.or(`user_id.eq.${user.id},user_id.eq.admin123`);
+        if (user?.id) queryAssets = queryAssets.or(`user_id.eq.${user.id},user_id.eq.admin123,user_id.is.null`);
         const { data: assetData, error: assetError } = await queryAssets;
         if (!assetError && assetData) {
           setInvestmentAssets(prev => {
@@ -617,6 +649,21 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             });
           });
         }
+        if (foundAssetsFromLogs.length > 0) {
+          setInvestmentAssets(prev => {
+            const map = new Map(prev.map(a => [a.id, a]));
+            foundAssetsFromLogs.forEach(a => {
+              if (!map.has(a.id)) {
+                prev.push(a);
+                map.set(a.id, a);
+              }
+            });
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('app_investment_assets', JSON.stringify(prev));
+            }
+            return [...prev];
+          });
+        }
       } catch (assetErr) {
         console.warn('Lỗi tải investment_assets:', assetErr);
       }
@@ -625,7 +672,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         let loadedItxs: InvestmentTransaction[] | null = null;
         let queryItx = client.from('investment_transactions').select('*');
-        if (user?.id) queryItx = queryItx.or(`user_id.eq.${user.id},user_id.eq.admin123`);
+        if (user?.id) queryItx = queryItx.or(`user_id.eq.${user.id},user_id.eq.admin123,user_id.is.null`);
         const { data: itxData, error: itxError } = await queryItx.order('transaction_date', { ascending: false });
         if (!itxError && itxData) {
           loadedItxs = itxData.map(t => {
@@ -672,6 +719,21 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               fee: fee,
             };
           });
+        }
+
+        // Fallback from shadow channel foundItxsFromLogs
+        if (foundItxsFromLogs.length > 0) {
+          if (!loadedItxs) {
+            loadedItxs = foundItxsFromLogs;
+          } else {
+            const map = new Map(loadedItxs.map(t => [t.id, t]));
+            foundItxsFromLogs.forEach(f => {
+              if (!map.has(f.id)) {
+                loadedItxs!.push(f);
+                map.set(f.id, f);
+              }
+            });
+          }
         }
 
         // Fallback from work_settings._investment_txs if database table failed or missing rows
@@ -783,6 +845,32 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setBusinessTrips(sorted);
             if (typeof window !== 'undefined') {
               localStorage.setItem('app_business_trips', JSON.stringify(sorted));
+            }
+          }
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'investment_sync' },
+        (payload: any) => {
+          const item = payload?.payload;
+          if (item?.transactions && Array.isArray(item.transactions)) {
+            setInvestmentTransactions(item.transactions);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('app_investment_txs', JSON.stringify(item.transactions));
+            }
+          }
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'investment_assets_sync' },
+        (payload: any) => {
+          const item = payload?.payload;
+          if (item?.assets && Array.isArray(item.assets)) {
+            setInvestmentAssets(item.assets);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('app_investment_assets', JSON.stringify(item.assets));
             }
           }
         }
@@ -1476,11 +1564,47 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const id = assetData.id || generateUUID();
     const isNew = !assetData.id;
     const fullAsset: InvestmentAsset = { ...assetData, id, current_price: Number(assetData.current_price) || 0 };
+    
+    let nextAssets: InvestmentAsset[] = [];
     setInvestmentAssets(prev => {
       const idx = prev.findIndex(a => a.id === id);
-      if (idx >= 0) { const next = [...prev]; next[idx] = fullAsset; return next; }
-      return [fullAsset, ...prev];
+      nextAssets = idx >= 0 ? prev.map(a => a.id === id ? fullAsset : a) : [fullAsset, ...prev];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_investment_assets', JSON.stringify(nextAssets));
+      }
+      return nextAssets;
     });
+
+    // Realtime broadcast to other devices
+    try {
+      const { client } = getSupabaseClient();
+      if (client) {
+        const channel = client.channel('app_global_realtime_sync');
+        channel.send({
+          type: 'broadcast',
+          event: 'investment_assets_sync',
+          payload: { assets: nextAssets, updated_at: new Date().toISOString() }
+        });
+      }
+    } catch (bcErr) {
+      console.warn('Realtime broadcast asset error:', bcErr);
+    }
+
+    // Universal shadow sync via work_logs
+    try {
+      const assetLogId = toValidUUID('asset_sync_global_meta');
+      await runUpsert('work_logs', {
+        id: assetLogId,
+        work_date: '1970-01-01',
+        work_status: 'Đầu tư',
+        total_hours: 0,
+        break_duration_hours: 0,
+        overtime_hours: 0,
+        missing_hours: 0,
+        notes: `[INVESTMENT_ASSETS_SYNC]:${JSON.stringify(nextAssets)}`
+      }, '');
+    } catch (e) {}
+
     const res = await runUpsert('investment_assets', {
       id: fullAsset.id,
       asset_name: fullAsset.asset_name,
@@ -1511,7 +1635,41 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const deleteInvestmentAsset = async (id: string) => {
-    setInvestmentAssets(prev => prev.filter(a => a.id !== id));
+    let nextAssets: InvestmentAsset[] = [];
+    setInvestmentAssets(prev => {
+      nextAssets = prev.filter(a => a.id !== id);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_investment_assets', JSON.stringify(nextAssets));
+      }
+      return nextAssets;
+    });
+
+    try {
+      const { client } = getSupabaseClient();
+      if (client) {
+        const channel = client.channel('app_global_realtime_sync');
+        channel.send({
+          type: 'broadcast',
+          event: 'investment_assets_sync',
+          payload: { assets: nextAssets, updated_at: new Date().toISOString() }
+        });
+      }
+    } catch (bcErr) {}
+
+    try {
+      const assetLogId = toValidUUID('asset_sync_global_meta');
+      await runUpsert('work_logs', {
+        id: assetLogId,
+        work_date: '1970-01-01',
+        work_status: 'Đầu tư',
+        total_hours: 0,
+        break_duration_hours: 0,
+        overtime_hours: 0,
+        missing_hours: 0,
+        notes: `[INVESTMENT_ASSETS_SYNC]:${JSON.stringify(nextAssets)}`
+      }, '');
+    } catch (e) {}
+
     await runDelete('investment_assets', id, 'Đã xóa tài sản');
   };
 
@@ -1574,20 +1732,50 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     
     // 1. Save optimistically to state and local storage immediately
+    let updatedTxs: InvestmentTransaction[] = [];
     setInvestmentTransactions(prev => {
       const idx = prev.findIndex(t => t.id === id);
-      const next = idx >= 0 ? prev.map(t => t.id === id ? fullTx : t) : [fullTx, ...prev];
+      updatedTxs = idx >= 0 ? prev.map(t => t.id === id ? fullTx : t) : [fullTx, ...prev];
       if (typeof window !== 'undefined') {
-        localStorage.setItem('app_investment_txs', JSON.stringify(next));
+        localStorage.setItem('app_investment_txs', JSON.stringify(updatedTxs));
       }
-      return next;
+      return updatedTxs;
     });
 
-    // 2. Also back up full transaction list into workSettings._investment_txs for multi-device resilience
+    // 2. Realtime broadcast to ALL other connected devices immediately (<200ms)
+    try {
+      const { client } = getSupabaseClient();
+      if (client) {
+        const channel = client.channel('app_global_realtime_sync');
+        channel.send({
+          type: 'broadcast',
+          event: 'investment_sync',
+          payload: { transactions: updatedTxs, updated_at: new Date().toISOString() }
+        });
+      }
+    } catch (bcErr) {
+      console.warn('Realtime broadcast error:', bcErr);
+    }
+
+    // 3. Universal shadow sync via work_logs (100% accessible to all devices)
+    try {
+      const itxLogId = toValidUUID('itx_sync_global_meta');
+      await runUpsert('work_logs', {
+        id: itxLogId,
+        work_date: '1970-01-01',
+        work_status: 'Đầu tư',
+        total_hours: 0,
+        break_duration_hours: 0,
+        overtime_hours: 0,
+        missing_hours: 0,
+        notes: `[INVESTMENTS_SYNC]:${JSON.stringify(updatedTxs)}`
+      }, '');
+    } catch (logErr) {
+      console.warn('Lỗi lưu work_logs sync investments:', logErr);
+    }
+
+    // 4. Also back up full transaction list into workSettings._investment_txs for multi-device resilience
     setWorkSettings(prev => {
-      const existingTxs = Array.isArray((prev as any)._investment_txs) ? [...(prev as any)._investment_txs] : [];
-      const idx = existingTxs.findIndex((t: any) => t.id === id);
-      const updatedTxs = idx >= 0 ? existingTxs.map((t: any) => t.id === id ? fullTx : t) : [fullTx, ...existingTxs];
       const updatedSettings = {
         ...prev,
         _investment_txs: updatedTxs,
@@ -1605,7 +1793,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return updatedSettings;
     });
 
-    // 3. Ensure the parent asset exists on Supabase so foreign key constraints never block
+    // 5. Ensure the parent asset exists on Supabase so foreign key constraints never block
     const matchedAsset = investmentAssets.find(a => a.id === fullTx.asset_id);
     if (matchedAsset && !isDemoUser) {
       runUpsert('investment_assets', {
@@ -1619,7 +1807,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }, '').catch(() => {});
     }
     
-    // 4. Upsert to Supabase with non-blocking resilience & fallback handling for constraints
+    // 6. Upsert to Supabase with non-blocking resilience & fallback handling for constraints
     const toastMsg = txType === 'dividend' && dividendType === 'cash'
       ? `Đã ghi nhận nhận cổ tức tiền mặt +${totalAmount.toLocaleString('vi-VN')} đ (tính vào chốt lời)`
       : txType === 'dividend'
@@ -1662,16 +1850,44 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const deleteInvestmentTransaction = async (id: string) => {
+    let updatedTxs: InvestmentTransaction[] = [];
     setInvestmentTransactions(prev => {
-      const next = prev.filter(t => t.id !== id);
+      updatedTxs = prev.filter(t => t.id !== id);
       if (typeof window !== 'undefined') {
-        localStorage.setItem('app_investment_txs', JSON.stringify(next));
+        localStorage.setItem('app_investment_txs', JSON.stringify(updatedTxs));
       }
-      return next;
+      return updatedTxs;
     });
+
+    // Realtime broadcast deletion
+    try {
+      const { client } = getSupabaseClient();
+      if (client) {
+        const channel = client.channel('app_global_realtime_sync');
+        channel.send({
+          type: 'broadcast',
+          event: 'investment_sync',
+          payload: { transactions: updatedTxs, updated_at: new Date().toISOString() }
+        });
+      }
+    } catch (bcErr) {}
+
+    // Universal shadow sync via work_logs
+    try {
+      const itxLogId = toValidUUID('itx_sync_global_meta');
+      await runUpsert('work_logs', {
+        id: itxLogId,
+        work_date: '1970-01-01',
+        work_status: 'Đầu tư',
+        total_hours: 0,
+        break_duration_hours: 0,
+        overtime_hours: 0,
+        missing_hours: 0,
+        notes: `[INVESTMENTS_SYNC]:${JSON.stringify(updatedTxs)}`
+      }, '');
+    } catch (logErr) {}
+
     setWorkSettings(prev => {
-      const existingTxs = Array.isArray((prev as any)._investment_txs) ? [...(prev as any)._investment_txs] : [];
-      const updatedTxs = existingTxs.filter((t: any) => t.id !== id);
       const updatedSettings = {
         ...prev,
         _investment_txs: updatedTxs,
