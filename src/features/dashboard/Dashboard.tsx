@@ -15,7 +15,20 @@ import {
   Award,
   Zap,
   BarChart3,
-  CircleDollarSign
+  CircleDollarSign,
+  Plus,
+  ArrowRight,
+  ShieldAlert,
+  Coins,
+  Receipt,
+  Utensils,
+  Car,
+  Home,
+  ShoppingBag,
+  Heart,
+  BookOpen,
+  Film,
+  HelpCircle
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -31,19 +44,34 @@ import {
 } from 'recharts';
 import { Analytics } from './Analytics';
 
-interface DashboardViewProps {
-  onNavigateTab: (tab: 'work' | 'expenses' | 'investments') => void;
-  onQuickAction: (action: 'add-work' | 'add-transaction' | 'add-investment') => void;
+export interface DashboardProps {
+  onNavigateTab?: (tab: 'work' | 'expenses' | 'investments' | 'storage' | 'reports' | 'settings') => void;
+  onQuickAction?: (action: 'add-work' | 'add-transaction' | 'add-investment') => void;
 }
 
-export const DashboardView: React.FC<DashboardViewProps> = ({
-  onNavigateTab,
-  onQuickAction,
+// Category Icon mapping helper
+const getCategoryIcon = (iconKey?: string, name?: string) => {
+  const normalized = (iconKey || name || '').toLowerCase();
+  if (normalized.includes('ăn') || normalized.includes('food') || normalized.includes('uống')) return Utensils;
+  if (normalized.includes('xe') || normalized.includes('đi lại') || normalized.includes('transport') || normalized.includes('xăng')) return Car;
+  if (normalized.includes('nhà') || normalized.includes('rent') || normalized.includes('điện') || normalized.includes('nước')) return Home;
+  if (normalized.includes('mua') || normalized.includes('shopping') || normalized.includes('sắm')) return ShoppingBag;
+  if (normalized.includes('khỏe') || normalized.includes('health') || normalized.includes('thuốc')) return Heart;
+  if (normalized.includes('học') || normalized.includes('education') || normalized.includes('sách')) return BookOpen;
+  if (normalized.includes('chơi') || normalized.includes('giải trí') || normalized.includes('game')) return Film;
+  if (normalized.includes('lương') || normalized.includes('salary') || normalized.includes('thưởng')) return Coins;
+  return Receipt;
+};
+
+export const Dashboard: React.FC<DashboardProps> = ({
+  onNavigateTab = () => {},
+  onQuickAction = () => {},
 }) => {
   const { 
     workLogs, 
     workSettings, 
     transactions, 
+    categories,
     calculatedHoldings, 
     portfolioSnapshots,
     takeDailySnapshot,
@@ -81,7 +109,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       }
     });
 
-    // Standard working days in month (estimate 26 working days x 8h = 208h)
     const standardDaysInMonth = workSettings.standard_days_per_month || 26;
     const targetStandardHours = standardDaysInMonth * workSettings.standard_hours_per_day;
     const completionRate = targetStandardHours > 0 ? Math.min(100, (totalHours / targetStandardHours) * 100) : 0;
@@ -111,18 +138,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
     monthTx.forEach((t) => {
       if (t.transaction_type === 'income') {
-        totalIncome += t.amount;
+        totalIncome += Number(t.amount) || 0;
       } else {
-        totalExpense += t.amount;
-        categoryTotals[t.category_name] = (categoryTotals[t.category_name] || 0) + t.amount;
+        totalExpense += Number(t.amount) || 0;
+        categoryTotals[t.category_name] = (categoryTotals[t.category_name] || 0) + (Number(t.amount) || 0);
       }
     });
 
     const netSavings = totalIncome - totalExpense;
-    // Calculate average daily expense for days passed (or 30 days)
     const dailyAvgExpense = totalExpense > 0 ? totalExpense / 30 : 0;
 
-    // Top spending category
     let topCategory = { name: 'Chưa có', amount: 0 };
     Object.entries(categoryTotals).forEach(([name, amount]) => {
       if (amount > topCategory.amount) {
@@ -178,17 +203,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     };
   }, [calculatedHoldings]);
 
-  // Net worth total calculation (Investments + Monthly Savings)
+  // Total Net Worth (Investments + Monthly Net Savings)
   const estimatedTotalNetWorth = investmentStats.currentTotalValue + Math.max(0, expenseStats.netSavings);
 
   React.useEffect(() => {
     takeDailySnapshot(investmentStats.currentTotalValue, investmentStats.totalInvested);
   }, [investmentStats.currentTotalValue, investmentStats.totalInvested, takeDailySnapshot]);
 
-  // Time Series Chart Data for Net Worth
+  // Recent Transactions (sorted by date desc, top 6)
+  const recentTransactions = useMemo(() => {
+    return [...transactions]
+      .sort((a, b) => {
+        const dateA = new Date(a.transaction_date).getTime();
+        const dateB = new Date(b.transaction_date).getTime();
+        return dateB - dateA;
+      })
+      .slice(0, 6);
+  }, [transactions]);
+
+  // Portfolio Snapshots Chart Data
   const chartData = useMemo(() => {
     return portfolioSnapshots.map((s) => ({
-      date: s.snapshot_date.substring(5), // 'MM-DD'
+      date: s.snapshot_date.substring(5),
       fullDate: s.snapshot_date,
       value: s.total_value,
       cost: s.total_cost,
@@ -220,9 +256,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       transactions.forEach((t) => {
         if (t.transaction_date && t.transaction_date.startsWith(mPrefix)) {
           if (t.transaction_type === 'income') {
-            inflow += t.amount || 0;
+            inflow += Number(t.amount) || 0;
           } else if (t.transaction_type === 'expense') {
-            outflow += t.amount || 0;
+            outflow += Number(t.amount) || 0;
           }
         }
       });
@@ -249,15 +285,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const totalOutflow = monthlyCashflowData.reduce((acc, curr) => acc + curr.outflow, 0);
     const netSavings = totalInflow - totalOutflow;
     const avgSavingsRate = totalInflow > 0 ? Math.round((netSavings / totalInflow) * 100) : 0;
-    
-    // Find best savings month
-    let bestMonth = monthlyCashflowData[0];
-    monthlyCashflowData.forEach((item) => {
-      if (!bestMonth || item.net > bestMonth.net) {
-        bestMonth = item;
-      }
-    });
-
     const hasAnyData = monthlyCashflowData.some((m) => m.inflow > 0 || m.outflow > 0);
 
     return {
@@ -265,14 +292,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       totalOutflow,
       netSavings,
       avgSavingsRate,
-      bestMonth,
       hasAnyData,
     };
   }, [monthlyCashflowData]);
 
+  // Budget Tracker Metrics
+  const budgetLimit = userSettings.monthly_budget_limit || 15_000_000;
+  const threshold = userSettings.budget_warning_threshold || 80;
+  const spentPercent = budgetLimit > 0 ? (expenseStats.totalExpense / budgetLimit) * 100 : 0;
+  const isOverBudget = spentPercent >= 100;
+  const isWarning = spentPercent >= threshold && !isOverBudget;
+
   return (
     <div className="space-y-6 pb-12">
-      {/* Top Banner with Net Worth & Hero Summary */}
+      {/* Top Banner: Total Balance & Net Worth Hero */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 p-6 sm:p-8 text-white shadow-xl border border-slate-700/50">
         <div className="absolute -right-12 -top-12 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -left-12 -bottom-12 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -281,13 +314,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-semibold">
               <Sparkles className="w-3.5 h-3.5" />
-              Tổng Giá Trị Tài Sản Ước Tính
+              Tổng Giá Trị Tài Sản Ước Tính (Total Balance)
             </div>
             <h1 className="text-3xl sm:text-4xl font-extrabold font-display tracking-tight text-white">
               {formatCurrency(estimatedTotalNetWorth, userSettings.currency)}
             </h1>
             <p className="text-xs sm:text-sm text-slate-300 max-w-xl">
-              Danh mục đầu tư đạt <span className="text-emerald-400 font-semibold">{formatCurrency(investmentStats.currentTotalValue, userSettings.currency)}</span> ({formatPercent(investmentStats.overallProfitPercent)}), số dư thu chi tích lũy <span className="text-emerald-300 font-semibold">{formatCurrency(expenseStats.netSavings, userSettings.currency)}</span>.
+              Danh mục đầu tư đạt <span className="text-emerald-400 font-semibold">{formatCurrency(investmentStats.currentTotalValue, userSettings.currency)}</span> ({formatPercent(investmentStats.overallProfitPercent)}), thặng dư tích lũy tháng <span className="text-emerald-300 font-semibold">{formatCurrency(expenseStats.netSavings, userSettings.currency)}</span>.
             </p>
           </div>
 
@@ -295,21 +328,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <button
               type="button"
               onClick={() => onQuickAction('add-work')}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-medium text-xs backdrop-blur-sm border border-white/10 transition-all"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-medium text-xs backdrop-blur-sm border border-white/10 transition-all cursor-pointer"
             >
               <Clock className="w-3.5 h-3.5 text-amber-300" /> + Chấm Công
             </button>
             <button
               type="button"
               onClick={() => onQuickAction('add-transaction')}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-medium text-xs backdrop-blur-sm border border-white/10 transition-all"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-medium text-xs backdrop-blur-sm border border-white/10 transition-all cursor-pointer"
             >
               <Wallet className="w-3.5 h-3.5 text-emerald-300" /> + Thu/Chi
             </button>
             <button
               type="button"
               onClick={() => onQuickAction('add-investment')}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-medium text-xs shadow-md shadow-emerald-500/30 transition-all"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-medium text-xs shadow-md shadow-emerald-500/30 transition-all cursor-pointer"
             >
               <TrendingUp className="w-3.5 h-3.5" /> + Đầu Tư
             </button>
@@ -317,7 +350,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* 3 Main Functional Cards */}
+      {/* 3 Main Functional Metric Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* CARD 1: GIỜ CÔNG */}
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
@@ -337,7 +370,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <button
                 type="button"
                 onClick={() => onNavigateTab('work')}
-                className="text-xs font-semibold text-amber-600 dark:text-amber-400 hover:underline"
+                className="text-xs font-semibold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
               >
                 Chi tiết →
               </button>
@@ -390,7 +423,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        {/* CARD 2: CHI TIÊU */}
+        {/* CARD 2: CHI TIÊU & NGÂN SÁCH */}
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
@@ -408,7 +441,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <button
                 type="button"
                 onClick={() => onNavigateTab('expenses')}
-                className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline"
+                className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
               >
                 Chi tiết →
               </button>
@@ -431,36 +464,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
 
               {/* Monthly Budget Tracker Bar */}
-              {(() => {
-                const budgetLimit = userSettings.monthly_budget_limit || 15_000_000;
-                const threshold = userSettings.budget_warning_threshold || 80;
-                const spentPercent = budgetLimit > 0 ? (expenseStats.totalExpense / budgetLimit) * 100 : 0;
-                const isOverBudget = spentPercent >= 100;
-                const isWarning = spentPercent >= threshold && !isOverBudget;
-
-                return (
-                  <div className="pt-1">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-slate-500 dark:text-slate-400">
-                        Ngân sách: <strong className="font-mono text-slate-700 dark:text-slate-300">{formatCurrency(expenseStats.totalExpense, userSettings.currency, true)}</strong> / {formatCurrency(budgetLimit, userSettings.currency, true)}
-                      </span>
-                      <span className={`font-mono font-bold ${
-                        isOverBudget ? 'text-rose-600 dark:text-rose-400' : isWarning ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'
-                      }`}>
-                        {spentPercent.toFixed(0)}%
-                      </span>
-                    </div>
-                    <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden mt-1">
-                      <div
-                        className={`h-full rounded-full transition-all duration-500 ${
-                          isOverBudget ? 'bg-rose-500' : isWarning ? 'bg-amber-500' : 'bg-emerald-500'
-                        }`}
-                        style={{ width: `${Math.min(100, spentPercent)}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })()}
+              <div className="pt-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-500 dark:text-slate-400">
+                    Ngân sách: <strong className="font-mono text-slate-700 dark:text-slate-300">{formatCurrency(expenseStats.totalExpense, userSettings.currency, true)}</strong> / {formatCurrency(budgetLimit, userSettings.currency, true)}
+                  </span>
+                  <span className={`font-mono font-bold ${
+                    isOverBudget ? 'text-rose-600 dark:text-rose-400' : isWarning ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'
+                  }`}>
+                    {spentPercent.toFixed(0)}%
+                  </span>
+                </div>
+                <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden mt-1">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      isOverBudget ? 'bg-rose-500' : isWarning ? 'bg-amber-500' : 'bg-emerald-500'
+                    }`}
+                    style={{ width: `${Math.min(100, spentPercent)}%` }}
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Breakdown stats */}
@@ -524,7 +547,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <button
                 type="button"
                 onClick={() => onNavigateTab('investments')}
-                className="text-xs font-semibold text-purple-600 dark:text-purple-400 hover:underline"
+                className="text-xs font-semibold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
               >
                 Chi tiết →
               </button>
@@ -583,10 +606,161 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* 4. PHÂN TÍCH CƠ CẤU THU CHI RECHARTS (ANALYTICS) */}
+      {/* 4. RECENT TRANSACTIONS & CASHFLOW ROW */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Recent Transactions List (Col Span 2) */}
+        <div className="lg:col-span-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-xs space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400">
+                <Receipt className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white font-display">
+                  Giao Dịch Gần Đây (Recent Transactions)
+                </h3>
+                <p className="text-xs text-slate-400">Cập nhật các khoản thu chi mới nhất trong hệ thống</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigateTab('expenses')}
+              className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
+            >
+              Xem tất cả <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {recentTransactions.length === 0 ? (
+            <div className="py-12 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/20 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+              <Receipt className="w-8 h-8 mb-2 opacity-40 text-blue-500" />
+              <p className="text-sm font-medium">Chưa có giao dịch nào được ghi nhận</p>
+              <button
+                type="button"
+                onClick={() => onQuickAction('add-transaction')}
+                className="mt-3 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition-all"
+              >
+                <Plus className="w-3.5 h-3.5" /> Thêm giao dịch đầu tiên
+              </button>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
+              {recentTransactions.map((tx) => {
+                const IconComp = getCategoryIcon(undefined, tx.category_name);
+                const isIncome = tx.transaction_type === 'income';
+
+                return (
+                  <div key={tx.id} className="py-3 flex items-center justify-between gap-3 hover:bg-slate-50/60 dark:hover:bg-slate-800/30 px-2 rounded-xl transition-all">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                        isIncome 
+                          ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400' 
+                          : 'bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400'
+                      }`}>
+                        <IconComp className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 truncate">
+                          {tx.category_name || 'Không phân loại'}
+                        </p>
+                        <p className="text-[11px] text-slate-400 truncate">
+                          {tx.note || tx.transaction_date}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <p className={`text-xs sm:text-sm font-bold font-mono ${
+                        isIncome ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                      }`}>
+                        {isIncome ? '+' : '-'}{formatCurrency(tx.amount, userSettings.currency)}
+                      </p>
+                      <span className="text-[10px] text-slate-400">{tx.transaction_date}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Quick Summary & Quick Actions (Col Span 1) */}
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-xs flex flex-col justify-between space-y-4">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white font-display">
+                Lối Tắt Nhanh & Trạng Thái
+              </h3>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 font-semibold">
+                Sẵn sàng
+              </span>
+            </div>
+
+            {/* Quick Action Buttons */}
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => onQuickAction('add-transaction')}
+                className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 border border-slate-200 dark:border-slate-700/80 text-slate-800 dark:text-slate-200 hover:text-emerald-700 dark:hover:text-emerald-300 flex items-center justify-between transition-all group cursor-pointer"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400">
+                    <Plus className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-xs font-semibold">Ghi chép thu / chi mới</span>
+                </div>
+                <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-500 group-hover:translate-x-0.5 transition-all" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onQuickAction('add-work')}
+                className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-amber-50 dark:hover:bg-amber-950/30 border border-slate-200 dark:border-slate-700/80 text-slate-800 dark:text-slate-200 hover:text-amber-700 dark:hover:text-amber-300 flex items-center justify-between transition-all group cursor-pointer"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-400">
+                    <Clock className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-xs font-semibold">Ghi nhận chấm công hôm nay</span>
+                </div>
+                <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-amber-500 group-hover:translate-x-0.5 transition-all" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onQuickAction('add-investment')}
+                className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-purple-50 dark:hover:bg-purple-950/30 border border-slate-200 dark:border-slate-700/80 text-slate-800 dark:text-slate-200 hover:text-purple-700 dark:hover:text-purple-300 flex items-center justify-between transition-all group cursor-pointer"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400">
+                    <TrendingUp className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-xs font-semibold">Mua / Bán tài sản đầu tư</span>
+                </div>
+                <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-purple-500 group-hover:translate-x-0.5 transition-all" />
+              </button>
+            </div>
+          </div>
+
+          {/* Health Summary Box */}
+          <div className="p-3.5 rounded-xl bg-gradient-to-br from-slate-900 to-slate-800 text-white text-xs space-y-1.5 shadow-md">
+            <div className="flex items-center justify-between font-bold text-emerald-400">
+              <span className="flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Sức khỏe tài chính
+              </span>
+              <span>{cashflowSummary.avgSavingsRate >= 20 ? 'Tốt' : 'Cần tối ưu'}</span>
+            </div>
+            <p className="text-[11px] text-slate-300">
+              Tỷ lệ tiết kiệm tháng này đạt {cashflowSummary.avgSavingsRate}%. Mục tiêu duy trì thặng dư dương và đầu tư định kỳ.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* 5. PHÂN TÍCH CƠ CẤU THU CHI RECHARTS (ANALYTICS) */}
       <Analytics />
 
-      {/* 5. BIỂU ĐỒ DÒNG TIỀN THU VÀO & CHI RA HÀNG THÁNG (RECHARTS BAR CHART) */}
+      {/* 6. BIỂU ĐỒ DÒNG TIỀN THU VÀO & CHI RA HÀNG THÁNG (RECHARTS BAR CHART) */}
       <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-xs space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-3">
@@ -790,7 +964,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Biểu Đồ Tổng Tài Sản Theo Thời Gian */}
+      {/* 6. BIỂU ĐỒ TỔNG TÀI SẢN THEO THỜI GIAN */}
       <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6">
           <div>
@@ -894,3 +1068,4 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     </div>
   );
 };
+export const DashboardView = Dashboard;

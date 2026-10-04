@@ -5,7 +5,7 @@ import { ToastContainer } from '../ui/Toast';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 
-const DashboardView = lazy(() => import('../../features/dashboard/DashboardView').then(m => ({ default: m.DashboardView })));
+const Dashboard = lazy(() => import('../../features/dashboard').then(m => ({ default: m.Dashboard })));
 const WorkView = lazy(() => import('../../features/work/WorkView').then(m => ({ default: m.WorkView })));
 const ExpensesView = lazy(() => import('../../features/expenses/ExpensesView').then(m => ({ default: m.ExpensesView })));
 const InvestmentsView = lazy(() => import('../../features/investments/InvestmentsView').then(m => ({ default: m.InvestmentsView })));
@@ -106,7 +106,7 @@ export const AppLayout: React.FC = () => {
             }
           >
             {activeTab === 'dashboard' && (
-              <DashboardView
+              <Dashboard
                 onNavigateTab={(tab) => setActiveTab(tab)}
                 onQuickAction={handleQuickAction}
               />
