@@ -284,6 +284,29 @@ ALTER TABLE public.work_settings ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can all on own work_settings" ON public.work_settings
     FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
+-- 2. BẢNG BẢNG LƯƠNG HÀNG THÁNG (SALARY RECORDS - TÙY CHỌN)
+CREATE TABLE IF NOT EXISTS public.salary_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    month INTEGER NOT NULL,
+    year INTEGER NOT NULL,
+    base_salary NUMERIC(15,2) DEFAULT 0,
+    kpi_bonus NUMERIC(15,2) DEFAULT 0,
+    sales_bonus NUMERIC(15,2) DEFAULT 0,
+    other_allowance NUMERIC(15,2) DEFAULT 0,
+    insurance_deduction NUMERIC(15,2) DEFAULT 0,
+    total_overtime_minutes INTEGER DEFAULT 0,
+    overtime_pay NUMERIC(15,2) DEFAULT 0,
+    total_salary NUMERIC(15,2) DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()) NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()) NOT NULL,
+    UNIQUE(user_id, year, month)
+);
+
+ALTER TABLE public.salary_records ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can all on own salary_records" ON public.salary_records
+    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
 -- Thêm cột nếu bảng đã tồn tại trước đó:
 ALTER TABLE public.work_settings ADD COLUMN IF NOT EXISTS employee_id TEXT DEFAULT '42157';
 ALTER TABLE public.work_settings ADD COLUMN IF NOT EXISTS employee_name TEXT DEFAULT 'Họ tên NV';

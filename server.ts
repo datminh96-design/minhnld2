@@ -3116,7 +3116,7 @@ Hãy sử dụng trí tuệ nhân tạo Gemini AI và khả năng nghiên cứu 
       const viteModuleName = 'vite';
       const { createServer: createViteServer } = await import(/* @vite-ignore */ viteModuleName);
       const vite = await createViteServer({
-        server: { middlewareMode: true },
+        server: { middlewareMode: true, hmr: false },
         appType: 'spa',
       });
       app.use(vite.middlewares);

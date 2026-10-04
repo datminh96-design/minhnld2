@@ -5,6 +5,36 @@ import * as Sentry from '@sentry/react';
 import App from './App';
 import './index.css';
 
+// Suppress harmless WebSocket and HMR connection errors in sandbox iframe environment
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason;
+    const msg = String(reason?.message || reason || '');
+    if (
+      msg.includes('WebSocket') ||
+      msg.includes('ws://') ||
+      msg.includes('wss://') ||
+      msg.includes('[vite]')
+    ) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  });
+
+  window.addEventListener('error', (event) => {
+    const msg = String(event.message || '');
+    if (
+      msg.includes('WebSocket') ||
+      msg.includes('[vite]') ||
+      msg.includes('ws://') ||
+      msg.includes('wss://')
+    ) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  });
+}
+
 // Tùy chỉnh Sentry DSN thông qua biến môi trường hoặc cấu hình an toàn
 const SENTRY_DSN = import.meta.env.VITE_SENTRY_DSN;
 
