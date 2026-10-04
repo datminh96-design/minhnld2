@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
-import { formatCurrency, formatPercent } from '../../lib/utils';
+import { formatCurrency, formatPercent, isInvestmentTransaction } from '../../lib/utils';
 import { exportWorkLogsToExcel } from '../../lib/excelExport';
 import { 
   BarChart3, 
@@ -71,23 +71,27 @@ export const ReportsView: React.FC = () => {
     return { totalHours, totalMinutes, totalOvertime, totalOvertimeMinutes, standardDaysInMonth, targetHours, workDays, leaveDays, efficiency };
   }, [workLogs, workSettings]);
 
-  // Cashflow calculation
+  // Cashflow calculation (Separating Investment & Savings from Living Expenses)
   const cashflowSummary = useMemo(() => {
     let totalIncome = 0;
-    let totalExpense = 0;
+    let totalLivingExpense = 0;
+    let totalInvestment = 0;
 
     transactions.forEach((t) => {
+      const amt = Number(t.amount) || 0;
       if (t.transaction_type === 'income') {
-        totalIncome += t.amount;
+        totalIncome += amt;
+      } else if (isInvestmentTransaction(t)) {
+        totalInvestment += amt;
       } else {
-        totalExpense += t.amount;
+        totalLivingExpense += amt;
       }
     });
 
-    const netSavings = totalIncome - totalExpense;
-    const savingsRatio = totalIncome > 0 ? (netSavings / totalIncome) * 100 : 0;
+    const netSavings = totalIncome - totalLivingExpense - totalInvestment;
+    const savingsRatio = totalIncome > 0 ? ((totalIncome - totalLivingExpense) / totalIncome) * 100 : 0;
 
-    return { totalIncome, totalExpense, netSavings, savingsRatio };
+    return { totalIncome, totalLivingExpense, totalInvestment, netSavings, savingsRatio };
   }, [transactions]);
 
   // Investment calculation
@@ -260,19 +264,25 @@ export const ReportsView: React.FC = () => {
               </span>
             </div>
             <div className="flex justify-between py-1 border-b border-slate-50 dark:border-slate-800/60">
-              <span className="text-slate-500">Tổng chi tiêu:</span>
+              <span className="text-slate-500">Chi tiêu sinh hoạt:</span>
               <span className="font-bold text-rose-600 dark:text-rose-400">
-                {formatCurrency(cashflowSummary.totalExpense, userSettings.currency, true)}
+                {formatCurrency(cashflowSummary.totalLivingExpense, userSettings.currency, true)}
               </span>
             </div>
             <div className="flex justify-between py-1 border-b border-slate-50 dark:border-slate-800/60">
-              <span className="text-slate-500">Số dư tích lũy:</span>
+              <span className="text-slate-500">Tích lũy & Đầu tư:</span>
+              <span className="font-bold text-blue-600 dark:text-blue-400">
+                {formatCurrency(cashflowSummary.totalInvestment, userSettings.currency, true)}
+              </span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-slate-50 dark:border-slate-800/60">
+              <span className="text-slate-500">Thặng dư khả dụng:</span>
               <span className="font-bold text-slate-900 dark:text-white">
                 {formatCurrency(cashflowSummary.netSavings, userSettings.currency, true)}
               </span>
             </div>
             <div className="flex justify-between py-1">
-              <span className="text-slate-500">Tỷ lệ tiết kiệm:</span>
+              <span className="text-slate-500">Tỷ lệ tiết kiệm & tích lũy:</span>
               <span className="font-bold text-emerald-600">
                 {cashflowSummary.savingsRatio.toFixed(1)}%
               </span>

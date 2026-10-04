@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
-import { formatCurrency, formatPercent, getCurrentMonthPrefix } from '../../lib/utils';
+import { formatCurrency, formatPercent, getCurrentMonthPrefix, isInvestmentTransaction } from '../../lib/utils';
 import { getCategoryIconMeta } from '../../lib/categoryIcons';
 import {
   PieChart as PieIcon,
@@ -14,7 +14,9 @@ import {
   DollarSign,
   PieChart as LucidePieChart,
   BarChart2,
-  Receipt
+  Receipt,
+  Coins,
+  PiggyBank
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -56,7 +58,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({
 }) => {
   const { transactions, userSettings } = useData();
 
-  const [viewMode, setViewMode] = useState<'expense' | 'income' | 'comparison'>('expense');
+  const [viewMode, setViewMode] = useState<'expense' | 'investment' | 'income' | 'comparison'>('expense');
   const [timeRange, setTimeRange] = useState<'current_month' | 'last_month' | 'last_3m' | 'last_6m' | 'all'>(defaultTimeRange);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
@@ -91,41 +93,61 @@ export const Analytics: React.FC<AnalyticsProps> = ({
     });
   }, [transactions, timeRange]);
 
-  // Aggregate totals and category distributions
+  // Aggregate totals and category distributions (STRICT SEPARATION OF INVESTMENT FROM EXPENSE)
   const analyticsData = useMemo(() => {
     let totalIncome = 0;
-    let totalExpense = 0;
+    let totalLivingExpense = 0;
+    let totalInvestment = 0;
 
     const expenseCategoryMap: Record<string, number> = {};
+    const investmentCategoryMap: Record<string, number> = {};
     const incomeCategoryMap: Record<string, number> = {};
 
     filteredTransactions.forEach((tx) => {
       const amt = Number(tx.amount) || 0;
+      const cat = tx.category_name || 'Khác';
+
       if (tx.transaction_type === 'income') {
         totalIncome += amt;
-        const cat = tx.category_name || 'Khác';
         incomeCategoryMap[cat] = (incomeCategoryMap[cat] || 0) + amt;
+      } else if (isInvestmentTransaction(tx)) {
+        // Tích lũy & Đầu tư - NẰM RIÊNG BIỆT, không tính vào chi tiêu sinh hoạt
+        totalInvestment += amt;
+        investmentCategoryMap[cat] = (investmentCategoryMap[cat] || 0) + amt;
       } else {
-        totalExpense += amt;
-        const cat = tx.category_name || 'Khác';
+        // Chi tiêu sinh hoạt
+        totalLivingExpense += amt;
         expenseCategoryMap[cat] = (expenseCategoryMap[cat] || 0) + amt;
       }
     });
 
-    // Prepare Expense Pie Data
+    // 1. Living Expense Pie Data
     const expenseDistribution = Object.entries(expenseCategoryMap)
       .map(([name, value], idx) => {
         const meta = getCategoryIconMeta(name);
         return {
           name,
           value,
-          percent: totalExpense > 0 ? (value / totalExpense) * 100 : 0,
+          percent: totalLivingExpense > 0 ? (value / totalLivingExpense) * 100 : 0,
           color: meta.color || COLOR_PALETTE[idx % COLOR_PALETTE.length],
         };
       })
       .sort((a, b) => b.value - a.value);
 
-    // Prepare Income Pie Data
+    // 2. Investment & Savings Pie Data (NẰM RIÊNG)
+    const investmentDistribution = Object.entries(investmentCategoryMap)
+      .map(([name, value], idx) => {
+        const meta = getCategoryIconMeta(name);
+        return {
+          name,
+          value,
+          percent: totalInvestment > 0 ? (value / totalInvestment) * 100 : 0,
+          color: meta.color || ['#0EA5E9', '#8B5CF6', '#06B6D4', '#F59E0B', '#10B981'][idx % 5],
+        };
+      })
+      .sort((a, b) => b.value - a.value);
+
+    // 3. Income Pie Data
     const incomeDistribution = Object.entries(incomeCategoryMap)
       .map(([name, value], idx) => {
         const meta = getCategoryIconMeta(name);
@@ -138,31 +160,36 @@ export const Analytics: React.FC<AnalyticsProps> = ({
       })
       .sort((a, b) => b.value - a.value);
 
-    // Prepare Income vs Expense Comparison Data
+    // 4. Comparison Data (Thu Nhập vs Chi Tiêu Sinh Hoạt vs Tích Lũy & Đầu Tư)
+    const totalOutflowAndInvestment = totalLivingExpense + totalInvestment;
     const comparisonData = [
       {
-        name: 'Thu Nhập (Inflow)',
-        value: totalIncome,
-        percent: (totalIncome + totalExpense) > 0 ? (totalIncome / (totalIncome + totalExpense)) * 100 : 0,
-        color: '#10B981',
+        name: 'Chi Tiêu Sinh Hoạt',
+        value: totalLivingExpense,
+        percent: totalOutflowAndInvestment > 0 ? (totalLivingExpense / totalOutflowAndInvestment) * 100 : 0,
+        color: '#F43F5E',
       },
       {
-        name: 'Chi Tiêu (Outflow)',
-        value: totalExpense,
-        percent: (totalIncome + totalExpense) > 0 ? (totalExpense / (totalIncome + totalExpense)) * 100 : 0,
-        color: '#F43F5E',
+        name: 'Tích Lũy & Đầu Tư',
+        value: totalInvestment,
+        percent: totalOutflowAndInvestment > 0 ? (totalInvestment / totalOutflowAndInvestment) * 100 : 0,
+        color: '#0EA5E9',
       },
     ];
 
-    const netSavings = totalIncome - totalExpense;
-    const savingsRate = totalIncome > 0 ? Math.round((netSavings / totalIncome) * 100) : 0;
+    const netCashflow = totalIncome - totalLivingExpense - totalInvestment;
+    const savingsRate = totalIncome > 0 ? Math.round(((totalIncome - totalLivingExpense) / totalIncome) * 100) : 0;
+    const investmentRate = totalIncome > 0 ? Math.round((totalInvestment / totalIncome) * 100) : 0;
 
     return {
       totalIncome,
-      totalExpense,
-      netSavings,
+      totalLivingExpense,
+      totalInvestment,
+      netCashflow,
       savingsRate,
+      investmentRate,
       expenseDistribution,
+      investmentDistribution,
       incomeDistribution,
       comparisonData,
       hasData: filteredTransactions.length > 0,
@@ -172,14 +199,16 @@ export const Analytics: React.FC<AnalyticsProps> = ({
   // Current active dataset for pie visualization
   const currentChartData = useMemo(() => {
     if (viewMode === 'expense') return analyticsData.expenseDistribution;
+    if (viewMode === 'investment') return analyticsData.investmentDistribution;
     if (viewMode === 'income') return analyticsData.incomeDistribution;
     return analyticsData.comparisonData;
   }, [viewMode, analyticsData]);
 
   const currentTotal = useMemo(() => {
-    if (viewMode === 'expense') return analyticsData.totalExpense;
+    if (viewMode === 'expense') return analyticsData.totalLivingExpense;
+    if (viewMode === 'investment') return analyticsData.totalInvestment;
     if (viewMode === 'income') return analyticsData.totalIncome;
-    return analyticsData.totalIncome + analyticsData.totalExpense;
+    return analyticsData.totalLivingExpense + analyticsData.totalInvestment;
   }, [viewMode, analyticsData]);
 
   return (
@@ -193,14 +222,14 @@ export const Analytics: React.FC<AnalyticsProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-base font-bold text-slate-900 dark:text-white font-display tracking-tight">
-                Phân Tích Cơ Cấu Thu Chi (Transaction Analytics)
+                Phân Tích Cơ Cấu Dòng Tiền (Thu • Chi • Tích Lũy & Đầu Tư)
               </h3>
               <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800">
-                <Sparkles className="w-3 h-3" /> Recharts Donut
+                <Sparkles className="w-3 h-3" /> Tách Riêng Đầu Tư
               </span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Trực quan hóa tỷ trọng chi tiêu, phân bổ thu nhập và đối chiếu dòng tiền
+              Tích lũy & Đầu tư nằm riêng biệt, không tính chung vào chi tiêu sinh hoạt
             </p>
           </div>
         </div>
@@ -218,7 +247,18 @@ export const Analytics: React.FC<AnalyticsProps> = ({
                   : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
               }`}
             >
-              Cơ Cấu Chi
+              Chi Tiêu
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('investment')}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                viewMode === 'investment'
+                  ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs font-bold'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              Tích Lũy / Đầu Tư
             </button>
             <button
               type="button"
@@ -229,18 +269,18 @@ export const Analytics: React.FC<AnalyticsProps> = ({
                   : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
               }`}
             >
-              Cơ Cấu Thu
+              Thu Nhập
             </button>
             <button
               type="button"
               onClick={() => setViewMode('comparison')}
               className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
                 viewMode === 'comparison'
-                  ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs font-bold'
+                  ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-xs font-bold'
                   : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
               }`}
             >
-              Thu vs Chi
+              Chi vs Đầu Tư
             </button>
           </div>
 
@@ -294,15 +334,13 @@ export const Analytics: React.FC<AnalyticsProps> = ({
         </div>
       </div>
 
-      {/* 2. Top Summary KPI Badges */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      {/* 2. Top Summary KPI 4-Card Grid (SEPARATING INVESTMENT & EXPENSES) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {/* Total Income */}
         <div className="p-3.5 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40">
           <div className="flex items-center justify-between text-xs text-emerald-700 dark:text-emerald-400 font-semibold">
             <span className="flex items-center gap-1.5">
               <ArrowDownLeft className="w-3.5 h-3.5" /> Tổng Thu Nhập
-            </span>
-            <span className="text-[10px] bg-emerald-100 dark:bg-emerald-900/60 px-1.5 py-0.5 rounded-md font-bold">
-              {analyticsData.incomeDistribution.length} nguồn
             </span>
           </div>
           <p className="text-lg font-bold font-mono text-slate-900 dark:text-white mt-1">
@@ -310,35 +348,52 @@ export const Analytics: React.FC<AnalyticsProps> = ({
           </p>
         </div>
 
+        {/* Living Expense (Excluded Investment) */}
         <div className="p-3.5 rounded-2xl bg-rose-50/60 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40">
           <div className="flex items-center justify-between text-xs text-rose-600 dark:text-rose-400 font-semibold">
             <span className="flex items-center gap-1.5">
-              <ArrowUpRight className="w-3.5 h-3.5" /> Tổng Chi Tiêu
+              <ArrowUpRight className="w-3.5 h-3.5" /> Chi Tiêu Sinh Hoạt
             </span>
             <span className="text-[10px] bg-rose-100 dark:bg-rose-900/60 px-1.5 py-0.5 rounded-md font-bold">
-              {analyticsData.expenseDistribution.length} hạng mục
+              {analyticsData.expenseDistribution.length} mục
             </span>
           </div>
           <p className="text-lg font-bold font-mono text-slate-900 dark:text-white mt-1">
-            {formatCurrency(analyticsData.totalExpense, userSettings.currency)}
+            {formatCurrency(analyticsData.totalLivingExpense, userSettings.currency)}
           </p>
         </div>
 
+        {/* Investment & Savings (DISTINCT SEPARATE BUCKET) */}
+        <div className="p-3.5 rounded-2xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40">
+          <div className="flex items-center justify-between text-xs text-blue-700 dark:text-blue-400 font-semibold">
+            <span className="flex items-center gap-1.5">
+              <Coins className="w-3.5 h-3.5 text-blue-500" /> Tích Lũy & Đầu Tư
+            </span>
+            <span className="text-[10px] bg-blue-100 dark:bg-blue-900/60 px-1.5 py-0.5 rounded-md font-bold">
+              {analyticsData.investmentRate}% thu nhập
+            </span>
+          </div>
+          <p className="text-lg font-bold font-mono text-blue-700 dark:text-blue-300 mt-1">
+            {formatCurrency(analyticsData.totalInvestment, userSettings.currency)}
+          </p>
+        </div>
+
+        {/* Net Cashflow Remaining */}
         <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
           <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400 font-semibold">
             <span className="flex items-center gap-1.5">
-              <DollarSign className="w-3.5 h-3.5 text-blue-500" /> Số Dư Ròng (Net)
+              <DollarSign className="w-3.5 h-3.5 text-amber-500" /> Dòng Tiền Ròng
             </span>
             <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${
-              analyticsData.netSavings >= 0 ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600' : 'bg-rose-100 dark:bg-rose-900/60 text-rose-600'
+              analyticsData.netCashflow >= 0 ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600' : 'bg-rose-100 dark:bg-rose-900/60 text-rose-600'
             }`}>
-              Tiết kiệm: {analyticsData.savingsRate}%
+              {analyticsData.savingsRate}%
             </span>
           </div>
           <p className={`text-lg font-bold font-mono mt-1 ${
-            analyticsData.netSavings >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'
+            analyticsData.netCashflow >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'
           }`}>
-            {analyticsData.netSavings >= 0 ? '+' : ''}{formatCurrency(analyticsData.netSavings, userSettings.currency)}
+            {analyticsData.netCashflow >= 0 ? '+' : ''}{formatCurrency(analyticsData.netCashflow, userSettings.currency)}
           </p>
         </div>
       </div>
@@ -347,8 +402,8 @@ export const Analytics: React.FC<AnalyticsProps> = ({
       {!analyticsData.hasData || currentChartData.length === 0 ? (
         <div className="py-14 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/20 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
           <PieIcon className="w-10 h-10 mb-2 opacity-40 text-purple-500" />
-          <p className="text-sm font-medium">Chưa có dữ liệu giao dịch trong khoảng thời gian đã chọn</p>
-          <p className="text-xs mt-1 text-slate-400">Hãy ghi chép thu nhập hoặc chi tiêu để tự động phân tích cơ cấu</p>
+          <p className="text-sm font-medium">Chưa có dữ liệu trong danh mục đã chọn</p>
+          <p className="text-xs mt-1 text-slate-400">Hãy thêm giao dịch để xem biểu đồ phân tích cơ cấu</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
@@ -407,9 +462,12 @@ export const Analytics: React.FC<AnalyticsProps> = ({
             </div>
 
             {/* Center Donut Info Overlay */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center px-4">
               <span className="text-[11px] font-semibold text-slate-400">
-                {viewMode === 'expense' ? 'Tổng Chi' : viewMode === 'income' ? 'Tổng Thu' : 'Tổng Dòng Tiền'}
+                {viewMode === 'expense' && 'Tổng Chi Tiêu'}
+                {viewMode === 'investment' && 'Tổng Tích Lũy'}
+                {viewMode === 'income' && 'Tổng Thu Nhập'}
+                {viewMode === 'comparison' && 'Chi & Đầu Tư'}
               </span>
               <span className="text-base sm:text-lg font-bold font-mono text-slate-900 dark:text-white">
                 {formatCurrency(currentTotal, userSettings.currency, true)}

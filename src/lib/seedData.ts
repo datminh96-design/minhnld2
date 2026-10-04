@@ -49,7 +49,7 @@ export const DEFAULT_EXPENSE_CATEGORIES: ExpenseCategory[] = [
   { id: 'a0000000-0000-4000-8000-000000000105', name: 'Đầu tư & Cổ tức', type: 'income', icon: 'PieChart', color: '#14B8A6', is_default: true },
   { id: 'a0000000-0000-4000-8000-000000000106', name: 'Thu nhập khác', type: 'income', icon: 'PlusCircle', color: '#0D9488', is_default: true },
 
-  // Expense
+  // Living Expenses (Chi tiêu sinh hoạt & gia đình)
   { id: 'b0000000-0000-4000-8000-000000000201', name: 'Ăn uống', type: 'expense', icon: 'Utensils', color: '#EF4444', is_default: true },
   { id: 'b0000000-0000-4000-8000-000000000202', name: 'Nhà ở & Tiện ích', type: 'expense', icon: 'Home', color: '#F97316', is_default: true },
   { id: 'b0000000-0000-4000-8000-000000000203', name: 'Đi lại & Xe cộ', type: 'expense', icon: 'Car', color: '#F59E0B', is_default: true },
@@ -60,8 +60,13 @@ export const DEFAULT_EXPENSE_CATEGORIES: ExpenseCategory[] = [
   { id: 'b0000000-0000-4000-8000-000000000208', name: 'Y tế & Sức khỏe', type: 'expense', icon: 'HeartPulse', color: '#EC4899', is_default: true },
   { id: 'b0000000-0000-4000-8000-000000000209', name: 'Gia đình & Hiếu hỷ', type: 'expense', icon: 'Users', color: '#8B5CF6', is_default: true },
   { id: 'b0000000-0000-4000-8000-000000000210', name: 'Công việc & Học tập', type: 'expense', icon: 'Laptop', color: '#64748B', is_default: true },
-  { id: 'b0000000-0000-4000-8000-000000000211', name: 'Tích lũy & Đầu tư', type: 'expense', icon: 'Coins', color: '#0EA5E9', is_default: true },
   { id: 'b0000000-0000-4000-8000-000000000212', name: 'Chi tiêu khác', type: 'expense', icon: 'MoreHorizontal', color: '#94A3B8', is_default: true },
+
+  // Investment & Savings (Tích lũy & Đầu tư - Nằm riêng, không tính chung với Chi tiêu)
+  { id: 'c0000000-0000-4000-8000-000000000301', name: 'Tích lũy & Đầu tư', type: 'investment', icon: 'Coins', color: '#0EA5E9', is_default: true },
+  { id: 'c0000000-0000-4000-8000-000000000302', name: 'Tiết kiệm ngân hàng', type: 'investment', icon: 'PiggyBank', color: '#06B6D4', is_default: true },
+  { id: 'c0000000-0000-4000-8000-000000000303', name: 'Chứng khoán & Quỹ', type: 'investment', icon: 'TrendingUp', color: '#8B5CF6', is_default: true },
+  { id: 'c0000000-0000-4000-8000-000000000304', name: 'Vàng & Kim loại quý', type: 'investment', icon: 'Sparkles', color: '#F59E0B', is_default: true },
 ];
 
 export const getInitialWorkLogs = (): WorkLog[] => {

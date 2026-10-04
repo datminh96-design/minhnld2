@@ -95,7 +95,7 @@ export interface WorkLog {
   updated_at?: string;
 }
 
-export type TransactionType = 'income' | 'expense';
+export type TransactionType = 'income' | 'expense' | 'investment';
 
 export interface ExpenseCategory {
   id: string;

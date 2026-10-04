@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Modal } from '../../components/ui/Modal';
 import { useData } from '../../context/DataContext';
-import { formatCurrency, numberToVietnameseWords } from '../../lib/utils';
+import { formatCurrency, numberToVietnameseWords, isInvestmentTransaction } from '../../lib/utils';
 import { getCategoryIconMeta, AVAILABLE_CATEGORY_ICONS } from '../../lib/categoryIcons';
 import { 
   ArrowDownLeft, 
@@ -16,13 +16,14 @@ import {
   Coins, 
   DollarSign,
   Clock,
+  PiggyBank,
   X
 } from 'lucide-react';
 
 export interface AddTransactionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  defaultType?: 'expense' | 'income';
+  defaultType?: 'expense' | 'income' | 'investment';
   onSuccess?: () => void;
 }
 
@@ -34,7 +35,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
 }) => {
   const { categories, userSettings, saveTransaction, saveCategory, addToast } = useData();
 
-  const [type, setType] = useState<'expense' | 'income'>(defaultType);
+  const [type, setType] = useState<'expense' | 'income' | 'investment'>(defaultType);
   const [amount, setAmount] = useState<string>('');
   const [categoryName, setCategoryName] = useState<string>('');
   const [date, setDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
@@ -50,7 +51,15 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
 
   // Available categories filtered by current type
   const availableCategories = useMemo(() => {
-    return categories.filter((c) => c.type === type);
+    return categories.filter((c) => {
+      if (type === 'investment') {
+        return c.type === 'investment' || isInvestmentTransaction(c);
+      }
+      if (type === 'income') {
+        return c.type === 'income';
+      }
+      return c.type === 'expense' && !isInvestmentTransaction(c);
+    });
   }, [categories, type]);
 
   // Reset form when modal opens
@@ -63,11 +72,16 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
       setIsCreatingCategory(false);
       setNewCatName('');
 
-      const matching = categories.filter((c) => c.type === defaultType);
+      const matching = categories.filter((c) => {
+        if (defaultType === 'investment') return c.type === 'investment' || isInvestmentTransaction(c);
+        if (defaultType === 'income') return c.type === 'income';
+        return c.type === 'expense' && !isInvestmentTransaction(c);
+      });
+
       if (matching.length > 0) {
         setCategoryName(matching[0].name);
       } else {
-        setCategoryName(defaultType === 'income' ? 'Lương' : 'Ăn uống');
+        setCategoryName(defaultType === 'income' ? 'Lương' : defaultType === 'investment' ? 'Tích lũy & Đầu tư' : 'Ăn uống');
       }
     }
   }, [isOpen, defaultType, categories]);
@@ -77,10 +91,6 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
     const current = parseFloat(amount.replace(/\D/g, '')) || 0;
     const nextVal = current + valueToAdd;
     setAmount(nextVal.toString());
-  };
-
-  const handleSetExact = (exactVal: number) => {
-    setAmount(exactVal.toString());
   };
 
   // Quick category creation
@@ -93,7 +103,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
       const meta = getCategoryIconMeta(newCatName.trim(), newCatIcon, newCatColor);
       const created = await saveCategory({
         name: newCatName.trim(),
-        type,
+        type: type === 'investment' ? 'investment' : type,
         icon: meta.iconName,
         color: meta.color,
       });
@@ -127,12 +137,12 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
       return;
     }
 
-    const matchedCategory = categories.find((c) => c.name === categoryName && c.type === type);
+    const matchedCategory = categories.find((c) => c.name === categoryName);
 
     setIsSubmitting(true);
     try {
       await saveTransaction({
-        transaction_type: type,
+        transaction_type: type === 'investment' ? 'investment' : type,
         amount: rawNumber,
         category_name: categoryName.trim(),
         category_id: matchedCategory?.id,
@@ -149,40 +159,57 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
     }
   };
 
-  // Metadata for current selected category
-  const selectedMeta = useMemo(() => {
-    const matched = categories.find((c) => c.name === categoryName);
-    return getCategoryIconMeta(categoryName, matched?.icon, matched?.color);
-  }, [categoryName, categories]);
-
-  const SelectedIcon = selectedMeta.Icon;
   const numericAmount = parseFloat(amount.replace(/\D/g, '')) || 0;
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={type === 'income' ? 'Thêm Khoản Thu Nhập Mới' : 'Thêm Khoản Chi Tiêu Mới'}
+      title={
+        type === 'income' 
+          ? 'Thêm Khoản Thu Nhập Mới' 
+          : type === 'investment' 
+          ? 'Thêm Khoản Tích Lũy & Đầu Tư (Nằm Riêng)' 
+          : 'Thêm Khoản Chi Tiêu Sinh Hoạt'
+      }
       maxWidth="lg"
     >
       <form onSubmit={handleSubmit} className="space-y-5">
-        {/* 1. Transaction Type Toggle (Chi tiêu vs Thu nhập) */}
-        <div className="grid grid-cols-2 gap-2 p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-2xl">
+        {/* 1. Transaction Type Toggle (3 Tabs: Chi tiêu vs Tích lũy & Đầu tư vs Thu nhập) */}
+        <div className="grid grid-cols-3 gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-2xl">
           <button
             type="button"
             onClick={() => {
               setType('expense');
-              const expenseCats = categories.filter((c) => c.type === 'expense');
+              const expenseCats = categories.filter((c) => c.type === 'expense' && !isInvestmentTransaction(c));
               if (expenseCats.length > 0) setCategoryName(expenseCats[0].name);
             }}
-            className={`py-2.5 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            className={`py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               type === 'expense'
                 ? 'bg-rose-500 text-white shadow-md shadow-rose-500/25'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            <ArrowUpRight className="w-4 h-4" />
-            <span>Khoản Chi Tiêu (Outflow)</span>
+            <ArrowUpRight className="w-3.5 h-3.5" />
+            <span>Chi Tiêu</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setType('investment');
+              const investCats = categories.filter((c) => c.type === 'investment' || isInvestmentTransaction(c));
+              if (investCats.length > 0) setCategoryName(investCats[0].name);
+              else setCategoryName('Tích lũy & Đầu tư');
+            }}
+            className={`py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              type === 'investment'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/25'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Coins className="w-3.5 h-3.5" />
+            <span>Tích Lũy / Đầu Tư</span>
           </button>
 
           <button
@@ -192,14 +219,14 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
               const incomeCats = categories.filter((c) => c.type === 'income');
               if (incomeCats.length > 0) setCategoryName(incomeCats[0].name);
             }}
-            className={`py-2.5 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            className={`py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               type === 'income'
                 ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/25'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            <ArrowDownLeft className="w-4 h-4" />
-            <span>Khoản Thu Nhập (Inflow)</span>
+            <ArrowDownLeft className="w-3.5 h-3.5" />
+            <span>Thu Nhập</span>
           </button>
         </div>
 
@@ -207,7 +234,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <DollarSign className={`w-4 h-4 ${type === 'income' ? 'text-emerald-500' : 'text-rose-500'}`} />
+              <DollarSign className={`w-4 h-4 ${type === 'income' ? 'text-emerald-500' : type === 'investment' ? 'text-blue-500' : 'text-rose-500'}`} />
               Số tiền ({userSettings.currency || 'VND'}) <span className="text-rose-500">*</span>
             </label>
             {numericAmount > 0 && (
@@ -243,7 +270,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
               { label: '+50k', val: 50000 },
               { label: '+100k', val: 100000 },
               { label: '+200k', val: 200000 },
-              { label: '+500k', val: 50000 },
+              { label: '+500k', val: 500000 },
               { label: '+1tr', val: 1000000 },
               { label: '+2tr', val: 2000000 },
               { label: '+5tr', val: 5000000 },
@@ -274,7 +301,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
           <div className="flex items-center justify-between">
             <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
               <Tag className="w-3.5 h-3.5 text-emerald-500" />
-              Danh mục {type === 'income' ? 'thu nhập' : 'chi tiêu'} <span className="text-rose-500">*</span>
+              Danh mục {type === 'income' ? 'thu nhập' : type === 'investment' ? 'tích lũy & đầu tư' : 'chi tiêu'} <span className="text-rose-500">*</span>
             </label>
             <button
               type="button"
@@ -306,7 +333,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
                   type="text"
                   value={newCatName}
                   onChange={(e) => setNewCatName(e.target.value)}
-                  placeholder="Tên danh mục (ví dụ: Cà phê, Grab...)"
+                  placeholder="Tên danh mục (ví dụ: Mua chứng chỉ quỹ, Tiết kiệm...)"
                   className="flex-1 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
                 />
                 <button
@@ -379,7 +406,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
               type="text"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="VD: Cơm trưa, Xăng xe, Lương thưởng..."
+              placeholder="VD: Mua cổ phiếu HPG, Gửi tiết kiệm 6 tháng..."
               className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
             />
           </div>
@@ -401,6 +428,8 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
             className={`px-5 py-2.5 rounded-xl text-xs font-bold text-white shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 ${
               type === 'income'
                 ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20'
+                : type === 'investment'
+                ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20'
                 : 'bg-rose-500 hover:bg-rose-600 shadow-rose-500/20'
             }`}
           >

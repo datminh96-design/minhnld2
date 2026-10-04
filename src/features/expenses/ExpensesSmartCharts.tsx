@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Transaction, ExpenseCategory, UserSettings } from '../../types';
-import { formatCurrency, formatPercent, formatDateVN, getDayOfWeek } from '../../lib/utils';
+import { formatCurrency, formatPercent, formatDateVN, getDayOfWeek, isInvestmentTransaction } from '../../lib/utils';
 import {
   TrendingUp,
   TrendingDown,
@@ -355,25 +355,31 @@ export const ExpensesSmartCharts: React.FC<ExpensesSmartChartsProps> = ({
     }).sort((a, b) => a.transaction_date.localeCompare(b.transaction_date));
   }, [transactions, timeframe]);
 
-  // Overall Financial Summary for Timeframe
+  // Overall Financial Summary for Timeframe (Strict separation of Investment & Savings from Living Expenses)
   const summaryMetrics = useMemo(() => {
     let totalIncome = 0;
-    let totalExpense = 0;
+    let totalLivingExpense = 0;
+    let totalInvestment = 0;
     let expenseTxCount = 0;
     let incomeTxCount = 0;
+    let investmentTxCount = 0;
 
     timeframeTransactions.forEach((tx) => {
+      const amt = Number(tx.amount) || 0;
       if (tx.transaction_type === 'income') {
-        totalIncome += tx.amount;
+        totalIncome += amt;
         incomeTxCount++;
+      } else if (isInvestmentTransaction(tx)) {
+        totalInvestment += amt;
+        investmentTxCount++;
       } else {
-        totalExpense += tx.amount;
+        totalLivingExpense += amt;
         expenseTxCount++;
       }
     });
 
-    const netSavings = totalIncome - totalExpense;
-    const savingsRate = totalIncome > 0 ? (netSavings / totalIncome) * 100 : 0;
+    const netSavings = totalIncome - totalLivingExpense - totalInvestment;
+    const savingsRate = totalIncome > 0 ? ((totalIncome - totalLivingExpense) / totalIncome) * 100 : 0;
 
     // Days count in timeframe for daily burn rate calculation
     let numDays = 30;
@@ -384,16 +390,18 @@ export const ExpensesSmartCharts: React.FC<ExpensesSmartChartsProps> = ({
     else if (timeframe === '1Y') numDays = 365;
     else if (timeframe === 'ALL') numDays = Math.max(30, timeframeTransactions.length > 0 ? 90 : 30);
 
-    const avgDailyExpense = totalExpense / numDays;
+    const avgDailyExpense = totalLivingExpense / numDays;
     const avgDailyIncome = totalIncome / numDays;
 
     return {
       totalIncome,
-      totalExpense,
+      totalExpense: totalLivingExpense,
+      totalInvestment,
       netSavings,
       savingsRate,
       expenseTxCount,
       incomeTxCount,
+      investmentTxCount,
       avgDailyExpense,
       avgDailyIncome,
     };
@@ -473,7 +481,7 @@ export const ExpensesSmartCharts: React.FC<ExpensesSmartChartsProps> = ({
     let totalExpense = 0;
 
     timeframeTransactions
-      .filter((t) => t.transaction_type === 'expense')
+      .filter((t) => t.transaction_type === 'expense' && !isInvestmentTransaction(t))
       .forEach((t) => {
         const cat = t.category_name || 'Khác';
         if (!map[cat]) {
@@ -501,7 +509,7 @@ export const ExpensesSmartCharts: React.FC<ExpensesSmartChartsProps> = ({
   const drilldownCategoryTransactions = useMemo(() => {
     if (!selectedCategoryDrilldown) return [];
     return timeframeTransactions
-      .filter((t) => t.transaction_type === 'expense' && t.category_name === selectedCategoryDrilldown)
+      .filter((t) => t.transaction_type === 'expense' && !isInvestmentTransaction(t) && t.category_name === selectedCategoryDrilldown)
       .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date));
   }, [timeframeTransactions, selectedCategoryDrilldown]);
 

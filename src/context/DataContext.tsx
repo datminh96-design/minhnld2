@@ -18,7 +18,7 @@ import {
 } from '../lib/seedData';
 import { useAuth } from './AuthContext';
 import { getSupabaseClient } from '../lib/supabase';
-import { calculateWorkHours, generateUUID, toValidUUID, formatCurrency, calculateInvestmentHoldings } from '../lib/utils';
+import { calculateWorkHours, generateUUID, toValidUUID, formatCurrency, calculateInvestmentHoldings, isInvestmentTransaction } from '../lib/utils';
 import { priceService } from '../services/priceService';
 import { r2Service, R2BackupPayload } from '../services/r2Service';
 import { emailService, SendEmailPayload, SendEmailResponse } from '../services/emailService';
@@ -1529,16 +1529,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const isAlertEnabled = userSettings.enable_budget_alert !== false;
       const threshold = userSettings.budget_warning_threshold || 80;
 
-      if (fullTx.transaction_type === 'expense' && budgetLimit > 0 && isAlertEnabled) {
+      if (fullTx.transaction_type === 'expense' && !isInvestmentTransaction(fullTx) && budgetLimit > 0 && isAlertEnabled) {
         const txMonthPrefix = fullTx.transaction_date ? fullTx.transaction_date.substring(0, 7) : new Date().toISOString().substring(0, 7);
         
-        // Calculate new total monthly expenses
+        // Calculate new total monthly living expenses (excluding investments & savings)
         let updatedMonthExpenses = 0;
         const allTx = transactions.filter(t => t.id !== id);
         allTx.push(fullTx);
 
         allTx.forEach(t => {
-          if (t.transaction_type === 'expense' && t.transaction_date && t.transaction_date.startsWith(txMonthPrefix)) {
+          if (t.transaction_type === 'expense' && !isInvestmentTransaction(t) && t.transaction_date && t.transaction_date.startsWith(txMonthPrefix)) {
             updatedMonthExpenses += Number(t.amount) || 0;
           }
         });

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useData } from '../../context/DataContext';
-import { formatCurrency, formatPercent, getCurrentMonthPrefix } from '../../lib/utils';
+import { formatCurrency, formatPercent, getCurrentMonthPrefix, isInvestmentTransaction } from '../../lib/utils';
 import { 
   Clock, 
   Wallet, 
@@ -106,21 +106,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const monthTx = transactions.filter((t) => t.transaction_date.startsWith(prefix));
 
     let totalIncome = 0;
-    let totalExpense = 0;
+    let totalLivingExpense = 0;
+    let totalInvestment = 0;
     const categoryTotals: Record<string, number> = {};
 
     monthTx.forEach((t) => {
+      const amt = Number(t.amount) || 0;
       if (t.transaction_type === 'income') {
-        totalIncome += t.amount;
+        totalIncome += amt;
+      } else if (isInvestmentTransaction(t)) {
+        // Tích lũy & Đầu tư - Nằm riêng biệt, không tính chung với Chi tiêu sinh hoạt
+        totalInvestment += amt;
       } else {
-        totalExpense += t.amount;
-        categoryTotals[t.category_name] = (categoryTotals[t.category_name] || 0) + t.amount;
+        totalLivingExpense += amt;
+        categoryTotals[t.category_name] = (categoryTotals[t.category_name] || 0) + amt;
       }
     });
 
-    const netSavings = totalIncome - totalExpense;
+    const netSavings = totalIncome - totalLivingExpense - totalInvestment;
     // Calculate average daily expense for days passed (or 30 days)
-    const dailyAvgExpense = totalExpense > 0 ? totalExpense / 30 : 0;
+    const dailyAvgExpense = totalLivingExpense > 0 ? totalLivingExpense / 30 : 0;
 
     // Top spending category
     let topCategory = { name: 'Chưa có', amount: 0 };
@@ -132,7 +137,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
     return {
       totalIncome,
-      totalExpense,
+      totalExpense: totalLivingExpense,
+      totalInvestment,
       netSavings,
       dailyAvgExpense,
       topCategory,
@@ -216,19 +222,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       let inflow = 0;
       let outflow = 0;
+      let investment = 0;
 
       transactions.forEach((t) => {
         if (t.transaction_date && t.transaction_date.startsWith(mPrefix)) {
+          const amt = Number(t.amount) || 0;
           if (t.transaction_type === 'income') {
-            inflow += t.amount || 0;
+            inflow += amt;
+          } else if (isInvestmentTransaction(t)) {
+            investment += amt;
           } else if (t.transaction_type === 'expense') {
-            outflow += t.amount || 0;
+            outflow += amt;
           }
         }
       });
 
-      const net = inflow - outflow;
-      const savingsRate = inflow > 0 ? Math.round((net / inflow) * 100) : (outflow > 0 ? -100 : 0);
+      const net = inflow - outflow - investment;
+      const savingsRate = inflow > 0 ? Math.round(((inflow - outflow) / inflow) * 100) : (outflow > 0 ? -100 : 0);
 
       list.push({
         monthKey: mPrefix,
@@ -236,6 +246,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         fullMonthName,
         inflow,
         outflow,
+        investment,
         net,
         savingsRate,
       });
@@ -247,7 +258,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const cashflowSummary = useMemo(() => {
     const totalInflow = monthlyCashflowData.reduce((acc, curr) => acc + curr.inflow, 0);
     const totalOutflow = monthlyCashflowData.reduce((acc, curr) => acc + curr.outflow, 0);
-    const netSavings = totalInflow - totalOutflow;
+    const totalInvestment = monthlyCashflowData.reduce((acc, curr) => acc + curr.investment, 0);
+    const netSavings = totalInflow - totalOutflow - totalInvestment;
     const avgSavingsRate = totalInflow > 0 ? Math.round((netSavings / totalInflow) * 100) : 0;
     
     // Find best savings month
@@ -258,11 +270,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       }
     });
 
-    const hasAnyData = monthlyCashflowData.some((m) => m.inflow > 0 || m.outflow > 0);
+    const hasAnyData = monthlyCashflowData.some((m) => m.inflow > 0 || m.outflow > 0 || m.investment > 0);
 
     return {
       totalInflow,
       totalOutflow,
+      totalInvestment,
       netSavings,
       avgSavingsRate,
       bestMonth,
@@ -497,10 +510,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
-            <span>Tỷ lệ tiết kiệm</span>
-            <span className="font-semibold text-emerald-600">
-              {expenseStats.totalIncome > 0
-                ? `${Math.round((expenseStats.netSavings / expenseStats.totalIncome) * 100)}%`
+            <span className="flex items-center gap-1.5">
+              <span className="text-slate-400">Tích lũy & Đầu tư riêng:</span>
+              <strong className="text-blue-600 dark:text-blue-400 font-mono font-bold">
+                {formatCurrency(expenseStats.totalInvestment, userSettings.currency, true)}
+              </strong>
+            </span>
+            <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+              Tiết kiệm: {expenseStats.totalIncome > 0
+                ? `${Math.round(((expenseStats.totalIncome - expenseStats.totalExpense) / expenseStats.totalIncome) * 100)}%`
                 : '0%'}
             </span>
           </div>
@@ -749,6 +767,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               <span>-{formatCurrency(item.outflow, userSettings.currency)}</span>
                             </div>
 
+                            {item.investment > 0 && (
+                              <div className="flex justify-between items-center text-blue-400 font-semibold">
+                                <span className="flex items-center gap-1.5 font-sans">
+                                  <span className="w-2 h-2 rounded-full bg-blue-400" /> Tích lũy & Đầu tư:
+                                </span>
+                                <span>{formatCurrency(item.investment, userSettings.currency)}</span>
+                              </div>
+                            )}
+
                             <div className="pt-1.5 border-t border-slate-800 flex justify-between items-center font-bold">
                               <span className="text-slate-400 font-sans">Dòng tiền ròng (Net):</span>
                               <span className={item.net >= 0 ? 'text-emerald-300' : 'text-rose-300'}>
@@ -775,14 +802,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   name="Thu vào (Inflows)"
                   fill="#10B981"
                   radius={[6, 6, 0, 0]}
-                  maxBarSize={36}
+                  maxBarSize={30}
                 />
                 <Bar
                   dataKey="outflow"
-                  name="Chi ra (Outflows)"
+                  name="Chi tiêu (Expenses)"
                   fill="#F43F5E"
                   radius={[6, 6, 0, 0]}
-                  maxBarSize={36}
+                  maxBarSize={30}
+                />
+                <Bar
+                  dataKey="investment"
+                  name="Tích lũy & Đầu tư"
+                  fill="#0EA5E9"
+                  radius={[6, 6, 0, 0]}
+                  maxBarSize={30}
                 />
               </BarChart>
             </ResponsiveContainer>

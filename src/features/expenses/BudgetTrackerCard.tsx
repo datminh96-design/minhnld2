@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
-import { formatCurrency, formatPercent, getCurrentMonthPrefix } from '../../lib/utils';
+import { formatCurrency, formatPercent, getCurrentMonthPrefix, isInvestmentTransaction } from '../../lib/utils';
 import { 
   ShieldAlert, 
   AlertTriangle, 
@@ -32,15 +32,20 @@ export const BudgetTrackerCard: React.FC<BudgetTrackerCardProps> = ({
   const monthNum = d.getMonth() + 1;
   const yearNum = d.getFullYear();
 
-  // Calculate current month's total expenses
+  // Calculate current month's total living expenses (excluding investments & savings)
   const monthStats = useMemo(() => {
     let totalExpense = 0;
+    let totalInvested = 0;
     let expenseCount = 0;
 
     transactions.forEach((tx) => {
-      if (tx.transaction_type === 'expense' && tx.transaction_date && tx.transaction_date.startsWith(currentPrefix)) {
-        totalExpense += Number(tx.amount) || 0;
-        expenseCount += 1;
+      if (tx.transaction_date && tx.transaction_date.startsWith(currentPrefix)) {
+        if (isInvestmentTransaction(tx)) {
+          totalInvested += Number(tx.amount) || 0;
+        } else if (tx.transaction_type === 'expense') {
+          totalExpense += Number(tx.amount) || 0;
+          expenseCount += 1;
+        }
       }
     });
 
@@ -56,6 +61,7 @@ export const BudgetTrackerCard: React.FC<BudgetTrackerCardProps> = ({
 
     return {
       totalExpense,
+      totalInvested,
       expenseCount,
       budgetLimit,
       thresholdPercent,
@@ -196,10 +202,10 @@ export const BudgetTrackerCard: React.FC<BudgetTrackerCardProps> = ({
           </div>
         </div>
 
-        {/* 3 Metric Mini Cards */}
+        {/* 3 Metric Mini Cards + Investment Badge */}
         <div className="grid grid-cols-3 gap-2.5 pt-1 text-xs">
           <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
-            <p className="text-slate-400 text-[10px] font-medium">Đã chi trong tháng</p>
+            <p className="text-slate-400 text-[10px] font-medium">Chi tiêu sinh hoạt</p>
             <p className="font-bold font-mono text-slate-800 dark:text-slate-200 mt-0.5 text-xs sm:text-sm">
               {formatCurrency(monthStats.totalExpense, userSettings.currency, true)}
             </p>
@@ -227,6 +233,17 @@ export const BudgetTrackerCard: React.FC<BudgetTrackerCardProps> = ({
             </p>
           </div>
         </div>
+
+        {monthStats.totalInvested > 0 && (
+          <div className="p-2.5 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/50 flex items-center justify-between text-xs">
+            <span className="text-blue-700 dark:text-blue-300 font-medium flex items-center gap-1.5">
+              <TrendingUp className="w-3.5 h-3.5 text-blue-500" /> Tích lũy & Đầu tư tháng (Nằm riêng):
+            </span>
+            <span className="font-mono font-bold text-blue-700 dark:text-blue-300">
+              {formatCurrency(monthStats.totalInvested, userSettings.currency)}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Budget Configuration Modal */}

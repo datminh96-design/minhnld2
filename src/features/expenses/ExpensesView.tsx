@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
 import { Transaction, TransactionType, DateFilterPreset, ExpenseCategory } from '../../types';
-import { formatCurrency, formatDateVN, getDayOfWeek, getTodayDateString, getWeekRange, getCurrentMonthPrefix, getMonthsAgoRange, getYearRange } from '../../lib/utils';
+import { formatCurrency, formatDateVN, getDayOfWeek, getTodayDateString, getWeekRange, getCurrentMonthPrefix, getMonthsAgoRange, getYearRange, isInvestmentTransaction } from '../../lib/utils';
 import { getCategoryIconMeta, AVAILABLE_CATEGORY_ICONS } from '../../lib/categoryIcons';
 import { Modal } from '../../components/ui/Modal';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -25,7 +25,9 @@ import {
   Calendar,
   DollarSign,
   QrCode,
-  Heart
+  Heart,
+  Coins,
+  PiggyBank
 } from 'lucide-react';
 import { PayOSModal } from '../payment/PayOSModal';
 
@@ -45,7 +47,7 @@ export const ExpensesView: React.FC = () => {
   const [filterPreset, setFilterPreset] = useState<DateFilterPreset>('month');
   const [customStartDate, setCustomStartDate] = useState<string>(getTodayDateString());
   const [customEndDate, setCustomEndDate] = useState<string>(getTodayDateString());
-  const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense'>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense' | 'investment'>('all');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [viewTab, setViewTab] = useState<'list' | 'analytics' | 'categories'>('list');
@@ -74,7 +76,6 @@ export const ExpensesView: React.FC = () => {
 
     return transactions.filter((tx) => {
       // Ensure we only use the YYYY-MM-DD part of the transaction date string
-      // just in case it contains a time component or timezone from the database.
       const txDate = tx.transaction_date ? tx.transaction_date.substring(0, 10) : '';
 
       // 1. Date Preset Filter
@@ -97,8 +98,14 @@ export const ExpensesView: React.FC = () => {
 
       if (!passDate) return false;
 
-      // 2. Type Filter
-      if (typeFilter !== 'all' && tx.transaction_type !== typeFilter) return false;
+      // 2. Type Filter (Separating Investment / Savings from Living Expenses)
+      if (typeFilter === 'income') {
+        if (tx.transaction_type !== 'income') return false;
+      } else if (typeFilter === 'investment') {
+        if (!isInvestmentTransaction(tx)) return false;
+      } else if (typeFilter === 'expense') {
+        if (tx.transaction_type !== 'expense' || isInvestmentTransaction(tx)) return false;
+      }
 
       // 3. Category Filter
       if (selectedCategoryFilter !== 'all' && tx.category_name !== selectedCategoryFilter) return false;
@@ -115,27 +122,34 @@ export const ExpensesView: React.FC = () => {
     }).sort((a, b) => b.transaction_date.localeCompare(a.transaction_date));
   }, [transactions, filterPreset, customStartDate, customEndDate, typeFilter, selectedCategoryFilter, searchTerm]);
 
-  // Summary Metrics
+  // Summary Metrics (Separating Tích lũy & Đầu tư)
   const summary = useMemo(() => {
     let totalIncome = 0;
-    let totalExpense = 0;
+    let totalLivingExpense = 0;
+    let totalInvestment = 0;
 
     filteredTransactions.forEach((tx) => {
+      const amt = Number(tx.amount) || 0;
       if (tx.transaction_type === 'income') {
-        totalIncome += tx.amount;
+        totalIncome += amt;
+      } else if (isInvestmentTransaction(tx)) {
+        totalInvestment += amt;
       } else {
-        totalExpense += tx.amount;
+        totalLivingExpense += amt;
       }
     });
 
-    const balance = totalIncome - totalExpense;
-    const savingsRate = totalIncome > 0 ? (balance / totalIncome) * 100 : 0;
+    const netCashflow = totalIncome - totalLivingExpense - totalInvestment;
+    const savingsRate = totalIncome > 0 ? ((totalIncome - totalLivingExpense) / totalIncome) * 100 : 0;
+    const investmentRate = totalIncome > 0 ? (totalInvestment / totalIncome) * 100 : 0;
 
     return {
       totalIncome,
-      totalExpense,
-      balance,
+      totalLivingExpense,
+      totalInvestment,
+      balance: netCashflow,
       savingsRate,
+      investmentRate,
       count: filteredTransactions.length,
     };
   }, [filteredTransactions]);
@@ -204,13 +218,13 @@ export const ExpensesView: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-12">
-      {/* 3 Main Summary KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* 4 Main Summary KPI Cards (Separating Tích lũy & Đầu tư) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Income */}
         <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center justify-between">
           <div>
             <p className="text-xs text-slate-400 font-medium">Tổng Thu Nhập</p>
-            <h3 className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1 font-display">
+            <h3 className="text-xl sm:text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1 font-display">
               {formatCurrency(summary.totalIncome, userSettings.currency)}
             </h3>
             <span className="text-[11px] text-slate-400 mt-0.5 inline-block">
@@ -222,15 +236,15 @@ export const ExpensesView: React.FC = () => {
           </div>
         </div>
 
-        {/* Total Expense */}
+        {/* Living Expenses (Chi tiêu sinh hoạt - Tách riêng) */}
         <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-400 font-medium">Tổng Chi Tiêu</p>
-            <h3 className="text-2xl font-bold text-rose-600 dark:text-rose-400 mt-1 font-display">
-              {formatCurrency(summary.totalExpense, userSettings.currency)}
+            <p className="text-xs text-slate-400 font-medium">Chi Tiêu Sinh Hoạt</p>
+            <h3 className="text-xl sm:text-2xl font-bold text-rose-600 dark:text-rose-400 mt-1 font-display">
+              {formatCurrency(summary.totalLivingExpense, userSettings.currency)}
             </h3>
             <span className="text-[11px] text-slate-400 mt-0.5 inline-block">
-              {filteredTransactions.filter(t => t.transaction_type === 'expense').length} khoản chi
+              {filteredTransactions.filter(t => t.transaction_type === 'expense' && !isInvestmentTransaction(t)).length} khoản chi tiêu
             </span>
           </div>
           <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400">
@@ -238,18 +252,36 @@ export const ExpensesView: React.FC = () => {
           </div>
         </div>
 
-        {/* Balance */}
+        {/* Investments & Savings (Tích lũy & Đầu tư - Nằm riêng biệt) */}
         <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-400 font-medium">Số Dư Tích Lũy</p>
-            <h3 className={`text-2xl font-bold mt-1 font-display ${summary.balance >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-600'}`}>
-              {formatCurrency(summary.balance, userSettings.currency)}
+            <p className="text-xs text-slate-400 font-medium flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-blue-500" /> Tích Lũy & Đầu Tư
+            </p>
+            <h3 className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1 font-display">
+              {formatCurrency(summary.totalInvestment, userSettings.currency)}
             </h3>
-            <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5 inline-block">
-              Tỷ lệ tiết kiệm: {summary.savingsRate.toFixed(1)}%
+            <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold mt-0.5 inline-block">
+              {summary.investmentRate.toFixed(1)}% thu nhập
             </span>
           </div>
           <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400">
+            <Coins className="w-6 h-6" />
+          </div>
+        </div>
+
+        {/* Net Cashflow Balance */}
+        <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center justify-between">
+          <div>
+            <p className="text-xs text-slate-400 font-medium">Dòng Tiền Còn Lại</p>
+            <h3 className={`text-xl sm:text-2xl font-bold mt-1 font-display ${summary.balance >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-600'}`}>
+              {formatCurrency(summary.balance, userSettings.currency)}
+            </h3>
+            <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5 inline-block">
+              Tiết kiệm: {summary.savingsRate.toFixed(1)}%
+            </span>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
             <Wallet className="w-6 h-6" />
           </div>
         </div>
@@ -337,16 +369,23 @@ export const ExpensesView: React.FC = () => {
             <button
               type="button"
               onClick={() => handleOpenAddTxModal('income')}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-xs shadow-xs transition-all"
+              className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-xs shadow-xs transition-all cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" /> + Thu Nhập
             </button>
             <button
               type="button"
               onClick={() => handleOpenAddTxModal('expense')}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-semibold text-xs shadow-xs transition-all"
+              className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-semibold text-xs shadow-xs transition-all cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" /> + Chi Tiêu
+            </button>
+            <button
+              type="button"
+              onClick={() => handleOpenAddTxModal('investment')}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition-all cursor-pointer"
+            >
+              <Coins className="w-3.5 h-3.5" /> + Tích Lũy / Đầu Tư
             </button>
           </div>
         </div>
@@ -391,8 +430,9 @@ export const ExpensesView: React.FC = () => {
               className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none"
             >
               <option value="all">Tất cả loại giao dịch</option>
+              <option value="expense">🔴 Chi tiêu sinh hoạt</option>
+              <option value="investment">🔵 Tích lũy & Đầu tư</option>
               <option value="income">🟢 Thu nhập</option>
-              <option value="expense">🔴 Chi tiêu</option>
             </select>
           </div>
 
@@ -447,6 +487,8 @@ export const ExpensesView: React.FC = () => {
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {filteredTransactions.map((tx) => {
                     const isIncome = tx.transaction_type === 'income';
+                    const isInvest = isInvestmentTransaction(tx);
+
                     return (
                       <tr
                         key={tx.id}
@@ -463,11 +505,13 @@ export const ExpensesView: React.FC = () => {
                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
                               isIncome
                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                                : isInvest
+                                ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800'
                                 : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
                             }`}
                           >
-                            {isIncome ? <ArrowDownLeft className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
-                            {isIncome ? 'Thu nhập' : 'Chi tiêu'}
+                            {isIncome ? <ArrowDownLeft className="w-3 h-3" /> : isInvest ? <Coins className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
+                            {isIncome ? 'Thu nhập' : isInvest ? 'Tích lũy' : 'Chi tiêu'}
                           </span>
                         </td>
                         <td className="py-3 px-4 font-medium text-slate-800 dark:text-slate-200">
@@ -491,7 +535,11 @@ export const ExpensesView: React.FC = () => {
                         </td>
                         <td
                           className={`py-3 px-4 text-right font-bold font-display text-sm whitespace-nowrap ${
-                            isIncome ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                            isIncome 
+                              ? 'text-emerald-600 dark:text-emerald-400' 
+                              : isInvest 
+                              ? 'text-blue-600 dark:text-blue-400' 
+                              : 'text-rose-600 dark:text-rose-400'
                           }`}
                         >
                           {isIncome ? '+' : '-'}{formatCurrency(tx.amount, userSettings.currency)}

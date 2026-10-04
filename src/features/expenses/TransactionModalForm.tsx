@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Modal } from '../../components/ui/Modal';
 import { Transaction, ExpenseCategory, UserSettings } from '../../types';
-import { formatCurrency } from '../../lib/utils';
+import { formatCurrency, isInvestmentTransaction } from '../../lib/utils';
 import { getCategoryIconMeta, AVAILABLE_CATEGORY_ICONS } from '../../lib/categoryIcons';
-import { ArrowDownLeft, ArrowUpRight, Plus, Sparkles, Check } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Plus, Sparkles, Check, Coins } from 'lucide-react';
 
 interface TransactionModalFormProps {
   isOpen: boolean;
@@ -11,10 +11,10 @@ interface TransactionModalFormProps {
   editingTx: Transaction | null;
   categories: ExpenseCategory[];
   userSettings: UserSettings;
-  defaultType?: 'expense' | 'income';
+  defaultType?: 'expense' | 'income' | 'investment';
   onSave: (data: {
     id?: string;
-    type: 'income' | 'expense';
+    type: 'income' | 'expense' | 'investment';
     amount: number;
     category: string;
     description: string;
@@ -33,7 +33,7 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
   onSave,
   onAddCategory,
 }) => {
-  const [formType, setFormType] = useState<'income' | 'expense'>(defaultType);
+  const [formType, setFormType] = useState<'income' | 'expense' | 'investment'>(defaultType);
   const [formDate, setFormDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [formCategoryName, setFormCategoryName] = useState('');
   const [formAmount, setFormAmount] = useState('');
@@ -49,7 +49,11 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
 
   // Available categories for current selected type
   const availableCategories = useMemo(() => {
-    return categories.filter((c) => c.type === formType);
+    return categories.filter((c) => {
+      if (formType === 'investment') return c.type === 'investment' || isInvestmentTransaction(c);
+      if (formType === 'income') return c.type === 'income';
+      return c.type === 'expense' && !isInvestmentTransaction(c);
+    });
   }, [categories, formType]);
 
   // Sync state ONLY when modal transitions from closed to open, or when editingTx changes
@@ -59,7 +63,8 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
 
     if (isOpening || isEditingTargetChanged) {
       if (editingTx) {
-        setFormType(editingTx.transaction_type);
+        const isInvest = isInvestmentTransaction(editingTx);
+        setFormType(isInvest ? 'investment' : editingTx.transaction_type);
         setFormDate(editingTx.transaction_date || new Date().toISOString().split('T')[0]);
         setFormCategoryName(editingTx.category_name);
         setFormAmount(editingTx.amount ? editingTx.amount.toString() : '');
@@ -67,8 +72,12 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
       } else {
         setFormType(defaultType);
         setFormDate(new Date().toISOString().split('T')[0]);
-        const matchingCats = categories.filter((c) => c.type === defaultType);
-        setFormCategoryName(matchingCats[0]?.name || (defaultType === 'income' ? 'Lương' : 'Ăn uống'));
+        const matchingCats = categories.filter((c) => {
+          if (defaultType === 'investment') return c.type === 'investment' || isInvestmentTransaction(c);
+          if (defaultType === 'income') return c.type === 'income';
+          return c.type === 'expense' && !isInvestmentTransaction(c);
+        });
+        setFormCategoryName(matchingCats[0]?.name || (defaultType === 'income' ? 'Lương' : defaultType === 'investment' ? 'Tích lũy & Đầu tư' : 'Ăn uống'));
         setFormAmount('');
         setFormNote('');
       }
@@ -148,8 +157,40 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
       maxWidth="lg"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Type Toggle */}
-        <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-100 dark:bg-slate-800">
+        {/* Type Toggle (3 Tabs: Chi Tiêu vs Tích Lũy & Đầu Tư vs Thu Nhập) */}
+        <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-800">
+          <button
+            type="button"
+            onClick={() => {
+              setFormType('expense');
+              const expCats = categories.filter((c) => c.type === 'expense' && !isInvestmentTransaction(c));
+              setFormCategoryName(expCats[0]?.name || 'Ăn uống');
+            }}
+            className={`py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              formType === 'expense'
+                ? 'bg-rose-600 text-white shadow-xs font-bold'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <ArrowUpRight className="w-3.5 h-3.5" /> Chi Tiêu
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setFormType('investment');
+              const investCats = categories.filter((c) => c.type === 'investment' || isInvestmentTransaction(c));
+              setFormCategoryName(investCats[0]?.name || 'Tích lũy & Đầu tư');
+            }}
+            className={`py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              formType === 'investment'
+                ? 'bg-blue-600 text-white shadow-xs font-bold'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Coins className="w-3.5 h-3.5" /> Tích Lũy / Đầu Tư
+          </button>
+
           <button
             type="button"
             onClick={() => {
@@ -159,26 +200,11 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
             }}
             className={`py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               formType === 'income'
-                ? 'bg-emerald-600 text-white shadow-xs'
+                ? 'bg-emerald-600 text-white shadow-xs font-bold'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <ArrowDownLeft className="w-3.5 h-3.5" /> Thu Nhập
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setFormType('expense');
-              const expCats = categories.filter((c) => c.type === 'expense');
-              setFormCategoryName(expCats[0]?.name || 'Ăn uống');
-            }}
-            className={`py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-              formType === 'expense'
-                ? 'bg-rose-600 text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <ArrowUpRight className="w-3.5 h-3.5" /> Chi Tiêu
           </button>
         </div>
 

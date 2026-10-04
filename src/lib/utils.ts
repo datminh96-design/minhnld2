@@ -448,3 +448,37 @@ export function calculateInvestmentHoldings(assets: any[], transactions: any[], 
     return h;
   });
 }
+
+/**
+ * Kiểm tra xem giao dịch hoặc danh mục có thuộc nhóm "Tích lũy & Đầu tư" hay không.
+ * Tích lũy & Đầu tư là dòng tiền dịch chuyển tài sản, KHÔNG tính chung vào Chi tiêu sinh hoạt.
+ */
+export function isInvestmentTransaction(
+  tx: { 
+    transaction_type?: string; 
+    category_name?: string; 
+    name?: string; 
+    type?: string; 
+  } | null | undefined
+): boolean {
+  if (!tx) return false;
+  if (tx.transaction_type === 'investment' || tx.type === 'investment') return true;
+  const name = (tx.category_name || tx.name || '').toLowerCase().trim();
+  if (!name) return false;
+  
+  return (
+    name.includes('tích lũy') ||
+    name.includes('đầu tư') ||
+    name.includes('tiết kiệm') ||
+    name.includes('chứng khoán') ||
+    name.includes('cổ phiếu') ||
+    name.includes('trái phiếu') ||
+    name.includes('quỹ mở') ||
+    name.includes('crypto') ||
+    name.includes('bitcoin') ||
+    name.includes('vàng') ||
+    name.includes('bất động sản') ||
+    name.includes('mua tài sản')
+  );
+}
+
