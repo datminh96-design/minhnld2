@@ -34,6 +34,10 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   currency: 'VND',
   currency_format: 'vi-VN',
   cost_calculation_method: 'weighted_average',
+  monthly_budget_limit: 15_000_000,
+  budget_warning_threshold: 80,
+  enable_budget_alert: true,
+  enable_email_budget_alert: false,
 };
 
 export const DEFAULT_EXPENSE_CATEGORIES: ExpenseCategory[] = [

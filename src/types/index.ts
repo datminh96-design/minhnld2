@@ -27,6 +27,11 @@ export interface UserSettings {
   currency: 'VND' | 'USD';
   currency_format: string;
   cost_calculation_method: 'weighted_average' | 'fifo';
+  // Budget & Notification System
+  monthly_budget_limit?: number; // e.g. 15_000_000
+  budget_warning_threshold?: number; // e.g. 80 (%)
+  enable_budget_alert?: boolean; // Default true
+  enable_email_budget_alert?: boolean; // Default false
 }
 
 export interface WorkSettings {

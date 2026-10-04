@@ -18,8 +18,7 @@ import {
 } from '../lib/seedData';
 import { useAuth } from './AuthContext';
 import { getSupabaseClient } from '../lib/supabase';
-import { calculateWorkHours, generateUUID, toValidUUID } from '../lib/utils';
-import { calculateInvestmentHoldings } from '../lib/utils';
+import { calculateWorkHours, generateUUID, toValidUUID, formatCurrency, calculateInvestmentHoldings } from '../lib/utils';
 import { priceService } from '../services/priceService';
 import { r2Service, R2BackupPayload } from '../services/r2Service';
 import { emailService, SendEmailPayload, SendEmailResponse } from '../services/emailService';
@@ -1299,13 +1298,20 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updateUserSettings = async (newSettings: Partial<UserSettings>) => {
     const updated = { ...userSettings, ...newSettings };
     setUserSettings(updated);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('app_user_settings', JSON.stringify(updated));
+    }
     await runUpsert('user_settings', {
       id: updated.id,
       theme: updated.theme,
       currency: updated.currency,
       currency_format: updated.currency_format,
-      cost_calculation_method: updated.cost_calculation_method
-    }, 'Đã lưu cài đặt hệ thống');
+      cost_calculation_method: updated.cost_calculation_method,
+      monthly_budget_limit: updated.monthly_budget_limit,
+      budget_warning_threshold: updated.budget_warning_threshold,
+      enable_budget_alert: updated.enable_budget_alert,
+      enable_email_budget_alert: updated.enable_email_budget_alert
+    }, 'Đã lưu cài đặt hệ thống & ngân sách');
   };
 
   const saveWorkLog = async (logData: Omit<WorkLog, 'id'> & { id?: string }) => {
@@ -1516,6 +1522,44 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       if (res.error?.message?.includes('foreign key') || res.error?.message?.includes('uuid')) {
         syncWithSupabase();
+      }
+    } else {
+      // Check monthly budget threshold & trigger automated alerts
+      const budgetLimit = userSettings.monthly_budget_limit || 0;
+      const isAlertEnabled = userSettings.enable_budget_alert !== false;
+      const threshold = userSettings.budget_warning_threshold || 80;
+
+      if (fullTx.transaction_type === 'expense' && budgetLimit > 0 && isAlertEnabled) {
+        const txMonthPrefix = fullTx.transaction_date ? fullTx.transaction_date.substring(0, 7) : new Date().toISOString().substring(0, 7);
+        
+        // Calculate new total monthly expenses
+        let updatedMonthExpenses = 0;
+        const allTx = transactions.filter(t => t.id !== id);
+        allTx.push(fullTx);
+
+        allTx.forEach(t => {
+          if (t.transaction_type === 'expense' && t.transaction_date && t.transaction_date.startsWith(txMonthPrefix)) {
+            updatedMonthExpenses += Number(t.amount) || 0;
+          }
+        });
+
+        const currentPercent = Math.round((updatedMonthExpenses / budgetLimit) * 100);
+
+        if (currentPercent >= 100) {
+          setTimeout(() => {
+            addToast(
+              `🚨 CẢNH BÁO VƯỢT NGÂN SÁCH: Chi tiêu tháng đã vượt ${currentPercent}% định mức (Đã chi ${formatCurrency(updatedMonthExpenses, userSettings.currency)} / Ngân sách ${formatCurrency(budgetLimit, userSettings.currency)})!`,
+              'error'
+            );
+          }, 350);
+        } else if (currentPercent >= threshold) {
+          setTimeout(() => {
+            addToast(
+              `⚠️ CHÚ Ý NGÂN SÁCH: Chi tiêu tháng đã chạm ${currentPercent}% định mức (${formatCurrency(updatedMonthExpenses, userSettings.currency)} / ${formatCurrency(budgetLimit, userSettings.currency)})!`,
+              'warning'
+            );
+          }, 350);
+        }
       }
     }
   };

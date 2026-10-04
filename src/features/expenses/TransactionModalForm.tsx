@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Modal } from '../../components/ui/Modal';
 import { Transaction, ExpenseCategory, UserSettings } from '../../types';
 import { formatCurrency } from '../../lib/utils';
-import { ArrowDownLeft, ArrowUpRight, Plus } from 'lucide-react';
+import { getCategoryIconMeta, AVAILABLE_CATEGORY_ICONS } from '../../lib/categoryIcons';
+import { ArrowDownLeft, ArrowUpRight, Plus, Sparkles, Check } from 'lucide-react';
 
 interface TransactionModalFormProps {
   isOpen: boolean;
@@ -39,6 +40,8 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
   const [formNote, setFormNote] = useState('');
   const [isInlineAddCatOpen, setIsInlineAddCatOpen] = useState(false);
   const [inlineCatName, setInlineCatName] = useState('');
+  const [inlineCatIcon, setInlineCatIcon] = useState('ShoppingBag');
+  const [inlineCatColor, setInlineCatColor] = useState('#EF4444');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const prevIsOpenRef = React.useRef(false);
@@ -75,15 +78,26 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
 
     prevIsOpenRef.current = isOpen;
     prevEditingTxIdRef.current = editingTx?.id;
-  }, [isOpen, editingTx, defaultType]);
+  }, [isOpen, editingTx, defaultType, categories]);
+
+  // Update inline category default color/icon when category name changes
+  useEffect(() => {
+    if (inlineCatName.trim()) {
+      const meta = getCategoryIconMeta(inlineCatName.trim());
+      setInlineCatIcon(meta.iconName);
+      setInlineCatColor(meta.color);
+    }
+  }, [inlineCatName]);
 
   const handleQuickCreateCategory = async () => {
     if (!inlineCatName.trim()) return;
     try {
+      const meta = getCategoryIconMeta(inlineCatName.trim(), inlineCatIcon, inlineCatColor);
       const created = await onAddCategory({
         name: inlineCatName.trim(),
         type: formType,
-        color: formType === 'income' ? '#10B981' : '#F43F5E',
+        icon: meta.iconName,
+        color: meta.color,
       });
       if (created) {
         setFormCategoryName(created.name);
@@ -118,13 +132,20 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
     }
   };
 
+  const selectedCategoryMeta = useMemo(() => {
+    const matched = categories.find((c) => c.name === formCategoryName);
+    return getCategoryIconMeta(formCategoryName, matched?.icon, matched?.color);
+  }, [formCategoryName, categories]);
+
+  const SelectedIcon = selectedCategoryMeta.Icon;
+
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
       title={editingTx ? 'Chỉnh Sửa Giao Dịch' : formType === 'income' ? 'Thêm Khoản Thu Nhập' : 'Thêm Khoản Chi Tiêu'}
       subtitle="Quản lý dòng tiền tài chính cá nhân"
-      maxWidth="md"
+      maxWidth="lg"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Type Toggle */}
@@ -139,7 +160,7 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
             className={`py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               formType === 'income'
                 ? 'bg-emerald-600 text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <ArrowDownLeft className="w-3.5 h-3.5" /> Thu Nhập
@@ -154,14 +175,138 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
             className={`py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               formType === 'expense'
                 ? 'bg-rose-600 text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <ArrowUpRight className="w-3.5 h-3.5" /> Chi Tiêu
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        {/* Categorization System with Visual Icons */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <span>Danh mục {formType === 'income' ? 'thu nhập' : 'chi tiêu'}</span>
+              <span className="text-[11px] font-normal text-slate-400">({availableCategories.length} danh mục)</span>
+            </label>
+            <button
+              type="button"
+              onClick={() => setIsInlineAddCatOpen(!isInlineAddCatOpen)}
+              className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 flex items-center gap-1 cursor-pointer transition-colors"
+            >
+              <Plus className="w-3 h-3" /> {isInlineAddCatOpen ? 'Đóng tạo nhanh' : '+ Tạo danh mục mới'}
+            </button>
+          </div>
+
+          {/* Inline Quick Category Creator */}
+          {isInlineAddCatOpen && (
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-emerald-500/40 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder={`Nhập tên danh mục ${formType === 'income' ? 'thu' : 'chi'} (VD: Cà phê, Grab, Học tập...)`}
+                  value={inlineCatName}
+                  onChange={(e) => setInlineCatName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleQuickCreateCategory();
+                    }
+                  }}
+                  className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleQuickCreateCategory()}
+                  disabled={!inlineCatName.trim()}
+                  className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg whitespace-nowrap shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  Tạo & Chọn
+                </button>
+              </div>
+
+              {inlineCatName.trim() && (
+                <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 px-1">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Tự động nhận diện biểu tượng & màu sắc chuẩn</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Category Icon Badges Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-48 overflow-y-auto p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40">
+            {availableCategories.map((c) => {
+              const isSelected = formCategoryName === c.name;
+              const { Icon: CatIcon, color, bgColor } = getCategoryIconMeta(c.name, c.icon, c.color);
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setFormCategoryName(c.name)}
+                  className={`p-2 rounded-xl flex items-center gap-2 text-left transition-all cursor-pointer border ${
+                    isSelected
+                      ? 'bg-white dark:bg-slate-800 border-emerald-500 shadow-xs ring-2 ring-emerald-500/20'
+                      : 'bg-white/80 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                  }`}
+                >
+                  <div
+                    className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: bgColor }}
+                  >
+                    <CatIcon className="w-3.5 h-3.5" style={{ color }} />
+                  </div>
+                  <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate flex-1">
+                    {c.name}
+                  </span>
+                  {isSelected && (
+                    <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Active Selected Category Pill Preview */}
+          {formCategoryName && (
+            <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/60 text-xs">
+              <span className="text-slate-400 text-[11px]">Đang chọn:</span>
+              <div
+                className="w-5 h-5 rounded-md flex items-center justify-center shrink-0"
+                style={{ backgroundColor: selectedCategoryMeta.bgColor }}
+              >
+                <SelectedIcon className="w-3 h-3" style={{ color: selectedCategoryMeta.color }} />
+              </div>
+              <span className="font-bold text-slate-800 dark:text-slate-100 font-display">
+                {formCategoryName}
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Số tiền ({userSettings.currency})
+            </label>
+            <input
+              type="number"
+              required
+              min="0"
+              step="any"
+              placeholder="VD: 500000"
+              value={formAmount}
+              onChange={(e) => setFormAmount(e.target.value)}
+              className="w-full px-3 py-2 text-sm font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+            />
+            {formAmount && !isNaN(Number(formAmount)) && (
+              <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1 font-semibold">
+                Hiển thị: {formatCurrency(Number(formAmount), userSettings.currency)}
+              </p>
+            )}
+          </div>
+
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
               Ngày giao dịch
@@ -171,91 +316,9 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
               required
               value={formDate}
               onChange={(e) => setFormDate(e.target.value)}
-              className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
             />
           </div>
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Danh mục
-              </label>
-              <button
-                type="button"
-                onClick={() => setIsInlineAddCatOpen(!isInlineAddCatOpen)}
-                className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 flex items-center gap-0.5 cursor-pointer transition-colors"
-              >
-                <Plus className="w-3 h-3" /> {isInlineAddCatOpen ? 'Đóng' : 'Thêm mới'}
-              </button>
-            </div>
-
-            {!isInlineAddCatOpen ? (
-              <select
-                value={formCategoryName}
-                onChange={(e) => {
-                  if (e.target.value === '__add_new__') {
-                    setIsInlineAddCatOpen(true);
-                  } else {
-                    setFormCategoryName(e.target.value);
-                  }
-                }}
-                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              >
-                {availableCategories.map((c) => (
-                  <option key={c.id} value={c.name}>
-                    {c.name}
-                  </option>
-                ))}
-                <option value="__add_new__" className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                  ➕ Thêm danh mục mới...
-                </option>
-              </select>
-            ) : (
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="text"
-                  autoFocus
-                  placeholder={`Tên danh mục ${formType === 'income' ? 'thu' : 'chi'}...`}
-                  value={inlineCatName}
-                  onChange={(e) => setInlineCatName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleQuickCreateCategory();
-                    }
-                  }}
-                  className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-emerald-400 dark:border-emerald-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-                <button
-                  type="button"
-                  onClick={() => handleQuickCreateCategory()}
-                  className="px-2.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg whitespace-nowrap shadow-xs cursor-pointer"
-                >
-                  Tạo
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-            Số tiền ({userSettings.currency})
-          </label>
-          <input
-            type="number"
-            required
-            min="0"
-            step="any"
-            placeholder="VD: 500000"
-            value={formAmount}
-            onChange={(e) => setFormAmount(e.target.value)}
-            className="w-full px-3 py-2 text-sm font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
-          {formAmount && !isNaN(Number(formAmount)) && (
-            <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1 font-semibold">
-              Hiển thị: {formatCurrency(Number(formAmount), userSettings.currency)}
-            </p>
-          )}
         </div>
 
         <div>
@@ -266,12 +329,12 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
             rows={2}
             value={formNote}
             onChange={(e) => setFormNote(e.target.value)}
-            placeholder="Chi tiết giao dịch..."
+            placeholder="Chi tiết giao dịch (Ví dụ: Ăn trưa bún bò, Mua cà phê sáng...)"
             className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
         </div>
 
-        <div className="pt-2 flex items-center justify-end gap-2.5">
+        <div className="pt-2 flex items-center justify-end gap-2.5 border-t border-slate-100 dark:border-slate-800">
           <button
             type="button"
             onClick={onClose}

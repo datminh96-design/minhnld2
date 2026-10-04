@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useData } from '../../context/DataContext';
 import { formatCurrency, formatPercent, getCurrentMonthPrefix } from '../../lib/utils';
 import { 
@@ -13,7 +13,9 @@ import {
   Calendar,
   Sparkles,
   Award,
-  Zap
+  Zap,
+  BarChart3,
+  CircleDollarSign
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -25,6 +27,7 @@ import {
   CartesianGrid,
   BarChart,
   Bar,
+  Legend,
 } from 'recharts';
 
 interface DashboardViewProps {
@@ -192,6 +195,80 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }));
   }, [portfolioSnapshots]);
 
+  // ==========================================
+  // MONTHLY CASHFLOW BAR CHART (INFLOWS VS OUTFLOWS)
+  // ==========================================
+  const [cashflowRange, setCashflowRange] = useState<'6m' | '12m' | 'year'>('6m');
+
+  const monthlyCashflowData = useMemo(() => {
+    const now = new Date();
+    const monthsCount = cashflowRange === '6m' ? 6 : cashflowRange === '12m' ? 12 : (now.getMonth() + 1);
+    
+    const list = [];
+    for (let i = monthsCount - 1; i >= 0; i--) {
+      const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const y = targetDate.getFullYear();
+      const m = targetDate.getMonth() + 1;
+      const mPrefix = `${y}-${String(m).padStart(2, '0')}`;
+      const monthLabel = `T${m}/${String(y).slice(2)}`;
+      const fullMonthName = `Tháng ${m}/${y}`;
+
+      let inflow = 0;
+      let outflow = 0;
+
+      transactions.forEach((t) => {
+        if (t.transaction_date && t.transaction_date.startsWith(mPrefix)) {
+          if (t.transaction_type === 'income') {
+            inflow += t.amount || 0;
+          } else if (t.transaction_type === 'expense') {
+            outflow += t.amount || 0;
+          }
+        }
+      });
+
+      const net = inflow - outflow;
+      const savingsRate = inflow > 0 ? Math.round((net / inflow) * 100) : (outflow > 0 ? -100 : 0);
+
+      list.push({
+        monthKey: mPrefix,
+        monthLabel,
+        fullMonthName,
+        inflow,
+        outflow,
+        net,
+        savingsRate,
+      });
+    }
+
+    return list;
+  }, [transactions, cashflowRange]);
+
+  const cashflowSummary = useMemo(() => {
+    const totalInflow = monthlyCashflowData.reduce((acc, curr) => acc + curr.inflow, 0);
+    const totalOutflow = monthlyCashflowData.reduce((acc, curr) => acc + curr.outflow, 0);
+    const netSavings = totalInflow - totalOutflow;
+    const avgSavingsRate = totalInflow > 0 ? Math.round((netSavings / totalInflow) * 100) : 0;
+    
+    // Find best savings month
+    let bestMonth = monthlyCashflowData[0];
+    monthlyCashflowData.forEach((item) => {
+      if (!bestMonth || item.net > bestMonth.net) {
+        bestMonth = item;
+      }
+    });
+
+    const hasAnyData = monthlyCashflowData.some((m) => m.inflow > 0 || m.outflow > 0);
+
+    return {
+      totalInflow,
+      totalOutflow,
+      netSavings,
+      avgSavingsRate,
+      bestMonth,
+      hasAnyData,
+    };
+  }, [monthlyCashflowData]);
+
   return (
     <div className="space-y-6 pb-12">
       {/* Top Banner with Net Worth & Hero Summary */}
@@ -337,16 +414,52 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             {/* Main Metric */}
-            <div className="my-4">
-              <p className="text-xs text-slate-400">Số dư ròng tháng</p>
-              <div className="flex items-baseline justify-between mt-1">
-                <span className="text-2xl sm:text-3xl font-bold text-emerald-600 dark:text-emerald-400 font-display">
-                  {formatCurrency(expenseStats.netSavings, userSettings.currency)}
-                </span>
-                <span className="text-[11px] font-semibold text-slate-500">
-                  {expenseStats.txCount} giao dịch
-                </span>
+            <div className="my-4 space-y-2">
+              <div className="flex items-baseline justify-between">
+                <div>
+                  <p className="text-xs text-slate-400">Số dư ròng tháng</p>
+                  <p className="text-2xl sm:text-3xl font-bold text-emerald-600 dark:text-emerald-400 font-display">
+                    {formatCurrency(expenseStats.netSavings, userSettings.currency)}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <span className="text-[11px] font-semibold text-slate-500">
+                    {expenseStats.txCount} giao dịch
+                  </span>
+                </div>
               </div>
+
+              {/* Monthly Budget Tracker Bar */}
+              {(() => {
+                const budgetLimit = userSettings.monthly_budget_limit || 15_000_000;
+                const threshold = userSettings.budget_warning_threshold || 80;
+                const spentPercent = budgetLimit > 0 ? (expenseStats.totalExpense / budgetLimit) * 100 : 0;
+                const isOverBudget = spentPercent >= 100;
+                const isWarning = spentPercent >= threshold && !isOverBudget;
+
+                return (
+                  <div className="pt-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-slate-500 dark:text-slate-400">
+                        Ngân sách: <strong className="font-mono text-slate-700 dark:text-slate-300">{formatCurrency(expenseStats.totalExpense, userSettings.currency, true)}</strong> / {formatCurrency(budgetLimit, userSettings.currency, true)}
+                      </span>
+                      <span className={`font-mono font-bold ${
+                        isOverBudget ? 'text-rose-600 dark:text-rose-400' : isWarning ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'
+                      }`}>
+                        {spentPercent.toFixed(0)}%
+                      </span>
+                    </div>
+                    <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden mt-1">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          isOverBudget ? 'bg-rose-500' : isWarning ? 'bg-amber-500' : 'bg-emerald-500'
+                        }`}
+                        style={{ width: `${Math.min(100, spentPercent)}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Breakdown stats */}
@@ -466,6 +579,210 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <span>Tài sản nắm giữ: {calculatedHoldings.length} loại</span>
             <span className="text-purple-600 font-semibold">Tự động tính giá vốn</span>
           </div>
+        </div>
+      </div>
+
+      {/* 4. BIỂU ĐỒ DÒNG TIỀN THU VÀO & CHI RA HÀNG THÁNG (RECHARTS BAR CHART) */}
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-xs space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400">
+              <BarChart3 className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white font-display tracking-tight">
+                  Biểu Đồ Dòng Tiền Thu Vào & Chi Ra Hàng Tháng
+                </h3>
+                <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/80">
+                  <Sparkles className="w-3 h-3" /> Recharts Responsive
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                So sánh đối chiếu tổng thu nhập (Inflow), chi tiêu (Outflow) và thặng dư tích lũy qua các tháng
+              </p>
+            </div>
+          </div>
+
+          {/* Time Range Selector */}
+          <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl self-start sm:self-auto text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setCashflowRange('6m')}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                cashflowRange === '6m'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs font-bold'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              6 tháng
+            </button>
+            <button
+              type="button"
+              onClick={() => setCashflowRange('12m')}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                cashflowRange === '12m'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs font-bold'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              12 tháng
+            </button>
+            <button
+              type="button"
+              onClick={() => setCashflowRange('year')}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                cashflowRange === 'year'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs font-bold'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              Năm {currentYear}
+            </button>
+          </div>
+        </div>
+
+        {/* Summary Badges */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="p-3 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 space-y-1">
+            <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              Tổng Thu Vào
+            </p>
+            <p className="text-base sm:text-lg font-bold font-mono text-slate-900 dark:text-white">
+              {formatCurrency(cashflowSummary.totalInflow, userSettings.currency, true)}
+            </p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 space-y-1">
+            <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-rose-500" />
+              Tổng Chi Ra
+            </p>
+            <p className="text-base sm:text-lg font-bold font-mono text-slate-900 dark:text-white">
+              {formatCurrency(cashflowSummary.totalOutflow, userSettings.currency, true)}
+            </p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 space-y-1">
+            <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+              <CircleDollarSign className="w-3 h-3 text-blue-500" />
+              Thặng Dư Tích Lũy
+            </p>
+            <p className={`text-base sm:text-lg font-bold font-mono ${cashflowSummary.netSavings >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'}`}>
+              {cashflowSummary.netSavings >= 0 ? '+' : ''}{formatCurrency(cashflowSummary.netSavings, userSettings.currency, true)}
+            </p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 space-y-1">
+            <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+              <Award className="w-3 h-3 text-amber-500" />
+              Tỷ Lệ Tiết Kiệm TB
+            </p>
+            <p className="text-base sm:text-lg font-bold font-mono text-slate-900 dark:text-white">
+              {cashflowSummary.avgSavingsRate}%
+            </p>
+          </div>
+        </div>
+
+        {/* Recharts Bar Chart Canvas */}
+        <div className="h-80 w-full pt-2">
+          {!cashflowSummary.hasAnyData ? (
+            <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/20 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+              <BarChart3 className="w-8 h-8 mb-2 opacity-50 text-emerald-500" />
+              <p className="text-sm font-medium">Chưa có giao dịch thu chi trong khoảng thời gian này</p>
+              <p className="text-xs mt-1 text-slate-400">Thêm khoản thu nhập hoặc chi tiêu để tự động vẽ biểu đồ dòng tiền</p>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={monthlyCashflowData}
+                margin={{ top: 15, right: 10, left: 10, bottom: 5 }}
+                barGap={6}
+              >
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148, 163, 184, 0.15)" />
+                <XAxis
+                  dataKey="monthLabel"
+                  tick={{ fontSize: 11, fill: '#94a3b8' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tickFormatter={(val) => formatCurrency(val, userSettings.currency, true)}
+                  tick={{ fontSize: 11, fill: '#94a3b8' }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={80}
+                />
+                <Tooltip
+                  cursor={{ fill: 'rgba(148, 163, 184, 0.08)' }}
+                  content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      const item = payload[0].payload;
+                      return (
+                        <div className="rounded-2xl bg-slate-900/95 text-white p-3.5 shadow-2xl border border-slate-700/80 text-xs space-y-2 backdrop-blur-md min-w-[200px]">
+                          <div className="flex items-center justify-between pb-1.5 border-b border-slate-800">
+                            <span className="font-bold text-slate-200 font-display">{item.fullMonthName}</span>
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                              item.net >= 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+                            }`}>
+                              Tiết kiệm: {item.savingsRate}%
+                            </span>
+                          </div>
+
+                          <div className="space-y-1 font-mono">
+                            <div className="flex justify-between items-center text-emerald-400 font-semibold">
+                              <span className="flex items-center gap-1.5 font-sans">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400" /> Thu vào (Inflow):
+                              </span>
+                              <span>+{formatCurrency(item.inflow, userSettings.currency)}</span>
+                            </div>
+
+                            <div className="flex justify-between items-center text-rose-400 font-semibold">
+                              <span className="flex items-center gap-1.5 font-sans">
+                                <span className="w-2 h-2 rounded-full bg-rose-400" /> Chi ra (Outflow):
+                              </span>
+                              <span>-{formatCurrency(item.outflow, userSettings.currency)}</span>
+                            </div>
+
+                            <div className="pt-1.5 border-t border-slate-800 flex justify-between items-center font-bold">
+                              <span className="text-slate-400 font-sans">Dòng tiền ròng (Net):</span>
+                              <span className={item.net >= 0 ? 'text-emerald-300' : 'text-rose-300'}>
+                                {item.net >= 0 ? '+' : ''}{formatCurrency(item.net, userSettings.currency)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                <Legend
+                  verticalAlign="top"
+                  align="right"
+                  iconType="circle"
+                  iconSize={8}
+                  wrapperStyle={{ paddingBottom: '12px', fontSize: '11px' }}
+                  formatter={(value) => <span className="text-slate-600 dark:text-slate-300 font-medium ml-1">{value}</span>}
+                />
+                <Bar
+                  dataKey="inflow"
+                  name="Thu vào (Inflows)"
+                  fill="#10B981"
+                  radius={[6, 6, 0, 0]}
+                  maxBarSize={36}
+                />
+                <Bar
+                  dataKey="outflow"
+                  name="Chi ra (Outflows)"
+                  fill="#F43F5E"
+                  radius={[6, 6, 0, 0]}
+                  maxBarSize={36}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
 

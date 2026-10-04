@@ -116,24 +116,18 @@ const PALETTE = [
   '#3B82F6', '#8B5CF6', '#EC4899', '#14B8A6', '#84CC16', '#64748B'
 ];
 
+import { getCategoryIconMeta } from '../../lib/categoryIcons';
+
 // Helper to get category icon component
-const getCategoryIcon = (categoryName: string) => {
-  for (const key of Object.keys(CATEGORY_ICONS)) {
-    if (categoryName.toLowerCase().includes(key.toLowerCase())) {
-      return CATEGORY_ICONS[key];
-    }
-  }
-  return HelpCircle;
+const getCategoryIcon = (categoryName: string, iconName?: string) => {
+  return getCategoryIconMeta(categoryName, iconName).Icon;
 };
 
 // Helper to get category color
-const getCategoryColor = (categoryName: string, index: number) => {
-  for (const key of Object.keys(CATEGORY_COLORS)) {
-    if (categoryName.toLowerCase().includes(key.toLowerCase())) {
-      return CATEGORY_COLORS[key];
-    }
-  }
-  return PALETTE[index % PALETTE.length];
+const getCategoryColor = (categoryName: string, index: number, customColor?: string) => {
+  if (customColor) return customColor;
+  const meta = getCategoryIconMeta(categoryName);
+  return meta.color || PALETTE[index % PALETTE.length];
 };
 
 // Custom Tooltip for Income vs Expense Chart
