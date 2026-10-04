@@ -75,6 +75,65 @@ export function formatCurrency(
   }).format(value);
 }
 
+export function numberToVietnameseWords(num: number): string {
+  if (!num || num === 0) return 'Không đồng';
+  if (num < 0) return 'Âm ' + numberToVietnameseWords(Math.abs(num));
+
+  const units = ['', 'nghìn', 'triệu', 'tỷ', 'nghìn tỷ', 'triệu tỷ'];
+  const digits = ['không', 'một', 'hai', 'ba', 'bốn', 'năm', 'sáu', 'bảy', 'tám', 'chín'];
+
+  function readTriple(n: number, showZeroHundred: boolean): string {
+    const h = Math.floor(n / 100);
+    const t = Math.floor((n % 100) / 10);
+    const u = n % 10;
+
+    if (n === 0) return '';
+
+    let res = '';
+    if (h > 0 || showZeroHundred) {
+      res += digits[h] + ' trăm ';
+    }
+
+    if (t > 1) {
+      res += digits[t] + ' mươi ';
+      if (u === 1) res += 'mốt ';
+      else if (u === 5) res += 'lăm ';
+      else if (u > 0) res += digits[u] + ' ';
+    } else if (t === 1) {
+      res += 'mười ';
+      if (u === 5) res += 'lăm ';
+      else if (u > 0) res += digits[u] + ' ';
+    } else if (t === 0 && u > 0) {
+      if (h > 0 || showZeroHundred) res += 'lẻ ';
+      res += digits[u] + ' ';
+    }
+
+    return res.trim();
+  }
+
+  let temp = Math.floor(num);
+  const blocks: number[] = [];
+  while (temp > 0) {
+    blocks.push(temp % 1000);
+    temp = Math.floor(temp / 1000);
+  }
+
+  const parts: string[] = [];
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i];
+    if (b > 0) {
+      const showZero = i < blocks.length - 1;
+      const text = readTriple(b, showZero);
+      if (text) {
+        parts.push(text + (units[i] ? ' ' + units[i] : ''));
+      }
+    }
+  }
+
+  const result = (parts.join(' ').trim() || 'không') + ' đồng';
+  return result.charAt(0).toUpperCase() + result.slice(1);
+}
+
 export function formatNumber(num: number | undefined | null, decimals: number = 2): string {
   const val = num ?? 0;
   return new Intl.NumberFormat('vi-VN', {

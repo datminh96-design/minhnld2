@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useData } from '../../context/DataContext';
-import { formatCurrency } from '../../lib/utils';
-import { Save, Calculator, Cloud, CheckCircle2, Loader2, Clock, TrendingUp, Info, RefreshCw } from 'lucide-react';
+import { formatCurrency, numberToVietnameseWords } from '../../lib/utils';
+import { Save, Calculator, Cloud, CheckCircle2, Loader2, Clock, TrendingUp, Info, RefreshCw, X, Sparkles, Plus } from 'lucide-react';
 import { MonthlySalaryData } from '../../types';
 
 interface SalaryCalculatorProps {
@@ -10,6 +10,208 @@ interface SalaryCalculatorProps {
   totalWorkedMinutes?: number; // Tổng thời gian đã làm thực tế trong tháng
   totalOvertimeMinutes: number; // calculated from summary
 }
+
+interface SmartCurrencyInputProps {
+  label: string;
+  value: number;
+  onChange: (val: number) => void;
+  placeholder?: string;
+  isNegative?: boolean;
+  showPresets?: boolean;
+  showInWords?: boolean;
+  unitLabel?: string;
+  subInfo?: React.ReactNode;
+}
+
+const SmartCurrencyInput: React.FC<SmartCurrencyInputProps> = ({
+  label,
+  value,
+  onChange,
+  placeholder = '0',
+  isNegative = false,
+  showPresets = false,
+  showInWords = false,
+  unitLabel = 'VNĐ',
+  subInfo,
+}) => {
+  const [isFocused, setIsFocused] = useState(false);
+  // rawInput holds the exact string while typing without IME-breaking dynamic dot insertions
+  const [rawInput, setRawInput] = useState<string>(() => {
+    return value > 0 ? value.toString() : '';
+  });
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Synchronize when external value changes and not actively focused
+  useEffect(() => {
+    if (!isFocused) {
+      setRawInput(value > 0 ? value.toString() : '');
+    }
+  }, [value, isFocused]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    // Allow only numeric digits
+    const cleanDigits = val.replace(/\D/g, '');
+
+    if (!cleanDigits) {
+      setRawInput('');
+      onChange(0);
+      return;
+    }
+
+    const num = Math.min(parseInt(cleanDigits, 10) || 0, 999_999_999_999);
+    setRawInput(cleanDigits);
+    onChange(num);
+  };
+
+  const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    setIsFocused(true);
+    setRawInput(value > 0 ? value.toString() : '');
+    // Select input content for quick re-typing
+    setTimeout(() => {
+      e.target.select();
+    }, 10);
+  };
+
+  const handleBlur = () => {
+    setIsFocused(false);
+    if (!rawInput || parseInt(rawInput, 10) === 0) {
+      setRawInput('');
+      onChange(0);
+    } else {
+      const num = parseInt(rawInput, 10);
+      onChange(num);
+    }
+  };
+
+  const handleClear = () => {
+    setRawInput('');
+    onChange(0);
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
+  };
+
+  const handlePresetSelect = (amount: number) => {
+    setRawInput(amount > 0 ? amount.toString() : '');
+    onChange(amount);
+  };
+
+  const handleIncrement = (added: number) => {
+    const next = Math.max(0, value + added);
+    setRawInput(next > 0 ? next.toString() : '');
+    onChange(next);
+  };
+
+  // Formatted display value: when unfocused, show with dots "7.000.000". When focused, show raw digits "7000000" for smooth typing
+  const displayVal = isFocused ? rawInput : (value > 0 ? value.toLocaleString('vi-VN') : '');
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <label className={`block text-xs font-medium ${isNegative ? 'text-rose-600 dark:text-rose-400' : 'text-slate-700 dark:text-slate-300'}`}>
+          {label}
+        </label>
+        {value > 0 && (
+          <button
+            type="button"
+            onClick={handleClear}
+            className="text-[11px] font-medium text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 flex items-center gap-0.5 transition-colors cursor-pointer"
+            title="Xóa nhanh về 0 đ"
+          >
+            <X className="w-3 h-3" /> Xóa
+          </button>
+        )}
+      </div>
+
+      <div className="relative">
+        <input
+          ref={inputRef}
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          value={displayVal}
+          onChange={handleInputChange}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          placeholder={placeholder}
+          className={`w-full pl-3 pr-12 py-2.5 rounded-xl text-sm font-semibold transition-all outline-none font-mono ${
+            isNegative
+              ? 'bg-rose-50/60 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500'
+              : 'bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500'
+          }`}
+        />
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
+          {unitLabel}
+        </span>
+      </div>
+
+      {/* Hiển thị số tiền format trực quan và bằng chữ tiếng Việt */}
+      {value > 0 && (
+        <div className="flex flex-col gap-0.5 px-1 text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
+          <div className="flex items-center gap-1.5 font-bold font-mono text-xs text-emerald-600 dark:text-emerald-300">
+            <span>👉 {value.toLocaleString('vi-VN')} đ</span>
+            {showInWords && (
+              <span className="font-normal font-sans italic text-[11px] text-slate-600 dark:text-slate-400">
+                ({numberToVietnameseWords(value)})
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Sub info (đơn giá giờ công) */}
+      {subInfo}
+
+      {/* Gợi ý mức phổ biến & cộng nhanh cho Lương chính thức */}
+      {showPresets && (
+        <div className="pt-1.5 space-y-2">
+          {/* Mức phổ biến: 5tr, 7tr, 10tr, 15tr, 20tr */}
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span className="text-[10px] text-slate-400 font-medium mr-0.5">Mức phổ biến:</span>
+            {[5_000_000, 7_000_000, 10_000_000, 15_000_000, 20_000_000, 25_000_000, 30_000_000].map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => handlePresetSelect(preset)}
+                className={`px-2 py-0.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                  value === preset
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                {preset / 1_000_000}tr
+              </button>
+            ))}
+          </div>
+
+          {/* Cộng nhanh: +100k, +200k, +500k, +1tr, +2tr, +5tr */}
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span className="text-[10px] text-slate-400 font-medium mr-0.5">Cộng nhanh:</span>
+            {[
+              { label: '+100k', amount: 100_000 },
+              { label: '+200k', amount: 200_000 },
+              { label: '+500k', amount: 500_000 },
+              { label: '+1tr', amount: 1_000_000 },
+              { label: '+2tr', amount: 2_000_000 },
+              { label: '+5tr', amount: 5_000_000 },
+            ].map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => handleIncrement(item.amount)}
+                className="px-2 py-0.5 rounded-lg font-semibold bg-sky-50 dark:bg-sky-950/40 hover:bg-sky-100 dark:hover:bg-sky-900/60 text-sky-700 dark:text-sky-300 border border-sky-200/60 dark:border-sky-800/60 transition-all cursor-pointer text-[10px] flex items-center gap-0.5"
+              >
+                <Plus className="w-2.5 h-2.5" />
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({ 
   month, 
@@ -33,13 +235,13 @@ export const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({
     lastSavedDataStr.current = JSON.stringify(record);
     setIsSaved(false);
 
-    // If local record is empty, quietly pull from Supabase Cloud
-    if (!record.baseSalary) {
+    // If local record is empty, quietly pull from Supabase Cloud on mount
+    if (!record.baseSalary && isInitialMount.current) {
       syncWithSupabase(false);
     }
-  }, [month, year, salaryRecords, workSettings]);
+  }, [month, year]);
 
-  // Listen to custom window events for instant sync
+  // Listen to custom window events for instant sync across components/tabs
   useEffect(() => {
     const handleSalaryUpdated = (e: any) => {
       const key = `${year}_${month}`;
@@ -52,7 +254,7 @@ export const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({
     return () => window.removeEventListener('app_salary_updated', handleSalaryUpdated);
   }, [month, year]);
 
-  // Auto-save with debounce whenever user types any field
+  // Auto-save with debounce whenever user changes any field
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
@@ -72,18 +274,16 @@ export const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({
       } catch (err) {
         console.warn('Auto-save salary error:', err);
       }
-    }, 500);
+    }, 600);
 
     return () => clearTimeout(timer);
   }, [data, month, year, totalWorkedMinutes, totalOvertimeMinutes]);
 
-  const handleChange = (field: keyof MonthlySalaryData, value: string) => {
-    const num = parseInt(value.replace(/\D/g, ''), 10);
-    const updated = {
-      ...data,
-      [field]: isNaN(num) ? 0 : num
-    };
-    setData(updated);
+  const handleFieldChange = (field: keyof MonthlySalaryData, val: number) => {
+    setData((prev) => ({
+      ...prev,
+      [field]: val,
+    }));
     setIsSaved(false);
   };
 
@@ -239,84 +439,55 @@ export const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({
             <span className="text-[11px] font-normal text-slate-400">Đơn vị: VNĐ</span>
           </h4>
           
-          <div>
-            <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
-              Lương chính thức (Cho {standardDays} ngày x {standardHoursPerDay}h = {standardTotalHours}h)
-            </label>
-            <div className="relative">
-              <input
-                type="text"
-                value={formatCurrency(data.baseSalary).replace(' đ', '')}
-                onChange={(e) => handleChange('baseSalary', e.target.value)}
-                className="w-full pl-3 pr-10 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm font-semibold text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all font-mono"
-                placeholder="0"
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
-                VNĐ
-              </span>
-            </div>
-            {data.baseSalary > 0 && (
-              <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 px-1">
-                <span>Đơn giá giờ (÷ {standardTotalHours}h):</span>
-                <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
-                  {Math.round(hourlyRate).toLocaleString('vi-VN')} đ/giờ ({Math.round(perMinuteRate).toLocaleString('vi-VN')} đ/phút)
-                </span>
-              </div>
-            )}
-          </div>
+          {/* Lương chính thức */}
+          <SmartCurrencyInput
+            label={`Lương chính thức (Cho ${standardDays} ngày x ${standardHoursPerDay}h = ${standardTotalHours}h chuẩn)`}
+            value={data.baseSalary}
+            onChange={(val) => handleFieldChange('baseSalary', val)}
+            placeholder="0"
+            showPresets={true}
+            showInWords={true}
+            subInfo={
+              data.baseSalary > 0 ? (
+                <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 px-1">
+                  <span>Đơn giá giờ (÷ {standardTotalHours}h):</span>
+                  <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                    {Math.round(hourlyRate).toLocaleString('vi-VN')} đ/giờ ({Math.round(perMinuteRate).toLocaleString('vi-VN')} đ/phút)
+                  </span>
+                </div>
+              ) : null
+            }
+          />
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
-                Thưởng KPI
-              </label>
-              <input
-                type="text"
-                value={formatCurrency(data.kpiBonus).replace(' đ', '')}
-                onChange={(e) => handleChange('kpiBonus', e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm font-semibold text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-all font-mono"
-                placeholder="0"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
-                Thưởng Bán Hàng
-              </label>
-              <input
-                type="text"
-                value={formatCurrency(data.salesBonus).replace(' đ', '')}
-                onChange={(e) => handleChange('salesBonus', e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm font-semibold text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-all font-mono"
-                placeholder="0"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
-              Phụ cấp khác
-            </label>
-            <input
-              type="text"
-              value={formatCurrency(data.otherAllowance).replace(' đ', '')}
-              onChange={(e) => handleChange('otherAllowance', e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm font-semibold text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-all font-mono"
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <SmartCurrencyInput
+              label="Thưởng KPI"
+              value={data.kpiBonus}
+              onChange={(val) => handleFieldChange('kpiBonus', val)}
+              placeholder="0"
+            />
+            <SmartCurrencyInput
+              label="Thưởng Bán Hàng"
+              value={data.salesBonus}
+              onChange={(val) => handleFieldChange('salesBonus', val)}
               placeholder="0"
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-rose-500 mb-1.5">
-              Khoản trích đóng bảo hiểm (Trừ)
-            </label>
-            <input
-              type="text"
-              value={formatCurrency(data.insuranceDeduction).replace(' đ', '')}
-              onChange={(e) => handleChange('insuranceDeduction', e.target.value)}
-              className="w-full px-3 py-2 bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/50 rounded-xl text-sm font-semibold text-rose-600 dark:text-rose-400 outline-none focus:border-rose-500 transition-all font-mono"
-              placeholder="0"
-            />
-          </div>
+          <SmartCurrencyInput
+            label="Phụ cấp khác (Cơm trưa, điện thoại, xăng xe...)"
+            value={data.otherAllowance}
+            onChange={(val) => handleFieldChange('otherAllowance', val)}
+            placeholder="0"
+          />
+
+          <SmartCurrencyInput
+            label="Khoản trích đóng bảo hiểm (Trừ BHXH, BHYT...)"
+            value={data.insuranceDeduction}
+            onChange={(val) => handleFieldChange('insuranceDeduction', val)}
+            placeholder="0"
+            isNegative={true}
+          />
         </div>
 
         {/* Cột tổng kết */}
