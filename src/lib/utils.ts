@@ -462,6 +462,7 @@ export function isInvestmentTransaction(
   } | null | undefined
 ): boolean {
   if (!tx) return false;
+  if (tx.transaction_type === 'income' || tx.type === 'income') return false;
   if (tx.transaction_type === 'investment' || tx.type === 'investment') return true;
   const name = (tx.category_name || tx.name || '').toLowerCase().trim();
   if (!name) return false;
