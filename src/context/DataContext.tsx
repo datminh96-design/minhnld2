@@ -740,8 +740,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         let queryItx = client.from('investment_transactions').select('*');
         if (user?.id) queryItx = queryItx.or(`user_id.eq.${user.id},user_id.eq.admin123,user_id.is.null`);
         const { data: itxData, error: itxError } = await queryItx.order('transaction_date', { ascending: false });
-        if (!itxError && itxData) {
-          loadedItxs = itxData.map(t => {
+        if (!itxError && itxData && Array.isArray(itxData)) {
+          loadedItxs = itxData.map((t: any) => {
             let divType = t.dividend_type as 'cash' | 'stock' | undefined;
             let totAmt = Number(t.total_amount) || 0;
             let price = Number(t.price) || 0;
@@ -787,7 +787,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           });
         }
 
-        // Fallback from shadow channel foundItxsFromLogs
+        // Merge from shadow channel foundItxsFromLogs
         if (foundItxsFromLogs.length > 0) {
           if (!loadedItxs) {
             loadedItxs = foundItxsFromLogs;
@@ -802,9 +802,19 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
         }
 
-        // Fallback from work_settings._investment_txs if database table failed or missing rows
-        if (!loadedItxs && wsInvestmentTxsFallback && Array.isArray(wsInvestmentTxsFallback)) {
-          loadedItxs = wsInvestmentTxsFallback;
+        // Merge from work_settings._investment_txs
+        if (wsInvestmentTxsFallback && Array.isArray(wsInvestmentTxsFallback)) {
+          if (!loadedItxs) {
+            loadedItxs = wsInvestmentTxsFallback;
+          } else {
+            const map = new Map(loadedItxs.map(t => [t.id, t]));
+            wsInvestmentTxsFallback.forEach(f => {
+              if (!map.has(f.id)) {
+                loadedItxs!.push(f);
+                map.set(f.id, f);
+              }
+            });
+          }
         }
 
         if (loadedItxs) {
@@ -812,7 +822,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setInvestmentTransactions(prev => {
             const remoteMap = new Map(finalItxs.map(r => [r.id, r]));
             const localOnly = prev.filter(p => !remoteMap.has(p.id));
-            const merged = [...finalItxs, ...localOnly];
+            const merged = [...finalItxs, ...localOnly].sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime());
             if (typeof window !== 'undefined') {
               localStorage.setItem('app_investment_txs', JSON.stringify(merged));
             }
@@ -1108,6 +1118,54 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 }
               } catch (retryE) {
                 console.warn('Lỗi retry transactions:', retryE);
+              }
+            }
+
+            // Check if error in investment_transactions table (e.g. check constraint 23514 on dividend type)
+            if (table === 'investment_transactions' && (
+              error.code === '23514' || 
+              error.code === '42703' || 
+              error.code === '23503' ||
+              error.message?.includes('check constraint') || 
+              error.message?.includes('foreign key') ||
+              error.message?.includes('transaction_type')
+            )) {
+              try {
+                const isDividend = data.transaction_type === 'dividend' || data.dividend_type;
+                const safeType = isDividend ? 'buy' : (data.transaction_type || 'buy');
+                const rawNote = (data.note || data.notes || '').replace(/\[DIVIDEND_META\]:\{.*?\}/g, '').trim();
+                let metaNote = rawNote;
+                if (isDividend) {
+                  const meta = {
+                    dividend_type: data.dividend_type || (Number(data.quantity) === 0 ? 'cash' : 'stock'),
+                    total_amount: Number(data.total_amount) || Number(data.price) || 0,
+                    price: Number(data.price) || 0,
+                    quantity: Number(data.quantity) || 0,
+                    fee: Number(data.fee) || 0
+                  };
+                  metaNote = `${rawNote} [DIVIDEND_META]:${JSON.stringify(meta)}`.trim();
+                }
+
+                const safeItxData = {
+                  id: data.id,
+                  user_id: effectiveUserId,
+                  asset_id: data.asset_id,
+                  transaction_type: safeType,
+                  transaction_date: data.transaction_date || new Date().toISOString().split('T')[0],
+                  quantity: isDividend && (data.dividend_type === 'cash' || Number(data.quantity) === 0) ? 0 : (Number(data.quantity) || 0),
+                  price: Number(data.price) || 0,
+                  fee: Number(data.fee) || 0,
+                  note: metaNote || null,
+                  updated_at: new Date().toISOString()
+                };
+
+                const { error: retryItxErr } = await client.from('investment_transactions').upsert(safeItxData);
+                if (!retryItxErr) {
+                  if (successMsg) addToast(successMsg, 'success');
+                  return { success: true, error: null };
+                }
+              } catch (retryE) {
+                console.warn('Lỗi retry investment_transactions:', retryE);
               }
             }
 
@@ -1931,6 +1989,64 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     await runDelete('investment_assets', id, 'Đã xóa tài sản');
   };
 
+  const syncInvestmentTxsToCloud = async (currentTxs: InvestmentTransaction[]) => {
+    const { client, isConfigured } = getSupabaseClient();
+    if (!isConfigured || !client) return;
+
+    const effectiveUserId = user?.id || 'admin123';
+
+    // 1. Broadcast Realtime message tới toàn bộ các thiết bị đang mở ngay tức thì (<200ms)
+    try {
+      const channel = client.channel('app_global_realtime_sync');
+      channel.send({
+        type: 'broadcast',
+        event: 'investment_sync',
+        payload: { transactions: currentTxs, updated_at: new Date().toISOString() }
+      });
+    } catch (bcErr) {
+      console.warn('Realtime investment_sync broadcast error:', bcErr);
+    }
+
+    // 2. Lưu đồng bộ đa tầng vào work_settings (bảo đảm mọi máy đều tải được)
+    try {
+      const updatedSalaryData = {
+        ...(workSettings.salary_data || {}),
+        _investment_txs: currentTxs
+      };
+      setWorkSettings(prev => {
+        const nextWs = { ...prev, salary_data: updatedSalaryData, _investment_txs: currentTxs };
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('app_work_settings', JSON.stringify(nextWs));
+        }
+        return nextWs;
+      });
+      await runUpsert('work_settings', {
+        id: workSettings.id ? toValidUUID(workSettings.id) : toValidUUID(`ws_${effectiveUserId}`),
+        salary_data: updatedSalaryData,
+        updated_at: new Date().toISOString()
+      }, '');
+    } catch (wsErr) {
+      console.warn('Lỗi lưu dự phòng investment_txs vào work_settings:', wsErr);
+    }
+
+    // 3. Lưu đồng bộ đa tầng an toàn tuyệt đối vào work_logs shadow
+    try {
+      const itxLogId = toValidUUID('itx_sync_global_meta');
+      await runUpsert('work_logs', {
+        id: itxLogId,
+        work_date: '1970-01-01',
+        work_status: 'Đầu tư',
+        total_hours: 0,
+        break_duration_hours: 0,
+        overtime_hours: 0,
+        missing_hours: 0,
+        notes: `[INVESTMENTS_SYNC]:${JSON.stringify(currentTxs)}`
+      }, '');
+    } catch (logErr) {
+      console.warn('Lỗi lưu dự phòng investment_txs vào work_logs:', logErr);
+    }
+  };
+
   const saveInvestmentTransaction = async (txData: any) => {
     const id = txData.id || generateUUID();
     const txType = txData.transaction_type || txData.tx_type || 'buy';
@@ -2022,65 +2138,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       note: fullNote,
     };
 
-    // 2. Realtime broadcast to ALL other connected devices immediately (<200ms)
-    try {
-      const { client } = getSupabaseClient();
-      if (client) {
-        const channel = client.channel('app_global_realtime_sync');
-        channel.send({
-          type: 'broadcast',
-          event: 'investment_sync',
-          payload: { transactions: updatedTxs, updated_at: new Date().toISOString() }
-        });
-      }
-    } catch (bcErr) {
-      console.warn('Realtime broadcast error:', bcErr);
-    }
+    // 2. Multi-tier Cloud Sync & Realtime Broadcast to all other devices
+    await syncInvestmentTxsToCloud(updatedTxs);
 
-    // 3. Universal shadow sync via work_logs (100% accessible to all devices)
-    try {
-      const itxLogId = toValidUUID('itx_sync_global_meta');
-      await runUpsert('work_logs', {
-        id: itxLogId,
-        work_date: '1970-01-01',
-        work_status: 'Đầu tư',
-        total_hours: 0,
-        break_duration_hours: 0,
-        overtime_hours: 0,
-        missing_hours: 0,
-        notes: `[INVESTMENTS_SYNC]:${JSON.stringify(updatedTxs)}`
-      }, '');
-    } catch (logErr) {
-      console.warn('Lỗi lưu work_logs sync investments:', logErr);
-    }
-
-    // 4. Also back up full transaction list into workSettings.salary_data._investment_txs for multi-device resilience
-    try {
-      const effectiveUserId = user?.id || 'admin123';
-      const updatedSalaryData = {
-        ...(workSettings.salary_data || {}),
-        _investment_txs: updatedTxs,
-      };
-      const updatedSettings = {
-        ...workSettings,
-        salary_data: updatedSalaryData,
-        _investment_txs: updatedTxs,
-      };
-      setWorkSettings(updatedSettings);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('app_work_settings', JSON.stringify(updatedSettings));
-      }
-      // Save settings to cloud
-      await runUpsert('work_settings', {
-        id: workSettings.id ? toValidUUID(workSettings.id) : toValidUUID(`ws_${effectiveUserId}`),
-        salary_data: updatedSalaryData,
-        updated_at: new Date().toISOString()
-      }, '');
-    } catch (wsErr) {
-      console.warn('Lỗi lưu dự phòng investment_txs vào work_settings:', wsErr);
-    }
-
-    // 5. Ensure the parent asset exists on Supabase so foreign key constraints never block
+    // 3. Ensure the parent asset exists on Supabase so foreign key constraints never block
     const matchedAsset = investmentAssets.find(a => a.id === fullTx.asset_id);
     if (matchedAsset && !isDemoUser) {
       runUpsert('investment_assets', {
@@ -2094,7 +2155,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }, '').catch(() => {});
     }
 
-    // 6. If Cash Dividend, also mirror into General Finance Transactions (Income)
+    // 4. If Cash Dividend, also mirror into General Finance Transactions (Income)
     if (txType === 'dividend' && dividendType === 'cash' && totalAmount > 0) {
       const incId = toValidUUID(`div_inc_${fullTx.id}`);
       const assetSym = matchedAsset?.asset_symbol || '';
@@ -2117,14 +2178,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       runUpsert('transactions', incTx, '').catch(() => {});
     }
     
-    // 6. Upsert to Supabase with non-blocking resilience & fallback handling for constraints
+    // 5. Upsert to Supabase with non-blocking resilience & fallback handling for constraints
     const toastMsg = txType === 'dividend' && dividendType === 'cash'
       ? `Đã ghi nhận nhận cổ tức tiền mặt +${totalAmount.toLocaleString('vi-VN')} đ (tính vào chốt lời)`
       : txType === 'dividend'
       ? `Đã ghi nhận nhận cổ tức +${txQty} cổ phiếu thưởng (kéo giảm giá vốn DCA)`
       : 'Đã ghi nhận lệnh giao dịch đầu tư';
 
-    const res = await runUpsert('investment_transactions', {
+    await runUpsert('investment_transactions', {
       id: fullTx.id,
       asset_id: fullTx.asset_id,
       transaction_type: fullTx.transaction_type,
@@ -2134,29 +2195,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       fee: fullTx.fee,
       note: fullTx.note
     }, toastMsg);
-
-    // If Supabase table rejected transaction_type = 'dividend' (e.g. check constraint 23514 or enum mismatch)
-    if (res && res.success === false && txType === 'dividend') {
-      try {
-        const { client } = getSupabaseClient();
-        if (client) {
-          // Retry with safe transaction_type 'buy' while preserving full dividend metadata in note
-          await client.from('investment_transactions').upsert({
-            id: fullTx.id,
-            user_id: user?.id || 'admin123',
-            asset_id: fullTx.asset_id,
-            transaction_type: 'buy', // fallback for DB constraint
-            transaction_date: fullTx.transaction_date,
-            quantity: 0,
-            price: fullTx.price,
-            fee: fullTx.fee,
-            note: fullTx.note,
-          });
-        }
-      } catch (retryErr) {
-        console.warn('Fallback save dividend transaction:', retryErr);
-      }
-    }
   };
 
   const deleteInvestmentTransaction = async (id: string) => {
@@ -2169,34 +2207,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return updatedTxs;
     });
 
-    // Realtime broadcast deletion
-    try {
-      const { client } = getSupabaseClient();
-      if (client) {
-        const channel = client.channel('app_global_realtime_sync');
-        channel.send({
-          type: 'broadcast',
-          event: 'investment_sync',
-          payload: { transactions: updatedTxs, updated_at: new Date().toISOString() }
-        });
-      }
-    } catch (bcErr) {}
-
-    // Universal shadow sync via work_logs
-    try {
-      const itxLogId = toValidUUID('itx_sync_global_meta');
-      await runUpsert('work_logs', {
-        id: itxLogId,
-        work_date: '1970-01-01',
-        work_status: 'Đầu tư',
-        total_hours: 0,
-        break_duration_hours: 0,
-        overtime_hours: 0,
-        missing_hours: 0,
-        notes: `[INVESTMENTS_SYNC]:${JSON.stringify(updatedTxs)}`
-      }, '');
-    } catch (logErr) {}
-
     // Clean up mirrored income transaction if linked
     const linkedIncId = toValidUUID(`div_inc_${id}`);
     setTransactions(prev => {
@@ -2208,29 +2218,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
     runDelete('transactions', linkedIncId, '').catch(() => {});
 
-    try {
-      const effectiveUserId = user?.id || 'admin123';
-      const updatedSalaryData = {
-        ...(workSettings.salary_data || {}),
-        _investment_txs: updatedTxs,
-      };
-      const updatedSettings = {
-        ...workSettings,
-        salary_data: updatedSalaryData,
-        _investment_txs: updatedTxs,
-      };
-      setWorkSettings(updatedSettings);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('app_work_settings', JSON.stringify(updatedSettings));
-      }
-      await runUpsert('work_settings', {
-        id: workSettings.id ? toValidUUID(workSettings.id) : toValidUUID(`ws_${effectiveUserId}`),
-        salary_data: updatedSalaryData,
-        updated_at: new Date().toISOString()
-      }, '');
-    } catch (wsErr) {
-      console.warn('Lỗi lưu dự phòng delete investment_txs vào work_settings:', wsErr);
-    }
+    await syncInvestmentTxsToCloud(updatedTxs);
     await runDelete('investment_transactions', id, 'Đã xóa giao dịch đầu tư');
   };
 
