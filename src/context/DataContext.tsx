@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef, useMemo, useCallback } from 'react';
 import {
-  WorkSettings, WorkLog, ExpenseCategory, Transaction,
+  WorkSettings, WorkLog, ExpenseCategory, Transaction, TransactionType,
   InvestmentAsset, InvestmentTransaction, PortfolioSnapshot,
   UserSettings, CloudSyncStatus, ToastMessage, CalculatedAssetHolding,
   MonthlySalaryData, SalaryRecord, BusinessTripExpense
@@ -37,6 +37,7 @@ interface DataContextType {
   calculatedHoldings: CalculatedAssetHolding[];
   toasts: ToastMessage[];
   loadingData: boolean;
+  isOnline: boolean;
   syncStatus: CloudSyncStatus;
   lastSyncedAt: Date | null;
   syncMessage: string;
@@ -74,6 +75,60 @@ interface DataContextType {
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
+
+export const validateAndSanitizeTransaction = (raw: any, existing?: Transaction): Transaction | null => {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = raw.id || existing?.id;
+  if (!id || typeof id !== 'string') return null;
+  
+  const amountNum = Number(raw.amount !== undefined ? raw.amount : existing?.amount);
+  if (isNaN(amountNum) || amountNum < 0) return null;
+
+  let txType: TransactionType = 'expense';
+  const rawType = raw.transaction_type || raw.type || existing?.transaction_type;
+  if (rawType === 'income' || rawType === 'expense' || rawType === 'investment') {
+    txType = rawType;
+  } else if (
+    (raw.notes && typeof raw.notes === 'string' && raw.notes.includes('[TX_TYPE_INVESTMENT]')) ||
+    (raw.note && typeof raw.note === 'string' && raw.note.includes('[TX_TYPE_INVESTMENT]')) ||
+    raw.category_name === 'Tích lũy & Đầu tư' ||
+    raw.category_name === 'Tiết kiệm ngân hàng' ||
+    raw.category_name === 'Chứng khoán & Quỹ' ||
+    raw.category_name === 'Vàng & Kim loại quý'
+  ) {
+    txType = 'investment';
+  }
+
+  let note = raw.note !== undefined ? (raw.note === null ? undefined : String(raw.note)) : existing?.note;
+  if (note && note.includes('[TX_TYPE_INVESTMENT]')) {
+    note = note.replace(/\[TX_TYPE_INVESTMENT\]/g, '').trim() || undefined;
+  }
+
+  const txDate = raw.transaction_date || existing?.transaction_date || new Date().toISOString().split('T')[0];
+  const catId = (raw.category_id && typeof raw.category_id === 'string' && raw.category_id.length > 0) 
+    ? raw.category_id 
+    : (existing?.category_id || undefined);
+  
+  const catName = raw.category_name !== undefined 
+    ? String(raw.category_name) 
+    : (existing?.category_name || '');
+
+  const createdAt = raw.created_at || existing?.created_at || new Date().toISOString();
+  const updatedAt = raw.updated_at || new Date().toISOString();
+
+  return {
+    id,
+    user_id: raw.user_id || existing?.user_id,
+    transaction_date: txDate,
+    amount: amountNum,
+    transaction_type: txType,
+    category_id: catId,
+    category_name: catName,
+    note,
+    created_at: createdAt,
+    updated_at: updatedAt
+  };
+};
 
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user, isDemoUser } = useAuth();
@@ -173,11 +228,30 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     loadingDataRef.current = loadingData;
   }, [loadingData]);
   const [isRefreshingPrices, setIsRefreshingPrices] = useState<boolean>(false);
+  const [isOnline, setIsOnline] = useState<boolean>(() => typeof window !== 'undefined' ? window.navigator.onLine : true);
   const [syncStatus, setSyncStatus] = useState<CloudSyncStatus>('idle');
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(new Date());
   const [syncMessage, setSyncMessage] = useState<string>('Đã kết nối');
   const backupTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const investmentAssetsRef = useRef(investmentAssets);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleOnline = () => {
+      setIsOnline(true);
+      setSyncMessage('Đã kết nối trực tuyến');
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      setSyncMessage('Mất kết nối Internet');
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   useEffect(() => {
     investmentAssetsRef.current = investmentAssets;
@@ -616,36 +690,29 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         console.warn('Tải categories:', catErr);
       }
 
-      // 7. Tải transactions (với Shadow Sync & Realtime Fallback đa tầng)
+      // 7. Tải transactions (với Shadow Sync & Realtime Fallback đa tầng & Schema Validation)
       try {
         let loadedTxs: Transaction[] | null = null;
         let queryTx = client.from('transactions').select('*');
         if (user?.id) queryTx = queryTx.or(`user_id.eq.${user.id},user_id.eq.admin123,user_id.is.null`);
         const { data: txData, error: txError } = await queryTx.order('transaction_date', { ascending: false });
         if (!txError && txData && Array.isArray(txData)) {
-          loadedTxs = txData.map((t: any) => {
-            let txType = t.transaction_type;
-            let note = t.note || '';
-            if (note.includes('[TX_TYPE_INVESTMENT]') || isInvestmentTransaction(t) || t.category_name === 'Tích lũy & Đầu tư' || t.category_name === 'Tiết kiệm ngân hàng' || t.category_name === 'Chứng khoán & Quỹ' || t.category_name === 'Vàng & Kim loại quý') {
-              txType = 'investment';
-              note = note.replace(/\[TX_TYPE_INVESTMENT\]/g, '').trim();
-            }
-            return {
-              ...t,
-              amount: Number(t.amount) || 0,
-              transaction_type: txType,
-              note: note || undefined,
-            };
-          });
+          loadedTxs = txData
+            .map((t: any) => validateAndSanitizeTransaction(t))
+            .filter((t): t is Transaction => t !== null);
         }
 
         // Fallback from shadow channel foundTransactionsFromLogs
         if (foundTransactionsFromLogs.length > 0) {
+          const validatedShadowLogs = foundTransactionsFromLogs
+            .map((t: any) => validateAndSanitizeTransaction(t))
+            .filter((t): t is Transaction => t !== null);
+
           if (!loadedTxs) {
-            loadedTxs = foundTransactionsFromLogs;
+            loadedTxs = validatedShadowLogs;
           } else {
             const map = new Map(loadedTxs.map(t => [t.id, t]));
-            foundTransactionsFromLogs.forEach(f => {
+            validatedShadowLogs.forEach(f => {
               if (!map.has(f.id)) {
                 loadedTxs!.push(f);
                 map.set(f.id, f);
@@ -656,7 +723,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         // Fallback from work_settings._transactions
         if (!loadedTxs && wsTransactionsFallback && Array.isArray(wsTransactionsFallback)) {
-          loadedTxs = wsTransactionsFallback;
+          loadedTxs = wsTransactionsFallback
+            .map((t: any) => validateAndSanitizeTransaction(t))
+            .filter((t): t is Transaction => t !== null);
         }
 
         if (loadedTxs) {
@@ -944,13 +1013,31 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         (payload: any) => {
           const item = payload?.payload;
           if (item?.transactions && Array.isArray(item.transactions)) {
-            const sorted = [...item.transactions].sort(
-              (a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime()
-            );
-            setTransactions(sorted);
-            if (typeof window !== 'undefined') {
-              localStorage.setItem('app_transactions', JSON.stringify(sorted));
-            }
+            setTransactions(prev => {
+              const currentMap = new Map(prev.map(t => [t.id, t]));
+              const validIncoming: Transaction[] = [];
+              
+              for (const raw of item.transactions) {
+                const existing = currentMap.get(raw.id);
+                const validated = validateAndSanitizeTransaction(raw, existing);
+                if (validated) {
+                  validIncoming.push(validated);
+                  currentMap.set(validated.id, validated);
+                }
+              }
+
+              // Merge incoming validated transactions with any local-only transactions
+              const incomingMap = new Map(validIncoming.map(t => [t.id, t]));
+              const retainedLocal = prev.filter(p => !incomingMap.has(p.id));
+              const merged = [...validIncoming, ...retainedLocal].sort(
+                (a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime()
+              );
+
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('app_transactions', JSON.stringify(merged));
+              }
+              return merged;
+            });
           }
         }
       )
@@ -1736,43 +1823,45 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const id = txData.id || generateUUID();
     const isNew = !txData.id;
     // Validate category_id for PostgreSQL uuid format!
-    // If it is an empty string, or undefined, we don't pass it or pass null
-    const validCategoryId = (txData.category_id && txData.category_id.length > 0) ? txData.category_id : null;
+    const validCategoryId = (txData.category_id && txData.category_id.length > 0) ? txData.category_id : undefined;
     
     let nextTransactions: Transaction[] = [];
     let savedFullTx: Transaction | null = null;
 
     setTransactions(prev => {
       const idx = prev.findIndex(t => t.id === id);
-      const existing = idx >= 0 ? prev[idx] : null;
+      const existing = idx >= 0 ? prev[idx] : undefined;
 
-      const fullTx: Transaction = {
-        ...(existing || {}),
-        ...txData, 
-        id, 
-        amount: Number(txData.amount), 
-        category_id: validCategoryId || existing?.category_id || undefined,
-        category_name: txData.category_name || existing?.category_name || '',
-        transaction_date: txData.transaction_date || existing?.transaction_date || new Date().toISOString().split('T')[0],
-        transaction_type: txData.transaction_type || existing?.transaction_type || 'expense',
-        note: txData.note !== undefined ? txData.note : existing?.note,
-        created_at: txData.created_at || existing?.created_at || new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
+      const fullTx = validateAndSanitizeTransaction(
+        {
+          ...txData,
+          id,
+          category_id: validCategoryId !== undefined ? validCategoryId : existing?.category_id,
+        },
+        existing
+      );
+
+      if (!fullTx) {
+        return prev;
+      }
 
       savedFullTx = fullTx;
-      nextTransactions = idx >= 0 ? prev.map((t, i) => i === idx ? { ...fullTx } : t) : [{ ...fullTx }, ...prev];
+      nextTransactions = idx >= 0
+        ? prev.map((t, i) => (i === idx ? { ...fullTx } : { ...t }))
+        : [{ ...fullTx }, ...prev.map(t => ({ ...t }))];
+
       if (typeof window !== 'undefined') {
         localStorage.setItem('app_transactions', JSON.stringify(nextTransactions));
       }
       return nextTransactions;
     });
 
-    const fullTx = savedFullTx || {
+    const fullTx = savedFullTx || validateAndSanitizeTransaction({ ...txData, id }) || {
       ...txData,
       id,
-      amount: Number(txData.amount),
-      category_id: validCategoryId || undefined,
+      amount: Number(txData.amount) || 0,
+      transaction_type: (txData.transaction_type as TransactionType) || 'expense',
+      transaction_date: txData.transaction_date || new Date().toISOString().split('T')[0],
       created_at: txData.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -2474,7 +2563,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   return (
     <DataContext.Provider value={{
       workSettings, workLogs, businessTrips, categories, transactions, investmentAssets, investmentTransactions, portfolioSnapshots,
-      salaryRecords, userSettings, calculatedHoldings, toasts, loadingData, syncStatus, lastSyncedAt, syncMessage, isRefreshingPrices,
+      salaryRecords, userSettings, calculatedHoldings, toasts, loadingData, isOnline, syncStatus, lastSyncedAt, syncMessage, isRefreshingPrices,
       updateWorkSettings, saveSalaryRecord, getSalaryRecord, saveWorkLog, deleteWorkLog, getWorkLogsForMonth,
       saveBusinessTrip, deleteBusinessTrip, toggleBusinessTripPayment,
       saveTransaction, deleteTransaction,
