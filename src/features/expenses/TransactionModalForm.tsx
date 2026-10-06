@@ -372,10 +372,14 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
             type="submit"
             disabled={isSubmitting}
             className={`px-4 py-2 rounded-xl text-white text-xs font-semibold shadow-xs cursor-pointer disabled:opacity-50 ${
-              formType === 'income' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'
+              formType === 'income'
+                ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20'
+                : formType === 'investment'
+                ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20'
+                : 'bg-rose-600 hover:bg-rose-700 shadow-rose-500/20'
             }`}
           >
-            {isSubmitting ? 'Đang lưu...' : 'Lưu Giao Dịch'}
+            {isSubmitting ? 'Đang lưu...' : editingTx ? 'Cập Nhật Giao Dịch' : 'Lưu Giao Dịch'}
           </button>
         </div>
       </form>

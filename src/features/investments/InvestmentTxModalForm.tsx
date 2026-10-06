@@ -11,8 +11,10 @@ interface InvestmentTxModalFormProps {
   investmentAssets: InvestmentAsset[];
   selectedAsset?: InvestmentAsset;
   initialAssetId?: string;
+  editingTransaction?: InvestmentTransaction | null;
   initialUsdtRate?: number;
   onSave: (data: Partial<InvestmentTransaction> & {
+    id?: string;
     asset_id: string;
     transaction_type: InvestmentTxType;
     dividend_type?: 'cash' | 'stock';
@@ -38,6 +40,7 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
   investmentAssets,
   selectedAsset,
   initialAssetId,
+  editingTransaction,
   initialUsdtRate = 25400,
   onSave,
 }) => {
@@ -63,46 +66,85 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
   const [dividendSharesCount, setDividendSharesCount] = useState<string>('');
 
   const prevIsOpenRef = React.useRef(false);
+  const prevEditingTxIdRef = React.useRef<string | undefined>(undefined);
 
   // Current selected asset object
   const currentAsset = useMemo(() => {
     return investmentAssets.find((a) => a.id === txAssetId) || selectedAsset;
   }, [investmentAssets, txAssetId, selectedAsset]);
 
-  // Sync state ONLY when modal transitions from closed to open
+  // Sync state ONLY when modal transitions from closed to open or editingTransaction changes
   useEffect(() => {
     const isOpening = isOpen && !prevIsOpenRef.current;
-    if (isOpening) {
-      const selectedId = selectedAsset?.id || initialAssetId || investmentAssets[0]?.id || '';
-      setTxAssetId(selectedId);
-      setTxType('buy');
-      setDividendType('cash');
-      setDividendCalcMode('direct');
-      setTxDate(new Date().toISOString().split('T')[0]);
-      setTxQuantity('');
-      setTxFee('0');
-      setTxNotes('');
-      setCashDividendTotal('');
-      setCashDividendPerShare('');
-      setDividendSharesCount('');
+    const isEditingTargetChanged = isOpen && editingTransaction?.id !== prevEditingTxIdRef.current;
 
-      const selected = investmentAssets.find((a) => a.id === selectedId) || selectedAsset;
-      if (selected) {
-        const isCrypto =
-          selected.asset_type === 'crypto' ||
-          selected.asset_symbol === 'BTC' ||
-          selected.asset_symbol === 'ETH';
-        setTxPriceCurrency(isCrypto ? 'USDT' : 'VND');
-        setTxFeeCurrency(isCrypto ? 'BNB' : 'VND');
-        setTxPrice(selected.current_price?.toString() || '');
+    if (isOpening || isEditingTargetChanged) {
+      if (editingTransaction) {
+        setTxAssetId(editingTransaction.asset_id);
+        setTxType(editingTransaction.transaction_type);
+        const isCash = editingTransaction.dividend_type === 'cash' || 
+          (editingTransaction.transaction_type === 'dividend' && (editingTransaction.quantity === 0 || (editingTransaction.total_amount && editingTransaction.total_amount > 0 && editingTransaction.dividend_type !== 'stock')));
+        setDividendType(isCash ? 'cash' : (editingTransaction.dividend_type || 'stock'));
+        setDividendCalcMode('direct');
+        setTxDate(editingTransaction.transaction_date ? editingTransaction.transaction_date.substring(0, 10) : new Date().toISOString().split('T')[0]);
+        setTxQuantity(editingTransaction.quantity ? editingTransaction.quantity.toString() : '');
+        
+        const rawP = editingTransaction.original_price 
+          ? editingTransaction.original_price.toString() 
+          : (editingTransaction.price_per_unit || editingTransaction.price || '').toString();
+        setTxPrice(rawP);
+        setTxPriceCurrency(editingTransaction.price_currency || 'VND');
+
+        const rawF = editingTransaction.original_fee !== undefined 
+          ? editingTransaction.original_fee.toString() 
+          : (editingTransaction.fee || 0).toString();
+        setTxFee(rawF);
+        setTxFeeCurrency(editingTransaction.fee_currency || 'VND');
+
+        setTxNotes(editingTransaction.notes || editingTransaction.note || '');
+        
+        const rawCash = editingTransaction.total_amount 
+          ? editingTransaction.total_amount.toString() 
+          : (editingTransaction.price || '').toString();
+        setCashDividendTotal(rawCash);
+        setCashDividendPerShare('');
+        setDividendSharesCount('');
+
+        if (editingTransaction.usdt_rate) setUsdtRate(editingTransaction.usdt_rate);
+        if (editingTransaction.bnb_price_usdt) setBnbPriceUsdt(editingTransaction.bnb_price_usdt);
       } else {
-        setTxPriceCurrency('VND');
-        setTxFeeCurrency('VND');
-        setTxPrice('');
+        const selectedId = selectedAsset?.id || initialAssetId || investmentAssets[0]?.id || '';
+        setTxAssetId(selectedId);
+        setTxType('buy');
+        setDividendType('cash');
+        setDividendCalcMode('direct');
+        setTxDate(new Date().toISOString().split('T')[0]);
+        setTxQuantity('');
+        setTxFee('0');
+        setTxNotes('');
+        setCashDividendTotal('');
+        setCashDividendPerShare('');
+        setDividendSharesCount('');
+
+        const selected = investmentAssets.find((a) => a.id === selectedId) || selectedAsset;
+        if (selected) {
+          const isCrypto =
+            selected.asset_type === 'crypto' ||
+            selected.asset_symbol === 'BTC' ||
+            selected.asset_symbol === 'ETH';
+          setTxPriceCurrency(isCrypto ? 'USDT' : 'VND');
+          setTxFeeCurrency(isCrypto ? 'BNB' : 'VND');
+          setTxPrice(selected.current_price?.toString() || '');
+        } else {
+          setTxPriceCurrency('VND');
+          setTxFeeCurrency('VND');
+          setTxPrice('');
+        }
       }
     }
     prevIsOpenRef.current = isOpen;
-  }, [isOpen, initialAssetId, selectedAsset, investmentAssets]);
+    prevEditingTxIdRef.current = editingTransaction?.id;
+  }, [isOpen, initialAssetId, selectedAsset, investmentAssets, editingTransaction]);
 
   const handleAssetChange = async (newAssetId: string) => {
     setTxAssetId(newAssetId);
@@ -233,6 +275,7 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
     setIsSubmitting(true);
     try {
       const savePromise = onSave({
+        id: editingTransaction ? editingTransaction.id : undefined,
         asset_id: txAssetId,
         transaction_type: txType,
         dividend_type: txType === 'dividend' ? dividendType : undefined,
@@ -270,7 +313,7 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Thêm Lệnh Giao Dịch Đầu Tư"
+      title={editingTransaction ? 'Chỉnh Sửa Lệnh Giao Dịch' : 'Thêm Lệnh Giao Dịch Đầu Tư'}
       subtitle={
         txType === 'dividend'
           ? 'Ghi nhận Cổ tức Tiền mặt (tính vào Chốt Lời) hoặc Cổ tức Cổ phiếu (tăng số lượng & giảm giá vốn DCA)'
@@ -812,11 +855,17 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
             disabled={isSubmitting}
             className={`px-4 py-2 rounded-xl text-white text-xs font-semibold shadow-xs cursor-pointer disabled:opacity-50 ${
               txType === 'dividend' && dividendType === 'cash'
-                ? 'bg-emerald-600 hover:bg-emerald-700'
-                : 'bg-purple-600 hover:bg-purple-700'
+                ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20'
+                : 'bg-purple-600 hover:bg-purple-700 shadow-purple-500/20'
             }`}
           >
-            {isSubmitting ? 'Đang lưu...' : txType === 'dividend' && dividendType === 'cash' ? 'Ghi Nhận Cổ Tức Tiền Mặt' : 'Ghi Nhận Lệnh'}
+            {isSubmitting
+              ? 'Đang lưu...'
+              : editingTransaction
+              ? 'Cập Nhật Lệnh Giao Dịch'
+              : txType === 'dividend' && dividendType === 'cash'
+              ? 'Ghi Nhận Cổ Tức Tiền Mặt'
+              : 'Ghi Nhận Lệnh'}
           </button>
         </div>
       </form>

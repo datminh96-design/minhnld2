@@ -28,7 +28,9 @@ import {
   Heart,
   BookOpen,
   Film,
-  HelpCircle
+  HelpCircle,
+  Edit3,
+  Trash2
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -43,6 +45,8 @@ import {
   Legend,
 } from 'recharts';
 import { Analytics } from './Analytics';
+import { TransactionModalForm } from '../expenses/TransactionModalForm';
+import { Transaction, ExpenseCategory } from '../../types';
 
 export interface DashboardProps {
   onNavigateTab?: (tab: 'work' | 'expenses' | 'investments' | 'storage' | 'reports' | 'settings') => void;
@@ -75,8 +79,52 @@ export const Dashboard: React.FC<DashboardProps> = ({
     calculatedHoldings, 
     portfolioSnapshots,
     takeDailySnapshot,
+    saveTransaction,
+    deleteTransaction,
+    saveCategory,
+    addToast,
     userSettings 
   } = useData();
+
+  // Transaction Edit Modal State
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
+  const handleOpenEditModal = (tx: Transaction) => {
+    setEditingTx(tx);
+    setIsEditModalOpen(true);
+  };
+
+  const handleSaveEditedTx = async (data: {
+    id?: string;
+    type: 'income' | 'expense' | 'investment';
+    amount: number;
+    category: string;
+    description: string;
+    transaction_date: string;
+  }) => {
+    const matchedCat = categories.find((c) => c.name === data.category);
+
+    await saveTransaction({
+      id: data.id,
+      transaction_date: data.transaction_date,
+      transaction_type: data.type,
+      category_id: matchedCat?.id,
+      category_name: data.category,
+      amount: data.amount,
+      note: data.description,
+    });
+    addToast('Đã cập nhật giao dịch thành công!', 'success');
+  };
+
+  const handleQuickAddCategory = async (catData: Partial<ExpenseCategory>) => {
+    if (!catData.name?.trim()) return null;
+    return await saveCategory({
+      name: catData.name.trim(),
+      type: catData.type || (editingTx?.transaction_type || 'expense'),
+      color: catData.color || '#10B981',
+    });
+  };
 
   // Current active date reference
   const d = new Date();
@@ -666,13 +714,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
               {recentTransactions.map((tx) => {
                 const IconComp = getCategoryIcon(undefined, tx.category_name);
                 const isIncome = tx.transaction_type === 'income';
+                const isInvest = isInvestmentTransaction(tx);
 
                 return (
-                  <div key={tx.id} className="py-3 flex items-center justify-between gap-3 hover:bg-slate-50/60 dark:hover:bg-slate-800/30 px-2 rounded-xl transition-all">
+                  <div key={tx.id} className="py-3 flex items-center justify-between gap-3 hover:bg-slate-50/60 dark:hover:bg-slate-800/30 px-2 rounded-xl transition-all group">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
                         isIncome 
                           ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400' 
+                          : isInvest
+                          ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
                           : 'bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400'
                       }`}>
                         <IconComp className="w-4 h-4" />
@@ -687,13 +738,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       </div>
                     </div>
 
-                    <div className="text-right shrink-0">
-                      <p className={`text-xs sm:text-sm font-bold font-mono ${
-                        isIncome ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
-                      }`}>
-                        {isIncome ? '+' : '-'}{formatCurrency(tx.amount, userSettings.currency)}
-                      </p>
-                      <span className="text-[10px] text-slate-400">{tx.transaction_date}</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div className="text-right">
+                        <p className={`text-xs sm:text-sm font-bold font-mono ${
+                          isIncome 
+                            ? 'text-emerald-600 dark:text-emerald-400' 
+                            : isInvest
+                            ? 'text-blue-600 dark:text-blue-400'
+                            : 'text-rose-600 dark:text-rose-400'
+                        }`}>
+                          {isIncome ? '+' : '-'}{formatCurrency(tx.amount, userSettings.currency)}
+                        </p>
+                        <span className="text-[10px] text-slate-400">{tx.transaction_date}</span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditModal(tx)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                        title="Chỉnh sửa giao dịch này"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
                 );
@@ -1099,6 +1165,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
           )}
         </div>
       </div>
+
+      {/* Transaction Edit Modal */}
+      <TransactionModalForm
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          setIsEditModalOpen(false);
+          setEditingTx(null);
+        }}
+        editingTx={editingTx}
+        categories={categories}
+        userSettings={userSettings}
+        defaultType={editingTx?.transaction_type || 'expense'}
+        onSave={handleSaveEditedTx}
+        onAddCategory={handleQuickAddCategory}
+      />
     </div>
   );
 };

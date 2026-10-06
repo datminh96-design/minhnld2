@@ -65,6 +65,7 @@ export const InvestmentsView: React.FC = () => {
 
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [selectedAssetForTx, setSelectedAssetForTx] = useState<InvestmentAsset | null>(null);
+  const [editingTx, setEditingTx] = useState<InvestmentTransaction | null>(null);
 
   // Asset Form States
   const [assetSymbol, setAssetSymbol] = useState('');
@@ -211,6 +212,7 @@ export const InvestmentsView: React.FC = () => {
 
   // Open Add Transaction Modal
   const handleOpenAddTx = (asset?: InvestmentAsset) => {
+    setEditingTx(null);
     const defaultAsset = asset || investmentAssets[0];
     if (!defaultAsset) {
       addToast('Vui lòng tạo tài sản đầu tư trước khi thêm giao dịch', 'warning');
@@ -219,6 +221,14 @@ export const InvestmentsView: React.FC = () => {
     }
 
     setSelectedAssetForTx(defaultAsset);
+    setIsTxModalOpen(true);
+  };
+
+  // Open Edit Transaction Modal
+  const handleOpenEditTx = (tx: InvestmentTransaction) => {
+    setEditingTx(tx);
+    const asset = investmentAssets.find((a) => a.id === tx.asset_id) || null;
+    setSelectedAssetForTx(asset);
     setIsTxModalOpen(true);
   };
 
@@ -932,7 +942,7 @@ export const InvestmentsView: React.FC = () => {
                       <th className="py-3 px-3 text-right">Phí giao dịch</th>
                       <th className="py-3 px-4 text-right">Tổng thanh toán / Thực nhận</th>
                       <th className="py-3 px-4">Ghi chú</th>
-                      <th className="py-3 px-3 text-right">Xóa</th>
+                      <th className="py-3 px-3 text-right">Thao tác</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1040,14 +1050,24 @@ export const InvestmentsView: React.FC = () => {
                             {((tx.notes || tx.note || '').replace(/\[DIVIDEND_META\]:\{.*?\}/g, '').trim()) || (isCashDiv ? 'Cổ tức tiền mặt tính thẳng vào chốt lời' : isStockDiv ? 'Cổ tức cổ phiếu' : '--')}
                           </td>
                           <td className="py-3 px-3 text-right whitespace-nowrap">
-                            <button
-                              type="button"
-                              onClick={() => deleteInvestmentTransaction(tx.id)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
-                              title="Xóa lệnh"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditTx(tx)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                title="Chỉnh sửa lệnh giao dịch"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => deleteInvestmentTransaction(tx.id)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
+                                title="Xóa lệnh"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1185,12 +1205,16 @@ export const InvestmentsView: React.FC = () => {
         </form>
       </Modal>
 
-      {/* Modal Add Investment Transaction (Component form độc lập siêu mượt) */}
+      {/* Modal Add / Edit Investment Transaction (Component form độc lập siêu mượt) */}
       <InvestmentTxModalForm
         isOpen={isTxModalOpen}
-        onClose={() => setIsTxModalOpen(false)}
+        onClose={() => {
+          setIsTxModalOpen(false);
+          setEditingTx(null);
+        }}
         selectedAsset={selectedAssetForTx}
         investmentAssets={investmentAssets}
+        editingTransaction={editingTx}
         onSave={handleSaveTx}
       />
     </div>

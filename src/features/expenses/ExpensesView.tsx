@@ -171,13 +171,13 @@ export const ExpensesView: React.FC = () => {
   // Save Tx Form
   const handleSaveTxForm = async (data: {
     id?: string;
-    type: 'income' | 'expense';
+    type: 'income' | 'expense' | 'investment';
     amount: number;
     category: string;
     description: string;
     transaction_date: string;
   }) => {
-    const matchedCat = categories.find((c) => c.name === data.category && c.type === data.type);
+    const matchedCat = categories.find((c) => c.name === data.category);
 
     await saveTransaction({
       id: data.id,
@@ -549,16 +549,17 @@ export const ExpensesView: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => handleOpenEditTxModal(tx)}
-                              className="p-1 rounded-lg text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                              title="Chỉnh sửa"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-emerald-950/40 hover:text-emerald-600 dark:hover:text-emerald-400 border border-slate-200 dark:border-slate-700 transition-all cursor-pointer"
+                              title="Chỉnh sửa chi tiết giao dịch"
                             >
-                              <Edit3 className="w-3.5 h-3.5" />
+                              <Edit3 className="w-3.5 h-3.5 text-emerald-500" />
+                              <span>Sửa</span>
                             </button>
                             <button
                               type="button"
                               onClick={() => deleteTransaction(tx.id)}
-                              className="p-1 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
-                              title="Xóa"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
+                              title="Xóa giao dịch"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
