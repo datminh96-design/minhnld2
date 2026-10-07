@@ -34,6 +34,22 @@
       "destination": "/api/email"
     },
     {
+      "source": "/api/investments/(.*)",
+      "destination": "/api/gemini?subpath=investments-$1"
+    },
+    {
+      "source": "/api/investments",
+      "destination": "/api/gemini?subpath=investments"
+    },
+    {
+      "source": "/api/expenses/(.*)",
+      "destination": "/api/gemini?subpath=expenses-$1"
+    },
+    {
+      "source": "/api/expenses",
+      "destination": "/api/gemini?subpath=expenses"
+    },
+    {
       "source": "/api/gemini/(.*)",
       "destination": "/api/gemini?subpath=$1"
     },
