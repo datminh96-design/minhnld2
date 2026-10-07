@@ -3,7 +3,8 @@ import { Modal } from '../../components/ui/Modal';
 import { Transaction, ExpenseCategory, UserSettings } from '../../types';
 import { formatCurrency, isInvestmentTransaction } from '../../lib/utils';
 import { getCategoryIconMeta, AVAILABLE_CATEGORY_ICONS } from '../../lib/categoryIcons';
-import { ArrowDownLeft, ArrowUpRight, Plus, Sparkles, Check, Coins } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Plus, Sparkles, Check, Coins, Camera } from 'lucide-react';
+import { ExpenseCapture } from '../../components/ExpenseCapture';
 
 interface TransactionModalFormProps {
   isOpen: boolean;
@@ -43,6 +44,7 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
   const [inlineCatIcon, setInlineCatIcon] = useState('ShoppingBag');
   const [inlineCatColor, setInlineCatColor] = useState('#EF4444');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isScannerMode, setIsScannerMode] = useState(false);
 
   const prevIsOpenRef = React.useRef(false);
   const prevEditingTxIdRef = React.useRef<string | undefined>(undefined);
@@ -152,12 +154,46 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={editingTx ? 'Chỉnh Sửa Giao Dịch' : formType === 'income' ? 'Thêm Khoản Thu Nhập' : 'Thêm Khoản Chi Tiêu'}
-      subtitle="Quản lý dòng tiền tài chính cá nhân"
+      title={isScannerMode ? 'Quét Hóa Đơn Bằng AI' : editingTx ? 'Chỉnh Sửa Giao Dịch' : formType === 'income' ? 'Thêm Khoản Thu Nhập' : 'Thêm Khoản Chi Tiêu'}
+      subtitle={isScannerMode ? 'Trích xuất tự động thông tin hóa đơn' : 'Quản lý dòng tiền tài chính cá nhân'}
       maxWidth="lg"
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Type Toggle (3 Tabs: Chi Tiêu vs Tích Lũy & Đầu Tư vs Thu Nhập) */}
+      {isScannerMode ? (
+        <ExpenseCapture
+          onSave={onSave}
+          onClose={() => setIsScannerMode(false)}
+          categories={categories}
+          defaultCategory={formCategoryName}
+        />
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* AI OCR Switch Banner */}
+          {!editingTx && (
+            <div className="flex items-center justify-between p-2.5 rounded-xl bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-indigo-500/10 border border-purple-200 dark:border-purple-800/60">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-purple-600 text-white shadow-xs">
+                  <Camera className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-purple-900 dark:text-purple-200">
+                    Có ảnh chụp hóa đơn / biên lai?
+                  </p>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                    AI Gemini sẽ tự động đọc số tiền, ngày và đơn vị bán hàng
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsScannerMode(true)}
+                className="px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
+              >
+                📸 Quét Bill AI
+              </button>
+            </div>
+          )}
+
+          {/* Type Toggle (3 Tabs: Chi Tiêu vs Tích Lũy & Đầu Tư vs Thu Nhập) */}
         <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-800">
           <button
             type="button"
@@ -383,6 +419,7 @@ export const TransactionModalForm: React.FC<TransactionModalFormProps> = ({
           </button>
         </div>
       </form>
+      )}
     </Modal>
   );
 };

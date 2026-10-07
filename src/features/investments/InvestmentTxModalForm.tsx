@@ -1,9 +1,30 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Modal } from '../../components/ui/Modal';
 import { InvestmentAsset, InvestmentTxType, InvestmentTransaction } from '../../types';
 import { formatCurrency } from '../../lib/utils';
 import { priceService } from '../../services/priceService';
-import { ArrowDownLeft, ArrowUpRight, Sparkles, Coins, RefreshCw, DollarSign, Gift, Info, CheckCircle2 } from 'lucide-react';
+import { billScannerService, ExtractedBillData } from '../../services/billScannerService';
+import { 
+  ArrowDownLeft, 
+  ArrowUpRight, 
+  Sparkles, 
+  Coins, 
+  RefreshCw, 
+  DollarSign, 
+  Gift, 
+  Info, 
+  CheckCircle2, 
+  Camera, 
+  Upload, 
+  FileText, 
+  AlertTriangle, 
+  AlertCircle, 
+  Image as ImageIcon, 
+  X, 
+  Loader2, 
+  Check, 
+  Copy 
+} from 'lucide-react';
 
 interface InvestmentTxModalFormProps {
   isOpen: boolean;
@@ -13,6 +34,8 @@ interface InvestmentTxModalFormProps {
   initialAssetId?: string;
   editingTransaction?: InvestmentTransaction | null;
   initialUsdtRate?: number;
+  initialOpenScanner?: boolean;
+  onSaveAsset?: (asset: Partial<InvestmentAsset>) => Promise<void>;
   onSave: (data: Partial<InvestmentTransaction> & {
     id?: string;
     asset_id: string;
@@ -42,6 +65,8 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
   initialAssetId,
   editingTransaction,
   initialUsdtRate = 25400,
+  initialOpenScanner = false,
+  onSaveAsset,
   onSave,
 }) => {
   const [txType, setTxType] = useState<InvestmentTxType>('buy');
@@ -60,6 +85,22 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
   const [bnbPriceUsdt, setBnbPriceUsdt] = useState<number>(580);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // AI OCR Bill Scanner States
+  const [isScanPanelOpen, setIsScanPanelOpen] = useState(initialOpenScanner);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
+  const [scanStatusText, setScanStatusText] = useState('');
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanSuccess, setScanSuccess] = useState(false);
+  const [scannedBillPreview, setScannedBillPreview] = useState<string | null>(null);
+  const [missingFields, setMissingFields] = useState<string[]>([]);
+  const [scanConfidence, setScanConfidence] = useState<number | null>(null);
+  const [scannedSummary, setScannedSummary] = useState<string | null>(null);
+  const [scannedBroker, setScannedBroker] = useState<string | null>(null);
+  const [unmatchedSymbolPrompt, setUnmatchedSymbolPrompt] = useState<{ symbol: string; name?: string; type?: string; price?: number } | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // Specific state for cash dividend calculation
   const [cashDividendTotal, setCashDividendTotal] = useState<string>('');
   const [cashDividendPerShare, setCashDividendPerShare] = useState<string>('');
@@ -67,6 +108,219 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
 
   const prevIsOpenRef = React.useRef(false);
   const prevEditingTxIdRef = React.useRef<string | undefined>(undefined);
+
+  // Scan file handler
+  const handleScanFile = async (fileOrBase64: File | string) => {
+    setIsScanning(true);
+    setScanProgress(10);
+    setScanStatusText('Đang nạp ảnh hóa đơn / lệnh khớp...');
+    setScanError(null);
+    setScanSuccess(false);
+    setMissingFields([]);
+    setScannedSummary(null);
+    setUnmatchedSymbolPrompt(null);
+
+    try {
+      if (typeof fileOrBase64 !== 'string') {
+        const preview = await billScannerService.fileToBase64(fileOrBase64);
+        setScannedBillPreview(preview);
+      } else {
+        setScannedBillPreview(fileOrBase64);
+      }
+
+      const result = await billScannerService.scanBill(fileOrBase64, investmentAssets, (pct, status) => {
+        setScanProgress(pct);
+        setScanStatusText(status);
+      });
+
+      if (result.success && result.data) {
+        const data = result.data;
+        setScanSuccess(true);
+        setScanProgress(100);
+        setScanConfidence(data.confidence || 95);
+        setScannedBroker(data.broker_name || null);
+
+        // 1. Asset matching
+        let matchedAssetId = '';
+        if (data.asset_symbol) {
+          const cleanSymbol = data.asset_symbol.trim().toUpperCase();
+          const matched = investmentAssets.find(
+            (a) =>
+              a.asset_symbol.trim().toUpperCase() === cleanSymbol ||
+              a.asset_name.toLowerCase().includes(cleanSymbol.toLowerCase()) ||
+              cleanSymbol.includes(a.asset_symbol.trim().toUpperCase())
+          );
+          if (matched) {
+            matchedAssetId = matched.id;
+            setTxAssetId(matched.id);
+            const isCrypto =
+              matched.asset_type === 'crypto' ||
+              matched.asset_symbol === 'BTC' ||
+              matched.asset_symbol === 'ETH';
+            setTxPriceCurrency(isCrypto ? 'USDT' : 'VND');
+            setTxFeeCurrency(isCrypto ? 'BNB' : 'VND');
+          } else {
+            // Prompt to quickly create asset
+            setUnmatchedSymbolPrompt({
+              symbol: cleanSymbol,
+              name: data.asset_name || `${cleanSymbol}`,
+              type: data.asset_type || 'stock',
+              price: data.price_per_unit || 0,
+            });
+          }
+        }
+
+        // 2. Transaction type
+        if (data.transaction_type) {
+          setTxType(data.transaction_type);
+        }
+
+        // 3. Quantity
+        if (data.quantity !== null && data.quantity !== undefined && data.quantity > 0) {
+          setTxQuantity(data.quantity.toString());
+        } else {
+          setTxQuantity('');
+        }
+
+        // 4. Price per unit
+        if (data.price_per_unit !== null && data.price_per_unit !== undefined && data.price_per_unit > 0) {
+          setTxPrice(data.price_per_unit.toString());
+        } else {
+          setTxPrice('');
+        }
+
+        // 5. Currency
+        if (data.currency === 'USDT' || data.currency === 'USD') {
+          setTxPriceCurrency('USDT');
+        } else {
+          setTxPriceCurrency('VND');
+        }
+
+        // 6. Fee
+        if (data.fee !== null && data.fee !== undefined) {
+          setTxFee(data.fee.toString());
+        }
+
+        // 7. Transaction Date
+        if (data.transaction_date) {
+          setTxDate(data.transaction_date);
+        }
+
+        // 8. Notes & Broker
+        const noteParts: string[] = [];
+        if (data.broker_name) noteParts.push(`Sàn/CTCK: ${data.broker_name}`);
+        if (data.order_id) noteParts.push(`Mã lệnh: ${data.order_id}`);
+        if (data.notes) noteParts.push(data.notes);
+        if (noteParts.length > 0) {
+          setTxNotes(noteParts.join(' | '));
+        }
+
+        // 9. Re-evaluate missing fields
+        const detectedMissing: string[] = [];
+        if (!matchedAssetId) detectedMissing.push('asset_symbol');
+        if (!data.quantity || data.quantity <= 0) detectedMissing.push('quantity');
+        if (!data.price_per_unit || data.price_per_unit <= 0) detectedMissing.push('price_per_unit');
+        if (!data.transaction_date) detectedMissing.push('transaction_date');
+
+        setMissingFields(detectedMissing);
+        setScannedSummary(
+          `Đã quét: ${data.asset_symbol || 'Tài sản'} • ${data.transaction_type === 'buy' ? 'MUA' : 'BÁN'}` +
+            (data.quantity ? ` • SL: ${data.quantity.toLocaleString('vi-VN')}` : '') +
+            (data.price_per_unit ? ` • Giá: ${data.price_per_unit.toLocaleString('vi-VN')} ${data.currency || 'đ'}` : '')
+        );
+      } else {
+        setScanError(result.error || 'AI không nhận diện được hóa đơn này. Vui lòng điền tay.');
+        setMissingFields(['asset_symbol', 'quantity', 'price_per_unit', 'transaction_date']);
+      }
+    } catch (err: any) {
+      setScanError(err?.message || 'Lỗi khi quét ảnh hóa đơn');
+      setMissingFields(['asset_symbol', 'quantity', 'price_per_unit', 'transaction_date']);
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  // Handler to auto-create asset from scanned bill if not existing
+  const handleCreateAssetFromBill = async () => {
+    if (!unmatchedSymbolPrompt || !onSaveAsset) return;
+    try {
+      const newAsset = {
+        asset_symbol: unmatchedSymbolPrompt.symbol,
+        asset_name: unmatchedSymbolPrompt.name || unmatchedSymbolPrompt.symbol,
+        asset_type: (unmatchedSymbolPrompt.type as any) || 'stock',
+        current_price: unmatchedSymbolPrompt.price || 0,
+        currency: txPriceCurrency,
+      };
+      await onSaveAsset(newAsset);
+      setUnmatchedSymbolPrompt(null);
+      setMissingFields((prev) => prev.filter((f) => f !== 'asset_symbol'));
+    } catch (e) {
+      console.warn('Could not auto create asset:', e);
+    }
+  };
+
+  // Paste screenshot event listener
+  useEffect(() => {
+    if (!isOpen) return;
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const file = items[i].getAsFile();
+          if (file) {
+            setIsScanPanelOpen(true);
+            handleScanFile(file);
+            break;
+          }
+        }
+      }
+    };
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [isOpen, investmentAssets]);
+
+  // Demo sample bill test
+  const handleSampleBillTest = async () => {
+    setIsScanPanelOpen(true);
+    setIsScanning(true);
+    setScanProgress(15);
+    setScanStatusText('Đang nạp ảnh hóa đơn mẫu...');
+    setScanError(null);
+    setScanSuccess(false);
+
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 640;
+      canvas.height = 420;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(0, 0, 640, 420);
+        ctx.fillStyle = '#0f172a';
+        ctx.font = 'bold 22px sans-serif';
+        ctx.fillText('CÔNG TY CỔ PHẦN CHỨNG KHOÁN TCBS', 40, 55);
+        ctx.font = 'bold 16px sans-serif';
+        ctx.fillStyle = '#059669';
+        ctx.fillText('KẾT QUẢ KHỚP LỆNH MUA CHỨNG KHOÁN', 40, 95);
+        ctx.fillStyle = '#334155';
+        ctx.font = '15px sans-serif';
+        ctx.fillText(`Mã cổ phiếu: ${investmentAssets[0]?.asset_symbol || 'HPG'}`, 40, 140);
+        ctx.fillText('Loại lệnh: MUA (BUY) - Khớp 100%', 40, 180);
+        ctx.fillText('Khối lượng khớp: 500 CP', 40, 220);
+        ctx.fillText('Đơn giá khớp: 28,500 VND', 40, 260);
+        ctx.fillText('Phí giao dịch: 15,000 VND', 40, 300);
+        ctx.fillText(`Ngày giao dịch: ${new Date().toISOString().split('T')[0]}`, 40, 340);
+        ctx.fillText('Mã lệnh: TCBS-89421598', 40, 380);
+        const sampleDataUrl = canvas.toDataURL('image/jpeg');
+        setScannedBillPreview(sampleDataUrl);
+        await handleScanFile(sampleDataUrl);
+      }
+    } catch (err: any) {
+      setScanError(err?.message || 'Lỗi khi tạo hóa đơn mẫu');
+      setIsScanning(false);
+    }
+  };
 
   // Current selected asset object
   const currentAsset = useMemo(() => {
@@ -79,6 +333,9 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
     const isEditingTargetChanged = isOpen && editingTransaction?.id !== prevEditingTxIdRef.current;
 
     if (isOpening || isEditingTargetChanged) {
+      if (initialOpenScanner) {
+        setIsScanPanelOpen(true);
+      }
       if (editingTransaction) {
         setTxAssetId(editingTransaction.asset_id);
         setTxType(editingTransaction.transaction_type);
@@ -322,6 +579,196 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
       maxWidth="md"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* ========================================================================= */}
+        {/* 📸 AI OCR BILL / RECEIPT SCANNER SECTION                                  */}
+        {/* ========================================================================= */}
+        <div className="rounded-2xl border border-purple-200 dark:border-purple-800/60 bg-gradient-to-br from-purple-500/10 via-indigo-500/5 to-slate-50 dark:to-slate-900/60 p-3.5 space-y-3 transition-all">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setIsScanPanelOpen(!isScanPanelOpen)}
+              className="flex items-center gap-2 text-xs font-bold text-purple-700 dark:text-purple-300 hover:text-purple-900 dark:hover:text-purple-200 transition-colors cursor-pointer"
+            >
+              <div className="p-1.5 rounded-lg bg-purple-600 text-white shadow-xs">
+                <Camera className="w-4 h-4" />
+              </div>
+              <div className="text-left">
+                <div className="flex items-center gap-1.5">
+                  <span>📸 Quét Ảnh Hóa Đơn / Bill Lệnh Bằng AI</span>
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-xs">
+                    Gemini OCR
+                  </span>
+                </div>
+                <p className="text-[10px] font-normal text-slate-500 dark:text-slate-400">
+                  Tự động đọc mã tài sản, khối lượng, đơn giá, phí và ngày khớp lệnh
+                </p>
+              </div>
+            </button>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleSampleBillTest}
+                disabled={isScanning}
+                className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 text-[11px] font-medium text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-purple-400 transition-colors cursor-pointer shadow-2xs disabled:opacity-50"
+                title="Dùng thử hóa đơn mẫu TCBS"
+              >
+                <Sparkles className="w-3 h-3 text-amber-500" />
+                <span>Hóa đơn mẫu</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsScanPanelOpen(!isScanPanelOpen)}
+                className="text-xs font-semibold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
+              >
+                {isScanPanelOpen ? 'Thu gọn' : 'Mở quét'}
+              </button>
+            </div>
+          </div>
+
+          {isScanPanelOpen && (
+            <div className="space-y-3 pt-2 border-t border-purple-100 dark:border-purple-900/40 animate-in fade-in duration-200">
+              {/* Upload Dropzone */}
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                    handleScanFile(e.dataTransfer.files[0]);
+                  }
+                }}
+                className={`relative p-4 rounded-xl border-2 border-dashed transition-all cursor-pointer text-center ${
+                  isScanning
+                    ? 'border-purple-400 bg-purple-500/10'
+                    : scanSuccess
+                    ? 'border-emerald-400 dark:border-emerald-600 bg-emerald-500/5'
+                    : scanError
+                    ? 'border-rose-400 dark:border-rose-600 bg-rose-500/5'
+                    : 'border-slate-300 dark:border-slate-700 hover:border-purple-500 bg-white/70 dark:bg-slate-800/70'
+                }`}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      handleScanFile(e.target.files[0]);
+                    }
+                  }}
+                  className="hidden"
+                />
+
+                {scannedBillPreview ? (
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                    <img
+                      src={scannedBillPreview}
+                      alt="Bill Preview"
+                      className="w-20 h-20 object-cover rounded-lg border border-slate-200 dark:border-slate-700 shadow-xs"
+                    />
+                    <div className="text-left space-y-1">
+                      <p className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                        <ImageIcon className="w-3.5 h-3.5 text-purple-500" />
+                        <span>Đã tải ảnh hóa đơn / lệnh khớp</span>
+                      </p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Nhấn vào đây để chọn ảnh khác hoặc dán ảnh màn hình mới (Ctrl+V)
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <div className="w-9 h-9 mx-auto rounded-full bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center">
+                      <Upload className="w-4 h-4" />
+                    </div>
+                    <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      Kéo thả ảnh hóa đơn / bill lệnh vào đây hoặc <span className="text-purple-600 dark:text-purple-400 underline">chọn từ máy</span>
+                    </p>
+                    <p className="text-[10px] text-slate-400">
+                      Hỗ trợ chụp từ điện thoại, biên lai TCBS, VPS, SSI, VNDirect, Binance, SJC... (Hỗ trợ dán ảnh bằng phím <kbd className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-700 font-mono text-[9px] border">Ctrl+V</kbd>)
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Progress Bar & Percentage Indicator */}
+              {isScanning && (
+                <div className="space-y-1.5 p-3 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60">
+                  <div className="flex items-center justify-between text-xs font-bold text-purple-900 dark:text-purple-200">
+                    <span className="flex items-center gap-1.5">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-600" />
+                      {scanStatusText || 'Đang quét ảnh hóa đơn...'}
+                    </span>
+                    <span className="font-mono text-purple-600 dark:text-purple-400">{scanProgress}%</span>
+                  </div>
+
+                  {/* Visual Progress Bar */}
+                  <div className="w-full h-2.5 rounded-full bg-purple-200 dark:bg-purple-900/60 overflow-hidden relative">
+                    <div
+                      className="h-full bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-500 rounded-full transition-all duration-300 ease-out"
+                      style={{ width: `${scanProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Scan Success Banner */}
+              {scanSuccess && !isScanning && (
+                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800/80 space-y-1.5 text-xs animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between font-bold text-emerald-900 dark:text-emerald-200">
+                    <span className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      <span>Quét Hóa Đơn Thành Công (100%)</span>
+                    </span>
+                    {scanConfidence && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 font-extrabold">
+                        Độ tin cậy: {scanConfidence}%
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-emerald-800 dark:text-emerald-300 leading-relaxed">
+                    {scannedSummary || 'Hệ thống đã tự động lọc các thông số vào form bên dưới. Bạn chỉ việc xác nhận nếu đúng dữ liệu.'}
+                  </p>
+                </div>
+              )}
+
+              {/* Scan Error Banner */}
+              {scanError && !isScanning && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 space-y-1.5 text-xs animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between font-bold text-rose-900 dark:text-rose-200">
+                    <span className="flex items-center gap-1.5">
+                      <AlertCircle className="w-4 h-4 text-rose-600" />
+                      <span>Quét thất bại hoặc ảnh mờ</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleSampleBillTest}
+                      className="text-[10px] font-bold text-rose-700 dark:text-rose-300 underline cursor-pointer"
+                    >
+                      Thử hóa đơn mẫu
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-rose-700 dark:text-rose-300 leading-relaxed">
+                    {scanError}. Hệ thống đã tô đỏ các ô cần thiết bên dưới để bạn điền bằng tay.
+                  </p>
+                </div>
+              )}
+
+              {/* Missing Fields Warning Notice */}
+              {missingFields.length > 0 && !isScanning && (
+                <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 flex items-start gap-2 text-xs">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
+                    ⚠️ Hóa đơn còn <strong className="text-rose-600 dark:text-rose-400">{missingFields.length} thông tin chưa nhận diện được</strong> (các ô có <strong>viền màu đỏ</strong> bên dưới). Bạn vui lòng điền tay để tiếp tục xác nhận giao dịch.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Tx Type Selector */}
         <div className="grid grid-cols-3 gap-2 p-1 rounded-xl bg-slate-100 dark:bg-slate-800">
           <button
@@ -403,35 +850,101 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
           </div>
         )}
 
+        {/* Form Inputs Grid with Conditional RED Highlighting for missing data */}
         <div className="grid grid-cols-2 gap-3">
+          {/* Asset Selector */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Chọn tài sản
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Chọn tài sản
+              </label>
+              {isScanPanelOpen && (missingFields.includes('asset_symbol') || !txAssetId) && (
+                <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 flex items-center gap-0.5">
+                  <AlertCircle className="w-3 h-3" /> Chưa nhận diện
+                </span>
+              )}
+            </div>
             <select
               value={txAssetId}
-              onChange={(e) => handleAssetChange(e.target.value)}
-              className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              onChange={(e) => {
+                handleAssetChange(e.target.value);
+                setMissingFields((prev) => prev.filter((f) => f !== 'asset_symbol'));
+              }}
+              className={`w-full px-3 py-2 text-xs rounded-xl transition-all focus:outline-none focus:ring-2 ${
+                isScanPanelOpen && (missingFields.includes('asset_symbol') || !txAssetId)
+                  ? 'border-2 border-rose-500 bg-rose-50 dark:bg-rose-950/30 text-rose-900 dark:text-rose-100 ring-2 ring-rose-500/20'
+                  : 'border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:ring-purple-500'
+              }`}
             >
+              <option value="">-- Chọn tài sản mua/bán --</option>
               {investmentAssets.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.asset_symbol} - {a.asset_name}
                 </option>
               ))}
             </select>
+            {isScanPanelOpen && (missingFields.includes('asset_symbol') || !txAssetId) && (
+              <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400 mt-1 flex items-center gap-1">
+                ⚠️ Chưa quét được mã - Bắt buộc chọn tay
+              </p>
+            )}
           </div>
+
+          {/* Transaction Date Input */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Ngày giao dịch
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Ngày giao dịch
+              </label>
+              {isScanPanelOpen && (missingFields.includes('transaction_date') || !txDate) && (
+                <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 flex items-center gap-0.5">
+                  <AlertCircle className="w-3 h-3" /> Thiếu ngày
+                </span>
+              )}
+            </div>
             <input
               type="date"
               required
               value={txDate}
-              onChange={(e) => setTxDate(e.target.value)}
-              className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              onChange={(e) => {
+                setTxDate(e.target.value);
+                if (e.target.value) {
+                  setMissingFields((prev) => prev.filter((f) => f !== 'transaction_date'));
+                }
+              }}
+              className={`w-full px-3 py-2 text-xs rounded-xl transition-all focus:outline-none focus:ring-2 ${
+                isScanPanelOpen && (missingFields.includes('transaction_date') || !txDate)
+                  ? 'border-2 border-rose-500 bg-rose-50 dark:bg-rose-950/30 text-rose-900 dark:text-rose-100 ring-2 ring-rose-500/20'
+                  : 'border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:ring-purple-500'
+              }`}
             />
+            {isScanPanelOpen && (missingFields.includes('transaction_date') || !txDate) && (
+              <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400 mt-1 flex items-center gap-1">
+                ⚠️ Thiếu ngày mua - Bắt buộc điền tay
+              </p>
+            )}
           </div>
+
+          {/* Unmatched Symbol Prompt card */}
+          {unmatchedSymbolPrompt && (
+            <div className="col-span-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 flex items-center justify-between gap-2 text-xs animate-in fade-in duration-150">
+              <div>
+                <p className="font-bold text-amber-900 dark:text-amber-200">
+                  💡 Tìm thấy mã <strong>{unmatchedSymbolPrompt.symbol}</strong> trên hóa đơn nhưng chưa có trong danh mục.
+                </p>
+                <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                  Bạn có muốn tự động tạo mã này vào danh mục đầu tư không?
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCreateAssetFromBill}
+                className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shrink-0 cursor-pointer shadow-xs"
+              >
+                + Tạo mã {unmatchedSymbolPrompt.symbol}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Dynamic Fields Based On Transaction Type */}
@@ -604,9 +1117,16 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
           <>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  {txType === 'dividend' ? 'Khối lượng cổ phiếu nhận thêm' : 'Khối lượng / Số lượng'}
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    {txType === 'dividend' ? 'Khối lượng cổ phiếu nhận thêm' : 'Khối lượng / Số lượng'}
+                  </label>
+                  {isScanPanelOpen && (missingFields.includes('quantity') || !txQuantity || parseFloat(txQuantity) <= 0) && (
+                    <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 flex items-center gap-0.5">
+                      <AlertCircle className="w-3 h-3" /> Thiếu số lượng
+                    </span>
+                  )}
+                </div>
                 <input
                   type="number"
                   required
@@ -614,9 +1134,23 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
                   min="0.00000001"
                   placeholder="VD: 0.5 hoặc 100"
                   value={txQuantity}
-                  onChange={(e) => setTxQuantity(e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  onChange={(e) => {
+                    setTxQuantity(e.target.value);
+                    if (e.target.value && parseFloat(e.target.value) > 0) {
+                      setMissingFields((prev) => prev.filter((f) => f !== 'quantity'));
+                    }
+                  }}
+                  className={`w-full px-3 py-2 text-xs font-mono font-bold rounded-xl transition-all focus:outline-none focus:ring-2 ${
+                    isScanPanelOpen && (missingFields.includes('quantity') || !txQuantity || parseFloat(txQuantity) <= 0)
+                      ? 'border-2 border-rose-500 bg-rose-50 dark:bg-rose-950/30 text-rose-900 dark:text-rose-100 ring-2 ring-rose-500/20'
+                      : 'border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:ring-purple-500'
+                  }`}
                 />
+                {isScanPanelOpen && (missingFields.includes('quantity') || !txQuantity || parseFloat(txQuantity) <= 0) && (
+                  <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400 mt-1 flex items-center gap-1">
+                    ⚠️ Thiếu số lượng mua/bán - Bắt buộc điền tay
+                  </p>
+                )}
               </div>
 
               <div>
@@ -624,7 +1158,12 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
                     {txType === 'dividend' ? 'Đơn giá nhận (0đ)' : 'Đơn giá khớp lệnh'}
                   </label>
-                  {txType !== 'dividend' && (
+                  {txType !== 'dividend' && isScanPanelOpen && (missingFields.includes('price_per_unit') || !txPrice || parseFloat(txPrice) <= 0) && (
+                    <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 flex items-center gap-0.5">
+                      <AlertCircle className="w-3 h-3" /> Thiếu đơn giá
+                    </span>
+                  )}
+                  {txType !== 'dividend' && (!isScanPanelOpen || (!missingFields.includes('price_per_unit') && txPrice && parseFloat(txPrice) > 0)) && (
                     <div className="flex items-center gap-1 bg-slate-200 dark:bg-slate-700/80 p-0.5 rounded-lg text-[10px] font-bold">
                       <button
                         type="button"
@@ -670,8 +1209,17 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
                     min="0"
                     placeholder={txType === 'dividend' ? '0 đ (Cổ phiếu thưởng)' : txPriceCurrency === 'USDT' ? 'VD: 68500' : 'VD: 1740000000'}
                     value={txType === 'dividend' ? '0' : txPrice}
-                    onChange={(e) => setTxPrice(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-75 disabled:bg-slate-100 dark:disabled:bg-slate-800/50"
+                    onChange={(e) => {
+                      setTxPrice(e.target.value);
+                      if (e.target.value && parseFloat(e.target.value) > 0) {
+                        setMissingFields((prev) => prev.filter((f) => f !== 'price_per_unit'));
+                      }
+                    }}
+                    className={`w-full px-3 py-2 text-xs font-mono font-bold rounded-xl transition-all focus:outline-none focus:ring-2 ${
+                      txType !== 'dividend' && isScanPanelOpen && (missingFields.includes('price_per_unit') || !txPrice || parseFloat(txPrice) <= 0)
+                        ? 'border-2 border-rose-500 bg-rose-50 dark:bg-rose-950/30 text-rose-900 dark:text-rose-100 ring-2 ring-rose-500/20'
+                        : 'border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:ring-purple-500 disabled:opacity-75 disabled:bg-slate-100 dark:disabled:bg-slate-800/50'
+                    }`}
                   />
                   <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">
                     {txPriceCurrency}
@@ -681,6 +1229,11 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
                   <span className="text-[10px] text-slate-400 mt-1 block">
                     ≈ {formatCurrency((parseFloat(txPrice) || 0) * usdtRate, 'VND')} (Tỷ giá: {usdtRate.toLocaleString('vi-VN')} đ)
                   </span>
+                )}
+                {txType !== 'dividend' && isScanPanelOpen && (missingFields.includes('price_per_unit') || !txPrice || parseFloat(txPrice) <= 0) && (
+                  <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400 mt-1 flex items-center gap-1">
+                    ⚠️ Thiếu giá mua/bán - Bắt buộc điền tay
+                  </p>
                 )}
               </div>
             </div>

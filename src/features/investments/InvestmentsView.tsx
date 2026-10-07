@@ -34,7 +34,8 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Clock
+  Clock,
+  Camera
 } from 'lucide-react';
 
 export const InvestmentsView: React.FC = () => {
@@ -64,6 +65,7 @@ export const InvestmentsView: React.FC = () => {
   const [editingAsset, setEditingAsset] = useState<InvestmentAsset | null>(null);
 
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
+  const [isOpenScannerDirectly, setIsOpenScannerDirectly] = useState(false);
   const [selectedAssetForTx, setSelectedAssetForTx] = useState<InvestmentAsset | null>(null);
   const [editingTx, setEditingTx] = useState<InvestmentTransaction | null>(null);
 
@@ -213,6 +215,7 @@ export const InvestmentsView: React.FC = () => {
   // Open Add Transaction Modal
   const handleOpenAddTx = (asset?: InvestmentAsset) => {
     setEditingTx(null);
+    setIsOpenScannerDirectly(false);
     const defaultAsset = asset || investmentAssets[0];
     if (!defaultAsset) {
       addToast('Vui lòng tạo tài sản đầu tư trước khi thêm giao dịch', 'warning');
@@ -221,6 +224,15 @@ export const InvestmentsView: React.FC = () => {
     }
 
     setSelectedAssetForTx(defaultAsset);
+    setIsTxModalOpen(true);
+  };
+
+  // Open Direct Bill Scanner Modal
+  const handleOpenScanBill = (asset?: InvestmentAsset) => {
+    setEditingTx(null);
+    setIsOpenScannerDirectly(true);
+    const defaultAsset = asset || investmentAssets[0];
+    setSelectedAssetForTx(defaultAsset || null);
     setIsTxModalOpen(true);
   };
 
@@ -458,15 +470,24 @@ export const InvestmentsView: React.FC = () => {
             <button
               type="button"
               onClick={handleOpenAddAsset}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 dark:bg-slate-700 hover:bg-slate-900 text-white font-semibold text-xs shadow-xs transition-all"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 dark:bg-slate-700 hover:bg-slate-900 text-white font-semibold text-xs shadow-xs transition-all cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" /> {showQuickAdd ? 'Đóng' : 'Thêm Tài Sản Mới'}
             </button>
 
             <button
               type="button"
+              onClick={() => handleOpenScanBill()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
+              title="Quét hóa đơn / bill lệnh mua bán bằng AI (Gemini OCR)"
+            >
+              <Camera className="w-3.5 h-3.5" /> 📸 Quét Bill AI
+            </button>
+
+            <button
+              type="button"
               onClick={() => handleOpenAddTx()}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs shadow-xs transition-all"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs shadow-xs transition-all cursor-pointer"
             >
               <TrendingUp className="w-3.5 h-3.5" /> + Giao Dịch Mua/Bán
             </button>
@@ -1211,10 +1232,13 @@ export const InvestmentsView: React.FC = () => {
         onClose={() => {
           setIsTxModalOpen(false);
           setEditingTx(null);
+          setIsOpenScannerDirectly(false);
         }}
         selectedAsset={selectedAssetForTx}
         investmentAssets={investmentAssets}
         editingTransaction={editingTx}
+        initialOpenScanner={isOpenScannerDirectly}
+        onSaveAsset={saveInvestmentAsset}
         onSave={handleSaveTx}
       />
     </div>

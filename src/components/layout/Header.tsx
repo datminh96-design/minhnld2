@@ -27,6 +27,7 @@ import { useData } from '../../context/DataContext';
 import { NavTab } from './Sidebar';
 import { PayOSModal } from '../../features/payment/PayOSModal';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
+import { UserProfile } from '../UserProfile';
 
 interface HeaderProps {
   activeTab: NavTab;
@@ -232,22 +233,7 @@ export const Header: React.FC<HeaderProps> = ({
               />
               <div className="absolute right-0 mt-2 w-72 rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-800 p-2 z-50 animate-in fade-in zoom-in-95 duration-150">
                 <div className="p-3.5 rounded-xl bg-gradient-to-br from-emerald-600/10 via-teal-600/5 to-slate-50 dark:to-slate-800/60 border border-emerald-500/20 mb-2">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white font-bold text-sm flex items-center justify-center shrink-0 shadow-sm">
-                      {profile?.full_name?.charAt(0) || 'M'}
-                    </div>
-                    <div className="overflow-hidden">
-                      <div className="flex items-center gap-1.5">
-                        <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                          {profile?.full_name || 'Nguyễn Lê Đạt Minh'}
-                        </p>
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                      </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                        {profile?.email || 'datminh96@gmail.com'}
-                      </p>
-                    </div>
-                  </div>
+                  <UserProfile variant="compact" />
                 </div>
 
                 <button

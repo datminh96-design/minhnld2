@@ -112,6 +112,281 @@ const PORT = 3000;
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 
+  // =========================================================================
+  // INVESTMENT BILL / RECEIPT AI VISION SCANNER (GEMINI MULTIMODAL OCR)
+  // =========================================================================
+  app.post(['/api/investments/scan-bill', '/api/gemini/scan-investment-bill'], async (req, res) => {
+    try {
+      const { imageBase64, mimeType = 'image/jpeg', currentAssets = [] } = req.body || {};
+
+      if (!imageBase64 || typeof imageBase64 !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'Thiếu dữ liệu hình ảnh (imageBase64)',
+        });
+      }
+
+      // Clean base64 string
+      const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+]+;base64,/, '').trim();
+      const detectedMimeType = mimeType || (imageBase64.startsWith('data:image/png') ? 'image/png' : 'image/jpeg');
+
+      const ai = getGeminiClient();
+      if (!ai) {
+        return res.status(500).json({
+          success: false,
+          error: 'Gemini API Key chưa được cấu hình trên máy chủ.',
+        });
+      }
+
+      const prompt = `Bạn là một chuyên gia AI phân tích hóa đơn / biên lai lệnh mua bán chứng khoán, tiền điện tử (crypto), vàng, chứng chỉ quỹ tại thị trường Việt Nam và quốc tế (TCBS, VPS, SSI, VNDIRECT, BSC, Mirae Asset, Vietcombank Securities, Binance, OKX, Bybit, SJC, DOJI, Mi Hồng, PNJ, Dragon Capital, VinaCapital, v.v.).
+
+Hãy đọc và trích xuất chuẩn xác các thông tin từ hình ảnh hóa đơn / lệnh giao dịch:
+1. asset_symbol: Mã chứng khoán/crypto/tài sản (Ví dụ: HPG, FPT, MWG, BTC, ETH, SOL, SJC, TCBF, v.v.). Viết hoa.
+2. asset_name: Tên đầy đủ của tài sản (Ví dụ: Cổ phiếu Tập đoàn Hòa Phát, Bitcoin, Vàng miếng SJC 9999, Quỹ TCBF, v.v.).
+3. asset_type: Loại tài sản, bắt buộc là 1 trong các giá trị: 'stock' (chứng khoán), 'crypto' (tiền mã hóa), 'gold' (vàng/kim loại quý), 'fund' (chứng chỉ quỹ), 'other'.
+4. transaction_type: Loại giao dịch, bắt buộc là: 'buy' (Mua/Khớp mua), 'sell' (Bán/Khớp bán), hoặc 'dividend' (Cổ tức).
+5. quantity: Khối lượng/Số lượng khớp lệnh (số thực hoặc số nguyên dương, ví dụ: 500, 100, 0.05, 1.5). Nếu không tìm thấy, trả về null.
+6. price_per_unit: Đơn giá khớp lệnh mỗi cổ phiếu/coin/chỉ/đơn vị (bằng số, ví dụ: 28500, 95000, 8500000). Nếu giá tính theo USDT, ghi giá USDT. Nếu không tìm thấy, trả về null.
+7. fee: Phí giao dịch (số thực hoặc 0). Nếu không có, để 0.
+8. tax: Thuế thu nhập cá nhân (nếu có, hoặc 0).
+9. total_amount: Tổng giá trị giao dịch thực tế đã thanh toán.
+10. currency: Đơn vị tiền tệ ('VND', 'USDT', 'USD'). Mặc định là 'VND' nếu là sàn VN hoặc vàng, 'USDT' nếu là crypto.
+11. transaction_date: Ngày thực hiện giao dịch theo định dạng YYYY-MM-DD. Nếu hóa đơn chỉ ghi DD/MM/YYYY, hãy chuyển sang YYYY-MM-DD. Nếu không tìm thấy ngày, để null.
+12. broker_name: Tên công ty chứng khoán, sàn giao dịch hoặc tiệm vàng (ví dụ: 'TCBS', 'VPS', 'SSI', 'Binance', 'DOJI', v.v.).
+13. order_id: Mã số lệnh / Mã hóa đơn / Số chứng từ nếu có.
+14. notes: Ghi chú tóm tắt nội dung giao dịch.
+15. missing_fields: Danh sách các trường thiết yếu còn thiếu hoặc chưa quét được trong các trường sau: ['asset_symbol', 'quantity', 'price_per_unit', 'transaction_date']. Nếu trường nào bị null hoặc không rõ ràng, hãy thêm tên trường đó vào mảng này.
+16. confidence: Độ tin cậy ước tính từ 0 đến 100 (số nguyên).
+
+Danh sách các tài sản hiện có trong danh mục của người dùng để bạn ưu tiên đối chiếu mã:
+${JSON.stringify(currentAssets.map((a: any) => ({ symbol: a.asset_symbol || a.symbol, name: a.asset_name || a.name, type: a.asset_type || a.type })))}
+
+Trả về kết quả chuẩn JSON.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                mimeType: detectedMimeType,
+                data: cleanBase64,
+              },
+            },
+            {
+              text: prompt,
+            },
+          ],
+        },
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              asset_symbol: { type: Type.STRING, description: 'Mã tài sản viết hoa (e.g. HPG, BTC, SJC)' },
+              asset_name: { type: Type.STRING, description: 'Tên đầy đủ của tài sản' },
+              asset_type: { type: Type.STRING, description: 'stock | crypto | gold | fund | other' },
+              transaction_type: { type: Type.STRING, description: 'buy | sell | dividend' },
+              quantity: { type: Type.NUMBER, description: 'Số lượng mua/bán' },
+              price_per_unit: { type: Type.NUMBER, description: 'Giá mua/bán đơn vị' },
+              fee: { type: Type.NUMBER, description: 'Phí giao dịch' },
+              tax: { type: Type.NUMBER, description: 'Thuế' },
+              total_amount: { type: Type.NUMBER, description: 'Tổng tiền thanh toán' },
+              currency: { type: Type.STRING, description: 'VND | USDT | USD' },
+              transaction_date: { type: Type.STRING, description: 'Ngày giao dịch định dạng YYYY-MM-DD' },
+              broker_name: { type: Type.STRING, description: 'Tên sàn giao dịch/CTCK' },
+              order_id: { type: Type.STRING, description: 'Mã lệnh' },
+              notes: { type: Type.STRING, description: 'Ghi chú' },
+              missing_fields: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: 'Các trường bị thiếu: asset_symbol, quantity, price_per_unit, transaction_date'
+              },
+              confidence: { type: Type.NUMBER, description: 'Độ tin cậy 0-100' }
+            },
+            required: ['asset_symbol', 'transaction_type', 'missing_fields']
+          }
+        },
+      });
+
+      const responseText = response.text || '';
+      let parsedData: any = {};
+      try {
+        parsedData = JSON.parse(responseText.trim());
+      } catch (jsonErr) {
+        console.warn('Could not parse responseSchema JSON, raw:', responseText);
+        parsedData = {
+          asset_symbol: '',
+          transaction_type: 'buy',
+          missing_fields: ['asset_symbol', 'quantity', 'price_per_unit', 'transaction_date'],
+          confidence: 50
+        };
+      }
+
+      // Re-evaluate missing fields explicitly
+      const missingFields: string[] = Array.isArray(parsedData.missing_fields) ? [...parsedData.missing_fields] : [];
+      if (!parsedData.asset_symbol && !missingFields.includes('asset_symbol')) missingFields.push('asset_symbol');
+      if ((parsedData.quantity === null || parsedData.quantity === undefined || parsedData.quantity <= 0) && !missingFields.includes('quantity')) {
+        missingFields.push('quantity');
+      }
+      if ((parsedData.price_per_unit === null || parsedData.price_per_unit === undefined || parsedData.price_per_unit <= 0) && !missingFields.includes('price_per_unit')) {
+        missingFields.push('price_per_unit');
+      }
+      if (!parsedData.transaction_date && !missingFields.includes('transaction_date')) {
+        missingFields.push('transaction_date');
+      }
+
+      parsedData.missing_fields = missingFields;
+
+      return res.json({
+        success: true,
+        data: parsedData,
+        message: missingFields.length === 0
+          ? 'Quét hóa đơn đầu tư hoàn tất 100%!'
+          : `Đã quét hóa đơn, còn ${missingFields.length} thông tin cần bổ sung`,
+      });
+    } catch (err: any) {
+      console.error('[Scan Bill API Error]:', err);
+      return res.status(500).json({
+        success: false,
+        error: err?.message || 'Lỗi khi quét ảnh hóa đơn với Gemini AI',
+      });
+    }
+  });
+
+  // =========================================================================
+  // GENERAL EXPENSE / RECEIPT AI OCR VISION SCANNER (GEMINI MULTIMODAL)
+  // =========================================================================
+  app.post(['/api/expenses/scan-bill', '/api/gemini/scan-expense-receipt'], async (req, res) => {
+    try {
+      const { imageBase64, mimeType = 'image/jpeg', existingCategories = [] } = req.body || {};
+
+      if (!imageBase64 || typeof imageBase64 !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'Thiếu dữ liệu hình ảnh (imageBase64)',
+        });
+      }
+
+      const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+]+;base64,/, '').trim();
+      const detectedMimeType = mimeType || (imageBase64.startsWith('data:image/png') ? 'image/png' : 'image/jpeg');
+
+      const ai = getGeminiClient();
+      if (!ai) {
+        return res.status(500).json({
+          success: false,
+          error: 'Gemini API Key chưa được cấu hình trên máy chủ.',
+        });
+      }
+
+      const categoriesListStr = Array.isArray(existingCategories) && existingCategories.length > 0
+        ? existingCategories.map((c: any) => typeof c === 'string' ? c : c.name).join(', ')
+        : 'Ăn uống, Mua sắm, Di chuyển, Hóa đơn & Tiện ích, Y tế, Giải trí, Giáo dục, Nhà cửa, Công việc, Khác';
+
+      const prompt = `Bạn là một trợ lý AI thông minh chuyên phân tích hóa đơn thanh toán, biên lai chi tiêu, phiếu thu/chi, hóa đơn siêu thị (WinMart, Co.opmart, Bách Hóa Xanh, Lotte, Aeon), nhà hàng/quán ăn/cà phê (Highlands, Phúc Long, The Coffee House, Starbuck), hóa đơn Grab/Be/XanhSM, tiền điện nước, mua sắm online Shopee/Lazada/Tiki...
+
+Hãy đọc hình ảnh hóa đơn và trích xuất các thông tin chính xác sau:
+1. name: Tên giao dịch hoặc tên cửa hàng / người nhận / dịch vụ (Ví dụ: "Siêu thị WinMart - Mua thực phẩm", "Highlands Coffee", "Cước Grab Car", "Hóa đơn tiền điện EVN").
+2. amount: Tổng số tiền thanh toán thực tế (bằng số nguyên hoặc số thực dương VNĐ, ví dụ: 185000, 45000, 1250000). Nếu không tìm thấy, trả về null.
+3. transaction_date: Ngày thực hiện giao dịch hoặc ngày xuất hóa đơn theo định dạng YYYY-MM-DD. Nếu hóa đơn chỉ ghi DD/MM/YYYY hoặc DD-MM-YYYY, hãy chuyển sang YYYY-MM-DD. Nếu không tìm thấy ngày, để null.
+4. fee: Phí dịch vụ, phụ thu, phí giao hàng hoặc tiền thuế VAT nếu có (số nguyên/thực, hoặc 0).
+5. category: Tên danh mục phù hợp nhất từ danh sách sau hoặc danh mục chuẩn: [${categoriesListStr}].
+6. transaction_type: Loại giao dịch ('expense' nếu là chi tiêu/mua hàng, hoặc 'income' nếu là phiếu thu tiền/lương). Mặc định là 'expense'.
+7. items_summary: Tóm tắt 2-5 mặt hàng chính trong hóa đơn nếu có (Ví dụ: "2 Cà phê sữa, 1 Bánh mì", "Sữa tươi, Trứng gà, Rau xanh").
+8. notes: Ghi chú thêm chi tiết về hóa đơn, địa chỉ hoặc mã số hóa đơn nếu có.
+9. missing_fields: Mảng chứa tên các trường thiết yếu còn thiếu hoặc không nhận diện được trong 4 trường sau: ['name', 'amount', 'date', 'fee']. Nếu trường nào bị null, rỗng hoặc amount <= 0, hãy thêm vào mảng missing_fields.
+10. confidence: Ước tính độ tin cậy của việc nhận diện từ 0 đến 100 (số nguyên).
+
+Trả về kết quả chuẩn định dạng JSON.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                mimeType: detectedMimeType,
+                data: cleanBase64,
+              },
+            },
+            {
+              text: prompt,
+            },
+          ],
+        },
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING, description: 'Tên giao dịch / cửa hàng' },
+              amount: { type: Type.NUMBER, description: 'Tổng số tiền thanh toán' },
+              transaction_date: { type: Type.STRING, description: 'Ngày giao dịch định dạng YYYY-MM-DD' },
+              fee: { type: Type.NUMBER, description: 'Phí dịch vụ hoặc VAT nếu có' },
+              category: { type: Type.STRING, description: 'Danh mục chi tiêu phù hợp' },
+              transaction_type: { type: Type.STRING, description: 'expense | income' },
+              items_summary: { type: Type.STRING, description: 'Tóm tắt các món hàng' },
+              notes: { type: Type.STRING, description: 'Ghi chú thêm' },
+              missing_fields: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: 'Danh sách các trường còn thiếu: name, amount, date, fee'
+              },
+              confidence: { type: Type.NUMBER, description: 'Độ tin cậy 0-100' },
+            },
+            required: ['name', 'category', 'missing_fields'],
+          },
+        },
+      });
+
+      const responseText = response.text || '';
+      let parsedData: any = {};
+      try {
+        parsedData = JSON.parse(responseText.trim());
+      } catch (jsonErr) {
+        console.warn('Could not parse responseSchema JSON, raw:', responseText);
+        parsedData = {
+          name: '',
+          amount: null,
+          transaction_date: null,
+          fee: 0,
+          category: 'Ăn uống',
+          transaction_type: 'expense',
+          missing_fields: ['name', 'amount', 'date'],
+          confidence: 40,
+        };
+      }
+
+      // Re-evaluate missing fields strictly
+      const missingFields: string[] = Array.isArray(parsedData.missing_fields) ? [...parsedData.missing_fields] : [];
+      if (!parsedData.name || typeof parsedData.name !== 'string' || !parsedData.name.trim()) {
+        if (!missingFields.includes('name')) missingFields.push('name');
+      }
+      if (parsedData.amount === null || parsedData.amount === undefined || isNaN(Number(parsedData.amount)) || Number(parsedData.amount) <= 0) {
+        if (!missingFields.includes('amount')) missingFields.push('amount');
+      }
+      if (!parsedData.transaction_date || typeof parsedData.transaction_date !== 'string' || !parsedData.transaction_date.trim()) {
+        if (!missingFields.includes('date')) missingFields.push('date');
+      }
+
+      parsedData.missing_fields = missingFields;
+
+      return res.json({
+        success: true,
+        data: parsedData,
+        message: missingFields.length === 0
+          ? 'Quét hóa đơn chi tiêu hoàn tất 100%!'
+          : `Đã quét hóa đơn, còn ${missingFields.length} thông tin cần bổ sung`,
+      });
+    } catch (err: any) {
+      console.error('[Scan Expense Bill API Error]:', err);
+      return res.status(500).json({
+        success: false,
+        error: err?.message || 'Lỗi khi quét ảnh hóa đơn chi tiêu với Gemini AI',
+      });
+    }
+  });
+
   // API Health check
   app.get(['/api/health', '/health'], (req, res) => {
     res.json({

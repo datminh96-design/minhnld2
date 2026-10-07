@@ -4,3 +4,5 @@ export { TransactionModalForm } from './TransactionModalForm';
 export { ExpensesView } from './ExpensesView';
 export { BudgetTrackerCard } from './BudgetTrackerCard';
 export { BudgetConfigModal } from './BudgetConfigModal';
+export { ExpenseCapture } from '../../components/ExpenseCapture';
+export type { ExpenseCaptureProps } from '../../components/ExpenseCapture';

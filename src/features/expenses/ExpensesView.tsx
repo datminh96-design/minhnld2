@@ -8,6 +8,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { TransactionModalForm } from './TransactionModalForm';
 import { ExpensesSmartCharts } from './ExpensesSmartCharts';
 import { BudgetTrackerCard } from './BudgetTrackerCard';
+import { ExpenseCapture } from '../../components/ExpenseCapture';
 import { 
   Wallet, 
   ArrowDownLeft, 
@@ -27,7 +28,8 @@ import {
   QrCode,
   Heart,
   Coins,
-  PiggyBank
+  PiggyBank,
+  Camera
 } from 'lucide-react';
 import { PayOSModal } from '../payment/PayOSModal';
 
@@ -54,6 +56,7 @@ export const ExpensesView: React.FC = () => {
 
   // Transaction Modal State
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
+  const [isExpenseCaptureModalOpen, setIsExpenseCaptureModalOpen] = useState(false);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [defaultTxType, setDefaultTxType] = useState<TransactionType>('expense');
   const [isPayOSModalOpen, setIsPayOSModalOpen] = useState(false);
@@ -357,6 +360,15 @@ export const ExpensesView: React.FC = () => {
                 Danh Mục
               </button>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setIsExpenseCaptureModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer shadow-purple-500/20"
+              title="Quét hóa đơn siêu thị, nhà hàng, Grab, tiện ích bằng AI Gemini OCR"
+            >
+              <Camera className="w-3.5 h-3.5" /> 📸 Quét Bill AI
+            </button>
 
             <button
               type="button"
@@ -828,6 +840,22 @@ export const ExpensesView: React.FC = () => {
           defaultAmount={50000}
           defaultDescription="Gui tien cho Nguyen Le Dat Minh"
         />
+      )}
+
+      {/* AI Expense Bill / Receipt Scanner Modal */}
+      {isExpenseCaptureModalOpen && (
+        <Modal
+          isOpen={isExpenseCaptureModalOpen}
+          onClose={() => setIsExpenseCaptureModalOpen(false)}
+          title="Quét Hóa Đơn Chi Tiêu AI"
+          subtitle="Tự động bóc tách tên, số tiền, ngày và phí bằng Gemini Vision OCR"
+          maxWidth="lg"
+        >
+          <ExpenseCapture
+            onClose={() => setIsExpenseCaptureModalOpen(false)}
+            categories={categories}
+          />
+        </Modal>
       )}
     </div>
   );

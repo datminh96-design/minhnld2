@@ -5,6 +5,7 @@ import { getSupabaseStatus, updateSupabaseCredentials } from '../../lib/supabase
 import { r2Service, R2ObjectItem, R2StatusResponse } from '../../services/r2Service';
 import { TransactionalEmailSection } from './TransactionalEmailSection';
 import { PayOSSection } from './PayOSSection';
+import { UserProfile } from '../../components/UserProfile';
 import { 
   Settings, 
   Clock, 
@@ -320,6 +321,9 @@ ALTER TABLE public.work_settings ADD COLUMN IF NOT EXISTS standard_days_per_mont
 
   return (
     <div className="space-y-6 pb-16 max-w-4xl">
+      {/* 0. Thông tin Tài Khoản & Người Dùng */}
+      <UserProfile variant="detailed" />
+
       {/* 1. Cấu hình Giờ Công Tiêu Chuẩn */}
       <div className="p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
         <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
