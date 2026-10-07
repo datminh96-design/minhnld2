@@ -45,6 +45,7 @@ import {
   Legend,
 } from 'recharts';
 import { Analytics } from './Analytics';
+import { NetBalanceTrendChart } from '../../components/NetBalanceTrendChart';
 import { TransactionModalForm } from '../expenses/TransactionModalForm';
 import { Transaction, ExpenseCategory } from '../../types';
 
@@ -853,10 +854,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* 5. PHÂN TÍCH CƠ CẤU THU CHI RECHARTS (ANALYTICS) */}
+      {/* 5. BIỂU ĐỒ ĐƯỜNG XU HƯỚNG SỐ DƯ RÒNG LŨY KẾ THEO THỜI GIAN (RECHARTS NET BALANCE TREND LINE) */}
+      <NetBalanceTrendChart />
+
+      {/* 6. PHÂN TÍCH CƠ CẤU THU CHI RECHARTS (ANALYTICS) */}
       <Analytics />
 
-      {/* 6. BIỂU ĐỒ DÒNG TIỀN THU VÀO & CHI RA HÀNG THÁNG (RECHARTS BAR CHART) */}
+      {/* 7. BIỂU ĐỒ DÒNG TIỀN THU VÀO & CHI RA HÀNG THÁNG (RECHARTS BAR CHART) */}
       <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-xs space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-3">

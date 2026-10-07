@@ -11,6 +11,7 @@ import { BudgetTrackerCard } from './BudgetTrackerCard';
 import { ExpenseCapture } from '../../components/ExpenseCapture';
 import { ExpenseScanner } from '../../components/ExpenseScanner';
 import { SpendingDashboard } from '../../components/SpendingDashboard';
+import { NetBalanceTrendChart } from '../../components/NetBalanceTrendChart';
 import { 
   Wallet, 
   ArrowDownLeft, 
@@ -648,6 +649,7 @@ export const ExpensesView: React.FC = () => {
 
       {viewTab === 'analytics' && (
         <div className="space-y-6">
+          <NetBalanceTrendChart />
           <SpendingDashboard />
           <ExpensesSmartCharts
             transactions={transactions}
