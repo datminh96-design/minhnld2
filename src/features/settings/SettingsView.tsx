@@ -6,6 +6,7 @@ import { r2Service, R2ObjectItem, R2StatusResponse } from '../../services/r2Serv
 import { TransactionalEmailSection } from './TransactionalEmailSection';
 import { PayOSSection } from './PayOSSection';
 import { UserProfile } from '../../components/UserProfile';
+import { AdminDiagnosticLogsViewer } from './AdminDiagnosticLogsViewer';
 import { 
   Settings, 
   Clock, 
@@ -35,7 +36,8 @@ import {
   Key,
   KeyRound,
   X,
-  Lock
+  Lock,
+  Activity
 } from 'lucide-react';
 
 export const SettingsView: React.FC = () => {
@@ -93,6 +95,7 @@ export const SettingsView: React.FC = () => {
 
   // Copied SQL state
   const [copiedSql, setCopiedSql] = useState(false);
+  const [activeAdminTab, setActiveAdminTab] = useState<'settings' | 'ocr_logs'>('settings');
 
   // Load Cloudflare R2 status & backups on mount
   useEffect(() => {
@@ -320,11 +323,49 @@ ALTER TABLE public.work_settings ADD COLUMN IF NOT EXISTS standard_days_per_mont
   };
 
   return (
-    <div className="space-y-6 pb-16 max-w-4xl">
-      {/* 0. Thông tin Tài Khoản & Người Dùng */}
-      <UserProfile variant="detailed" />
+    <div className="space-y-6 pb-16 max-w-5xl">
+      {/* 0. Top Admin Sub-Navigation */}
+      <div className="flex flex-wrap items-center justify-between gap-3 p-2 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+        <div className="flex items-center gap-1.5 w-full sm:w-auto">
+          <button
+            type="button"
+            onClick={() => setActiveAdminTab('settings')}
+            className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+              activeAdminTab === 'settings'
+                ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm border border-slate-200 dark:border-slate-700'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Settings className="w-4 h-4 text-indigo-500" />
+            <span>Cấu Hình Hệ Thống & Lưu Trữ</span>
+          </button>
 
-      {/* 1. Cấu hình Giờ Công Tiêu Chuẩn */}
+          <button
+            type="button"
+            onClick={() => setActiveAdminTab('ocr_logs')}
+            className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+              activeAdminTab === 'ocr_logs'
+                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-500/20'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Activity className="w-4 h-4 text-purple-400" />
+            <span>Nhật Ký Quản Trị OCR & Vercel (Supabase)</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-purple-500/30 text-purple-200 border border-purple-400/30 font-mono">
+              Live
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {activeAdminTab === 'ocr_logs' ? (
+        <AdminDiagnosticLogsViewer />
+      ) : (
+        <>
+          {/* 0. Thông tin Tài Khoản & Người Dùng */}
+          <UserProfile variant="detailed" />
+
+          {/* 1. Cấu hình Giờ Công Tiêu Chuẩn */}
       <div className="p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
         <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
           <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400">
@@ -978,6 +1019,8 @@ ALTER TABLE public.work_settings ADD COLUMN IF NOT EXISTS standard_days_per_mont
             </form>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

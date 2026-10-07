@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Modal } from '../../components/ui/Modal';
+import { ReceiptDiagnosticModal } from '../../components/ReceiptDiagnosticModal';
 import { InvestmentAsset, InvestmentTxType, InvestmentTransaction } from '../../types';
 import { formatCurrency } from '../../lib/utils';
 import { priceService } from '../../services/priceService';
@@ -23,7 +24,8 @@ import {
   X, 
   Loader2, 
   Check, 
-  Copy 
+  Copy,
+  Activity
 } from 'lucide-react';
 
 interface InvestmentTxModalFormProps {
@@ -170,6 +172,7 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
   const [scannedBroker, setScannedBroker] = useState<string | null>(null);
   const [unmatchedSymbolPrompt, setUnmatchedSymbolPrompt] = useState<{ symbol: string; name?: string; type?: string; price?: number } | null>(null);
   const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-flash-lite');
+  const [isDiagnosticModalOpen, setIsDiagnosticModalOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -753,6 +756,16 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
             </button>
 
             <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setIsDiagnosticModalOpen(true)}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white dark:bg-slate-800 text-[11px] font-semibold text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 hover:bg-purple-50 dark:hover:bg-purple-950/50 transition-colors cursor-pointer shadow-2xs"
+                title="Mở nhật ký chẩn đoán Request/Response để debug"
+              >
+                <Activity className="w-3 h-3 text-purple-600" />
+                <span className="hidden sm:inline">Chẩn Đoán</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => handleSampleBillTest('binance')}
@@ -1652,6 +1665,14 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
           </button>
         </div>
       </form>
+
+      {/* OCR Diagnostic & Request/Response Logger Modal */}
+      {isDiagnosticModalOpen && (
+        <ReceiptDiagnosticModal
+          isOpen={isDiagnosticModalOpen}
+          onClose={() => setIsDiagnosticModalOpen(false)}
+        />
+      )}
     </Modal>
   );
 };

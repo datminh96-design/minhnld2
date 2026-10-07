@@ -31,12 +31,14 @@ import {
   Check,
   SwitchCamera,
   SlidersHorizontal,
-  ChevronDown
+  ChevronDown,
+  Activity
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { ExpenseCategory, Transaction } from '../types';
 import { formatCurrency } from '../lib/utils';
 import { billScannerService, ExtractedExpenseData } from '../services/billScannerService';
+import { ReceiptDiagnosticModal } from './ReceiptDiagnosticModal';
 
 export interface ExpenseScannerProps {
   onAddRecord?: (data: {
@@ -204,8 +206,9 @@ export const ExpenseScanner: React.FC<ExpenseScannerProps> = ({
   const [txNotes, setTxNotes] = useState('');
   const [scannedItems, setScannedItems] = useState<any[]>([]);
   const [scannedTotalQty, setScannedTotalQty] = useState<number | null>(null);
-  const [rawDebugJson, setRawDebugJson] = useState<string | null>(null);
+  const [rawDebugJson, setRawDebugJson] = useState<string>('');
   const [isDebugModeOpen, setIsDebugModeOpen] = useState<boolean>(false);
+  const [isDiagnosticModalOpen, setIsDiagnosticModalOpen] = useState<boolean>(false);
   const [copiedDebug, setCopiedDebug] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [autoAddAfterScan, setAutoAddAfterScan] = useState(false);
@@ -924,16 +927,27 @@ export const ExpenseScanner: React.FC<ExpenseScannerProps> = ({
                     {layoutLabel}
                   </span>
                 </div>
-                {rawDebugJson && (
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setIsDebugModeOpen(!isDebugModeOpen)}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-purple-700 dark:text-purple-300 hover:underline cursor-pointer"
+                    onClick={() => setIsDiagnosticModalOpen(true)}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-700 dark:text-slate-300 hover:text-purple-600 dark:hover:text-purple-400 hover:underline cursor-pointer"
                   >
-                    <SlidersHorizontal className="w-3 h-3" />
-                    <span>{isDebugModeOpen ? 'Ẩn Debug JSON' : '🛠️ Debug Mode (Xem JSON Gốc)'}</span>
+                    <Activity className="w-3 h-3 text-purple-600" />
+                    <span>🔬 Nhật Ký Chẩn Đoán</span>
                   </button>
-                )}
+
+                  {rawDebugJson && (
+                    <button
+                      type="button"
+                      onClick={() => setIsDebugModeOpen(!isDebugModeOpen)}
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-purple-700 dark:text-purple-300 hover:underline cursor-pointer"
+                    >
+                      <SlidersHorizontal className="w-3 h-3" />
+                      <span>{isDebugModeOpen ? 'Ẩn Debug JSON' : '🛠️ Debug Mode (Xem JSON Gốc)'}</span>
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -1306,6 +1320,14 @@ export const ExpenseScanner: React.FC<ExpenseScannerProps> = ({
           </button>
         </div>
       </form>
+
+      {/* OCR Diagnostic & Request/Response Logger Modal */}
+      {isDiagnosticModalOpen && (
+        <ReceiptDiagnosticModal
+          isOpen={isDiagnosticModalOpen}
+          onClose={() => setIsDiagnosticModalOpen(false)}
+        />
+      )}
     </div>
   );
 };

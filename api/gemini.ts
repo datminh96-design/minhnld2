@@ -578,6 +578,8 @@ export default async function handler(req: any, res: any) {
       const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '').trim();
       const detectedMimeType = mimeType || (imageBase64.startsWith('data:image/png') ? 'image/png' : 'image/jpeg');
 
+      console.log(`[Vercel Serverless OCR: Investment] Subpath: ${subpath}, Payload size: ${cleanBase64.length} chars, Model: ${requestedModel || 'default'}`);
+
       const ai = getClient(req, body);
       if (!ai) {
         return res.status(200).json({
@@ -724,6 +726,8 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
 
       const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '').trim();
       const detectedMimeType = mimeType || (imageBase64.startsWith('data:image/png') ? 'image/png' : 'image/jpeg');
+
+      console.log(`[Vercel Serverless OCR: Expense] Subpath: ${subpath}, Payload size: ${cleanBase64.length} chars, Model: ${requestedModel || 'default'}`);
 
       const ai = getClient(req, body);
       if (!ai) {

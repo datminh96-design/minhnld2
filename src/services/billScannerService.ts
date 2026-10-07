@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { InvestmentAsset, InvestmentTxType } from '../types';
+import { receiptDiagnosticLogger } from '../utils/receiptDiagnosticLogger';
 
 export interface ExtractedBillData {
   asset_symbol: string;
@@ -128,6 +129,102 @@ function parseFlexibleDateToISO(raw: string | null | undefined): string | null {
   }
 
   return null;
+}
+
+/**
+ * Exponential Backoff Retry Options
+ */
+export interface RetryOptions {
+  maxRetries?: number;
+  initialDelayMs?: number;
+  backoffFactor?: number;
+  maxDelayMs?: number;
+  retryOnStatus?: number[];
+  onRetry?: (attempt: number, maxRetries: number, delayMs: number, reason: string) => void;
+}
+
+/**
+ * Executes a network fetch call with Exponential Backoff & Jitter
+ */
+export async function fetchWithExponentialBackoff(
+  url: string,
+  options: RequestInit,
+  retryOpts: RetryOptions = {}
+): Promise<Response> {
+  const {
+    maxRetries = 3,
+    initialDelayMs = 900,
+    backoffFactor = 2,
+    maxDelayMs = 5000,
+    retryOnStatus = [408, 429, 500, 502, 503, 504],
+    onRetry,
+  } = retryOpts;
+
+  let attempt = 0;
+  let delay = initialDelayMs;
+
+  while (true) {
+    attempt++;
+    try {
+      const response = await fetch(url, options);
+
+      // Check if response is a transient HTTP error that warrants retry
+      if (retryOnStatus.includes(response.status) && attempt <= maxRetries) {
+        const jitter = 0.5 + Math.random() * 0.5;
+        const actualDelay = Math.min(maxDelayMs, Math.round(delay * jitter));
+        const reason = `Máy chủ phản hồi HTTP ${response.status} (tạm bận)`;
+        onRetry?.(attempt, maxRetries, actualDelay, reason);
+
+        await new Promise((resolve) => setTimeout(resolve, actualDelay));
+        delay = Math.min(maxDelayMs, delay * backoffFactor);
+        continue;
+      }
+
+      return response;
+    } catch (err: any) {
+      if (attempt <= maxRetries) {
+        const jitter = 0.5 + Math.random() * 0.5;
+        const actualDelay = Math.min(maxDelayMs, Math.round(delay * jitter));
+        const reason = err?.name === 'AbortError' ? 'Hết thời gian chờ (Timeout)' : 'Lỗi kết nối mạng (Transient Network Error)';
+        onRetry?.(attempt, maxRetries, actualDelay, reason);
+
+        await new Promise((resolve) => setTimeout(resolve, actualDelay));
+        delay = Math.min(maxDelayMs, delay * backoffFactor);
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+/**
+ * Execute an async operation with Exponential Backoff
+ */
+export async function executeWithExponentialBackoff<T>(
+  operation: () => Promise<T>,
+  maxRetries = 3,
+  initialDelayMs = 800,
+  onRetry?: (attempt: number, delayMs: number) => void
+): Promise<T> {
+  let attempt = 0;
+  let delay = initialDelayMs;
+
+  while (true) {
+    attempt++;
+    try {
+      return await operation();
+    } catch (err) {
+      if (attempt <= maxRetries) {
+        const jitter = 0.5 + Math.random() * 0.5;
+        const actualDelay = Math.round(delay * jitter);
+        onRetry?.(attempt, actualDelay);
+        await new Promise((res) => setTimeout(res, actualDelay));
+        delay *= 2;
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 export const billScannerService = {
@@ -532,22 +629,48 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
         apiKey: userApiKey || undefined,
       };
 
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(userApiKey ? { 'x-gemini-api-key': userApiKey } : {}),
+      };
+
+      const startTime = Date.now();
+      const diagSessionId = receiptDiagnosticLogger.startSession('expense', '/api/expenses/scan-bill', payload, headers);
+
       let resJson: ScanExpenseResponse | null = null;
+      let rawResponse: Response | null = null;
       let serverErrorMessage = '';
 
       try {
-        const response = await fetch('/api/expenses/scan-bill', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(userApiKey ? { 'x-gemini-api-key': userApiKey } : {}),
+        const response = await fetchWithExponentialBackoff(
+          '/api/expenses/scan-bill',
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload),
           },
-          body: JSON.stringify(payload),
-        });
+          {
+            maxRetries: 3,
+            initialDelayMs: 900,
+            backoffFactor: 2,
+            maxDelayMs: 4500,
+            retryOnStatus: [408, 429, 500, 502, 503, 504],
+            onRetry: (attempt, maxRetries, delayMs, reason) => {
+              receiptDiagnosticLogger.recordRetry(diagSessionId, attempt, delayMs, reason);
+              onProgress?.(
+                Math.min(90, 50 + attempt * 12),
+                `Mạng tạm bận (${reason}). Tự động thử lại (${attempt}/${maxRetries}) sau ${(delayMs / 1000).toFixed(1)}s (Exponential Backoff)...`
+              );
+            },
+          }
+        );
+
+        rawResponse = response;
 
         if (response.ok) {
           resJson = await response.json();
           if (resJson && resJson.success && resJson.data && (resJson.data.name || resJson.data.amount)) {
+            receiptDiagnosticLogger.completeSession(diagSessionId, response, resJson, Date.now() - startTime, false);
             console.group('🔍 [DEBUG Mode - Expense Scanner RAW Gemini Output]');
             console.log('API Success Status:', resJson.success);
             console.log('Model Used:', resJson.used_model);
@@ -565,7 +688,7 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
           }
         }
       } catch (fetchErr: any) {
-        console.warn('[scanExpenseBill] Fetch failed, switching to client-side Gemini fallback:', fetchErr);
+        console.warn('[scanExpenseBill] Fetch failed after backoff retries, switching to client-side fallback:', fetchErr);
         serverErrorMessage = fetchErr?.message || '';
       }
 
@@ -575,9 +698,18 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
       clearInterval(interval);
 
       if (clientResult && clientResult.success && clientResult.data) {
+        receiptDiagnosticLogger.completeSession(diagSessionId, rawResponse, clientResult, Date.now() - startTime, true);
         onProgress?.(100, 'Quét hóa đơn chi tiêu bằng Client AI hoàn tất 100%!');
         return clientResult;
       }
+
+      receiptDiagnosticLogger.completeSession(
+        diagSessionId,
+        rawResponse,
+        resJson || { success: false, error: serverErrorMessage },
+        Date.now() - startTime,
+        false
+      );
 
       if (serverErrorMessage && (serverErrorMessage.includes('GEMINI_API_KEY') || serverErrorMessage.includes('API key'))) {
         return {
@@ -685,22 +817,48 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
         apiKey: userApiKey || undefined,
       };
 
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(userApiKey ? { 'x-gemini-api-key': userApiKey } : {}),
+      };
+
+      const startTime = Date.now();
+      const diagSessionId = receiptDiagnosticLogger.startSession('investment', '/api/investments/scan-bill', payload, headers);
+
       let resJson: ScanBillResponse | null = null;
+      let rawResponse: Response | null = null;
       let serverErrorMessage = '';
 
       try {
-        const response = await fetch('/api/investments/scan-bill', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(userApiKey ? { 'x-gemini-api-key': userApiKey } : {}),
+        const response = await fetchWithExponentialBackoff(
+          '/api/investments/scan-bill',
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload),
           },
-          body: JSON.stringify(payload),
-        });
+          {
+            maxRetries: 3,
+            initialDelayMs: 900,
+            backoffFactor: 2,
+            maxDelayMs: 4500,
+            retryOnStatus: [408, 429, 500, 502, 503, 504],
+            onRetry: (attempt, maxRetries, delayMs, reason) => {
+              receiptDiagnosticLogger.recordRetry(diagSessionId, attempt, delayMs, reason);
+              onProgress?.(
+                Math.min(90, 50 + attempt * 12),
+                `Mạng tạm bận (${reason}). Tự động thử lại (${attempt}/${maxRetries}) sau ${(delayMs / 1000).toFixed(1)}s (Exponential Backoff)...`
+              );
+            },
+          }
+        );
+
+        rawResponse = response;
 
         if (response.ok) {
           resJson = await response.json();
           if (resJson && resJson.success && resJson.data && (resJson.data.asset_symbol || resJson.data.quantity || resJson.data.price_per_unit)) {
+            receiptDiagnosticLogger.completeSession(diagSessionId, response, resJson, Date.now() - startTime, false);
             clearInterval(interval);
             onProgress?.(100, 'Quét hóa đơn hoàn tất 100%!');
             return resJson;
@@ -709,7 +867,7 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
           }
         }
       } catch (fetchErr: any) {
-        console.warn('[scanBill] Fetch failed, switching to client-side fallback:', fetchErr);
+        console.warn('[scanBill] Fetch failed after backoff retries, switching to client-side fallback:', fetchErr);
         serverErrorMessage = fetchErr?.message || '';
       }
 
@@ -719,9 +877,18 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
       clearInterval(interval);
 
       if (clientResult && clientResult.success && clientResult.data) {
+        receiptDiagnosticLogger.completeSession(diagSessionId, rawResponse, clientResult, Date.now() - startTime, true);
         onProgress?.(100, 'Quét hóa đơn đầu tư bằng Client AI hoàn tất 100%!');
         return clientResult;
       }
+
+      receiptDiagnosticLogger.completeSession(
+        diagSessionId,
+        rawResponse,
+        resJson || { success: false, error: serverErrorMessage },
+        Date.now() - startTime,
+        false
+      );
 
       if (serverErrorMessage && (serverErrorMessage.includes('GEMINI_API_KEY') || serverErrorMessage.includes('API key'))) {
         return {
