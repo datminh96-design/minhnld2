@@ -182,11 +182,6 @@ function getGeminiClient(): GoogleGenAI | null {
     try {
       geminiClient = new GoogleGenAI({
         apiKey: apiKey || process.env.API_KEY || undefined,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          },
-        },
       });
     } catch (e) {
       console.error('[getGeminiClient] Init error:', e);
@@ -271,10 +266,8 @@ Trả về JSON thuần túy theo đúng cấu trúc.`;
 
       let parsedData: any = null;
       const visionCandidateModels = [
-        'gemini-2.5-flash',
         'gemini-3.1-flash-lite',
         'gemini-3.8-flash',
-        'gemini-flash-latest',
         'gemini-3.7-flash',
       ];
 
@@ -282,36 +275,23 @@ Trả về JSON thuần túy theo đúng cấu trúc.`;
         for (const modelName of visionCandidateModels) {
           if (isModelInCooldown(modelName)) continue;
           try {
-            const imagePart = {
-              inlineData: {
-                mimeType: detectedMimeType,
-                data: cleanBase64,
+            const response = await ai.models.generateContent({
+              model: modelName,
+              contents: [
+                {
+                  inlineData: {
+                    mimeType: detectedMimeType,
+                    data: cleanBase64,
+                  },
+                },
+                {
+                  text: prompt,
+                },
+              ],
+              config: {
+                responseMimeType: 'application/json',
               },
-            };
-            const textPart = {
-              text: prompt,
-            };
-
-            let response: any = null;
-            try {
-              response = await ai.models.generateContent({
-                model: modelName,
-                contents: {
-                  parts: [imagePart, textPart],
-                },
-                config: {
-                  responseMimeType: 'application/json',
-                },
-              });
-            } catch (partsErr) {
-              response = await ai.models.generateContent({
-                model: modelName,
-                contents: [imagePart, textPart],
-                config: {
-                  responseMimeType: 'application/json',
-                },
-              });
-            }
+            });
 
             const responseText = response?.text || '';
             if (responseText.trim()) {
@@ -490,7 +470,11 @@ D. CÁC TRƯỜNG KHÁC:
 Trả về kết quả chuẩn định dạng JSON duy nhất.`;
 
       let parsedData: any = null;
-      const visionCandidateModels = ['gemini-2.5-flash', 'gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.7-flash'];
+      const visionCandidateModels = [
+        'gemini-3.1-flash-lite',
+        'gemini-3.8-flash',
+        'gemini-3.7-flash',
+      ];
 
       if (ai) {
         for (const modelName of visionCandidateModels) {
@@ -533,32 +517,35 @@ Trả về kết quả chuẩn định dạng JSON duy nhất.`;
       // If AI failed or not available, use intelligent heuristic extraction
       if (!parsedData || !parsedData.name) {
         parsedData = {
-          name: 'Hóa đơn mua sắm / Chi tiêu',
-          amount: 205000,
+          name: '',
+          amount: null,
           transaction_date: new Date().toISOString().split('T')[0],
           fee: 0,
-          category: 'Mua sắm',
+          category: 'Ăn uống',
           transaction_type: 'expense',
-          document_layout: 'supermarket_pos',
-          layout_label: 'Hóa đơn Siêu thị / Bán lẻ',
-          items_summary: 'Mặt hàng tiêu dùng thiết yếu',
-          notes: 'Đã nhận diện từ biên lai thanh toán',
-          missing_fields: [],
-          confidence: 90,
+          document_layout: 'general',
+          layout_label: 'Hóa đơn chi tiêu',
+          items_summary: '',
+          notes: 'Không nhận diện được rõ số liệu từ ảnh, vui lòng điền các ô viền đỏ',
+          missing_fields: ['name', 'amount'],
+          confidence: 0,
         };
       }
 
-      // Re-evaluate missing fields strictly
-      const missingFields: string[] = Array.isArray(parsedData.missing_fields) ? [...parsedData.missing_fields] : [];
-      if (!parsedData.name || typeof parsedData.name !== 'string' || !parsedData.name.trim()) {
-        if (!missingFields.includes('name')) missingFields.push('name');
-      }
-      if (parsedData.amount === null || parsedData.amount === undefined || isNaN(Number(parsedData.amount)) || Number(parsedData.amount) <= 0) {
-        if (!missingFields.includes('amount')) missingFields.push('amount');
-      }
-      if (!parsedData.transaction_date || typeof parsedData.transaction_date !== 'string' || !parsedData.transaction_date.trim()) {
-        if (!missingFields.includes('date')) missingFields.push('date');
-      }
+      // Universal number and date normalization
+      const parsedAmount = parseFlexibleNumber(parsedData.amount);
+      const parsedExpenseFee = parseFlexibleNumber(parsedData.fee) ?? 0;
+      const parsedExpenseDate = parseFlexibleDateToISO(parsedData.transaction_date) || new Date().toISOString().split('T')[0];
+
+      parsedData.amount = parsedAmount;
+      parsedData.fee = parsedExpenseFee;
+      parsedData.transaction_date = parsedExpenseDate;
+
+      // Re-evaluate missing fields
+      const missingFields: string[] = [];
+      if (!parsedData.name || !parsedData.name.trim()) missingFields.push('name');
+      if (parsedData.amount === null || parsedData.amount <= 0) missingFields.push('amount');
+      if (!parsedData.transaction_date) missingFields.push('date');
 
       parsedData.missing_fields = missingFields;
 

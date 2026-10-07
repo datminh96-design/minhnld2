@@ -67,15 +67,21 @@ export const billScannerService = {
   },
 
   /**
-   * Compress image on client side if too large
+   * Compress image on client side if too large, while maintaining high crispness for OCR
    */
-  async compressImage(dataUrl: string, maxWidth = 1600, maxHeight = 1600, quality = 0.85): Promise<string> {
+  async compressImage(dataUrl: string, maxWidth = 2000, maxHeight = 2000, quality = 0.92): Promise<string> {
     if (typeof window === 'undefined') return dataUrl;
 
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
         let { width, height } = img;
+        // If image is already reasonably sized and within limits, return directly
+        if (width <= maxWidth && height <= maxHeight && dataUrl.length < 3 * 1024 * 1024) {
+          resolve(dataUrl);
+          return;
+        }
+
         if (width > maxWidth || height > maxHeight) {
           if (width > height) {
             height = Math.round((height * maxWidth) / width);
@@ -95,6 +101,8 @@ export const billScannerService = {
           return;
         }
 
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
         resolve(canvas.toDataURL('image/jpeg', quality));
       };
