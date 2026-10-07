@@ -483,3 +483,82 @@ export function isInvestmentTransaction(
   );
 }
 
+export interface CumulativeCashflowResult {
+  previousCarryoverBalance: number; // Số dư lũy kế từ các tháng trước chuyển sang
+  currentMonthIncome: number;       // Tổng thu nhập tháng này
+  currentMonthLivingExpense: number;// Tổng chi tiêu sinh hoạt tháng này
+  currentMonthInvestment: number;   // Tổng tích lũy & đầu tư tháng này
+  currentMonthNetSavings: number;   // Thặng dư phát sinh trong tháng này (Income - Expense - Investment)
+  cumulativeBalance: number;        // Dòng tiền còn lại tích lũy = previousCarryoverBalance + currentMonthNetSavings
+  savingsRate: number;              // Tỷ lệ tiết kiệm / an toàn (%)
+  hasPreviousCarryover: boolean;
+}
+
+/**
+ * Tính toán dòng tiền luân chuyển tích lũy:
+ * Số dư tháng này = Số dư tháng trước chuyển sang + Thu nhập tháng này - Chi tiêu tháng này - Đầu tư tháng này
+ */
+export function calculateMonthlyCumulativeCashflow(
+  transactions: Array<{ transaction_date?: string; transaction_type: string; amount: number; category_name?: string }>,
+  targetMonthPrefix: string = getCurrentMonthPrefix()
+): CumulativeCashflowResult {
+  let previousCarryoverBalance = 0;
+  let currentMonthIncome = 0;
+  let currentMonthLivingExpense = 0;
+  let currentMonthInvestment = 0;
+
+  const targetMonthStart = `${targetMonthPrefix}-01`;
+
+  transactions.forEach((t) => {
+    if (!t.transaction_date) return;
+    const txDate = t.transaction_date.substring(0, 10);
+    const amt = Number(t.amount) || 0;
+    const isInv = isInvestmentTransaction(t as any);
+
+    if (txDate < targetMonthStart) {
+      // Prior to target month
+      if (t.transaction_type === 'income') {
+        previousCarryoverBalance += amt;
+      } else if (isInv || t.transaction_type === 'expense') {
+        previousCarryoverBalance -= amt;
+      }
+    } else if (txDate.startsWith(targetMonthPrefix)) {
+      // Within target month
+      if (t.transaction_type === 'income') {
+        currentMonthIncome += amt;
+      } else if (isInv) {
+        currentMonthInvestment += amt;
+      } else if (t.transaction_type === 'expense') {
+        currentMonthLivingExpense += amt;
+      }
+    }
+  });
+
+  const currentMonthNetSavings = currentMonthIncome - currentMonthLivingExpense - currentMonthInvestment;
+  const cumulativeBalance = previousCarryoverBalance + currentMonthNetSavings;
+
+  // Tính tỷ lệ tiết kiệm / bảo toàn dòng tiền
+  const totalAvailableFunds = previousCarryoverBalance > 0
+    ? (currentMonthIncome + previousCarryoverBalance)
+    : currentMonthIncome;
+
+  let savingsRate = 0;
+  if (totalAvailableFunds > 0) {
+    savingsRate = Math.max(0, Math.min(100, Math.round(((totalAvailableFunds - currentMonthLivingExpense) / totalAvailableFunds) * 100)));
+  } else if (currentMonthLivingExpense === 0 && cumulativeBalance >= 0) {
+    savingsRate = 100;
+  }
+
+  return {
+    previousCarryoverBalance,
+    currentMonthIncome,
+    currentMonthLivingExpense,
+    currentMonthInvestment,
+    currentMonthNetSavings,
+    cumulativeBalance,
+    savingsRate,
+    hasPreviousCarryover: previousCarryoverBalance !== 0,
+  };
+}
+
+

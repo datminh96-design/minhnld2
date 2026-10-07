@@ -127,7 +127,7 @@ export const ExpensesView: React.FC = () => {
     }).sort((a, b) => b.transaction_date.localeCompare(a.transaction_date));
   }, [transactions, filterPreset, customStartDate, customEndDate, typeFilter, selectedCategoryFilter, searchTerm]);
 
-  // Summary Metrics (Separating Tích lũy & Đầu tư)
+  // Summary Metrics (Separating Tích lũy & Đầu tư and calculating carryover balance)
   const summary = useMemo(() => {
     let totalIncome = 0;
     let totalLivingExpense = 0;
@@ -144,20 +144,65 @@ export const ExpensesView: React.FC = () => {
       }
     });
 
-    const netCashflow = totalIncome - totalLivingExpense - totalInvestment;
-    const savingsRate = totalIncome > 0 ? ((totalIncome - totalLivingExpense) / totalIncome) * 100 : 0;
+    // Calculate carryover balance prior to the start of the current filtered period
+    const today = getTodayDateString();
+    const currentMonth = getCurrentMonthPrefix();
+    const weekRange = getWeekRange();
+    const months3 = getMonthsAgoRange(3);
+    const months6 = getMonthsAgoRange(6);
+    const year = getYearRange();
+
+    let startDate = '';
+    if (filterPreset === 'today') startDate = today;
+    else if (filterPreset === 'week') startDate = weekRange.start;
+    else if (filterPreset === 'month') startDate = `${currentMonth}-01`;
+    else if (filterPreset === '3months') startDate = months3.start;
+    else if (filterPreset === '6months') startDate = months6.start;
+    else if (filterPreset === '1year') startDate = year.start;
+    else if (filterPreset === 'custom') startDate = customStartDate;
+
+    let previousCarryoverBalance = 0;
+    if (startDate) {
+      transactions.forEach((tx) => {
+        const txDate = tx.transaction_date ? tx.transaction_date.substring(0, 10) : '';
+        if (txDate && txDate < startDate) {
+          const amt = Number(tx.amount) || 0;
+          if (tx.transaction_type === 'income') {
+            previousCarryoverBalance += amt;
+          } else if (isInvestmentTransaction(tx) || tx.transaction_type === 'expense') {
+            previousCarryoverBalance -= amt;
+          }
+        }
+      });
+    }
+
+    const currentPeriodNet = totalIncome - totalLivingExpense - totalInvestment;
+    const cumulativeBalance = previousCarryoverBalance + currentPeriodNet;
+
+    const totalAvailable = previousCarryoverBalance > 0 ? (totalIncome + previousCarryoverBalance) : totalIncome;
+    let savingsRate = 0;
+    if (totalAvailable > 0) {
+      savingsRate = Math.max(0, Math.min(100, ((totalAvailable - totalLivingExpense) / totalAvailable) * 100));
+    } else if (totalLivingExpense === 0 && cumulativeBalance >= 0) {
+      savingsRate = 100;
+    }
+
     const investmentRate = totalIncome > 0 ? (totalInvestment / totalIncome) * 100 : 0;
 
     return {
       totalIncome,
       totalLivingExpense,
       totalInvestment,
-      balance: netCashflow,
+      currentPeriodNet,
+      previousCarryoverBalance,
+      cumulativeBalance,
+      hasPreviousCarryover: previousCarryoverBalance !== 0,
+      balance: cumulativeBalance,
       savingsRate,
       investmentRate,
       count: filteredTransactions.length,
     };
-  }, [filteredTransactions]);
+  }, [filteredTransactions, transactions, filterPreset, customStartDate]);
 
   // Open Create Tx Modal
   const handleOpenAddTxModal = (type: TransactionType = 'expense') => {
@@ -278,13 +323,25 @@ export const ExpensesView: React.FC = () => {
         {/* Net Cashflow Balance */}
         <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-400 font-medium">Dòng Tiền Còn Lại</p>
-            <h3 className={`text-xl sm:text-2xl font-bold mt-1 font-display ${summary.balance >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-600'}`}>
-              {formatCurrency(summary.balance, userSettings.currency)}
+            <p className="text-xs text-slate-400 font-medium">Dòng Tiền Còn Lại (Số Dư Khả Dụng)</p>
+            <h3 className={`text-xl sm:text-2xl font-bold mt-1 font-display ${summary.cumulativeBalance >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-600'}`}>
+              {formatCurrency(summary.cumulativeBalance, userSettings.currency)}
             </h3>
-            <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5 inline-block">
-              Tiết kiệm: {summary.savingsRate.toFixed(1)}%
-            </span>
+            {summary.hasPreviousCarryover ? (
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                <span className="text-emerald-600 dark:text-emerald-400 font-mono font-medium">
+                  Từ kỳ trước: {summary.previousCarryoverBalance >= 0 ? '+' : ''}{formatCurrency(summary.previousCarryoverBalance, userSettings.currency, true)}
+                </span>
+                <span>•</span>
+                <span>
+                  Kỳ này: {summary.currentPeriodNet >= 0 ? '+' : ''}{formatCurrency(summary.currentPeriodNet, userSettings.currency, true)}
+                </span>
+              </div>
+            ) : (
+              <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5 inline-block">
+                Tiết kiệm: {summary.savingsRate.toFixed(1)}%
+              </span>
+            )}
           </div>
           <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
             <Wallet className="w-6 h-6" />

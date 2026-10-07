@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useData } from '../../context/DataContext';
-import { formatCurrency, formatPercent, getCurrentMonthPrefix, isInvestmentTransaction } from '../../lib/utils';
+import { formatCurrency, formatPercent, getCurrentMonthPrefix, isInvestmentTransaction, calculateMonthlyCumulativeCashflow } from '../../lib/utils';
 import { 
   Clock, 
   Wallet, 
@@ -175,31 +175,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
   }, [workLogs, prefix, workSettings]);
 
   // ==========================================
-  // CARD 2 – STATS CHI TIÊU & TÍCH LŨY
+  // CARD 2 – STATS CHI TIÊU & TÍCH LŨY (KÈM SỐ DƯ LŨY KẾ THÁNG TRƯỚC)
   // ==========================================
   const expenseStats = useMemo(() => {
-    const monthTx = transactions.filter((t) => t.transaction_date.startsWith(prefix));
+    const cumulative = calculateMonthlyCumulativeCashflow(transactions, prefix);
+    const monthTx = transactions.filter((t) => t.transaction_date && t.transaction_date.startsWith(prefix));
 
-    let totalIncome = 0;
-    let totalLivingExpense = 0;
-    let totalInvestment = 0;
     const categoryTotals: Record<string, number> = {};
 
     monthTx.forEach((t) => {
       const amt = Number(t.amount) || 0;
-      if (t.transaction_type === 'income') {
-        totalIncome += amt;
-      } else if (isInvestmentTransaction(t)) {
-        // Tích lũy & Đầu tư - Nằm riêng biệt, không tính chung với Chi tiêu
-        totalInvestment += amt;
-      } else {
-        totalLivingExpense += amt;
+      if (t.transaction_type === 'expense' && !isInvestmentTransaction(t)) {
         categoryTotals[t.category_name] = (categoryTotals[t.category_name] || 0) + amt;
       }
     });
 
-    const netSavings = totalIncome - totalLivingExpense - totalInvestment;
-    const dailyAvgExpense = totalLivingExpense > 0 ? totalLivingExpense / 30 : 0;
+    const dailyAvgExpense = cumulative.currentMonthLivingExpense > 0 ? cumulative.currentMonthLivingExpense / 30 : 0;
 
     let topCategory = { name: 'Chưa có', amount: 0 };
     Object.entries(categoryTotals).forEach(([name, amount]) => {
@@ -209,10 +200,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
     });
 
     return {
-      totalIncome,
-      totalExpense: totalLivingExpense,
-      totalInvestment,
-      netSavings,
+      totalIncome: cumulative.currentMonthIncome,
+      totalExpense: cumulative.currentMonthLivingExpense,
+      totalInvestment: cumulative.currentMonthInvestment,
+      netSavings: cumulative.currentMonthNetSavings,
+      previousCarryoverBalance: cumulative.previousCarryoverBalance,
+      cumulativeBalance: cumulative.cumulativeBalance,
+      hasPreviousCarryover: cumulative.hasPreviousCarryover,
+      savingsRate: cumulative.savingsRate,
       dailyAvgExpense,
       topCategory,
       txCount: monthTx.length,
@@ -257,8 +252,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
     };
   }, [calculatedHoldings]);
 
-  // Total Net Worth (Investments + Monthly Net Savings)
-  const estimatedTotalNetWorth = investmentStats.currentTotalValue + Math.max(0, expenseStats.netSavings);
+  // Total Net Worth (Investments + Cumulative Cashflow Balance)
+  const estimatedTotalNetWorth = investmentStats.currentTotalValue + Math.max(0, expenseStats.cumulativeBalance);
 
   React.useEffect(() => {
     takeDailySnapshot(investmentStats.currentTotalValue, investmentStats.totalInvested);
@@ -381,7 +376,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               {formatCurrency(estimatedTotalNetWorth, userSettings.currency)}
             </h1>
             <p className="text-xs sm:text-sm text-slate-300 max-w-xl">
-              Danh mục đầu tư đạt <span className="text-emerald-400 font-semibold">{formatCurrency(investmentStats.currentTotalValue, userSettings.currency)}</span> ({formatPercent(investmentStats.overallProfitPercent)}), thặng dư tích lũy tháng <span className="text-emerald-300 font-semibold">{formatCurrency(expenseStats.netSavings, userSettings.currency)}</span>.
+              Danh mục đầu tư đạt <span className="text-emerald-400 font-semibold">{formatCurrency(investmentStats.currentTotalValue, userSettings.currency)}</span> ({formatPercent(investmentStats.overallProfitPercent)}), dòng tiền tích lũy khả dụng <span className="text-emerald-300 font-semibold">{formatCurrency(expenseStats.cumulativeBalance, userSettings.currency)}</span>.
             </p>
           </div>
 
@@ -512,10 +507,27 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <div className="my-4 space-y-2">
               <div className="flex items-baseline justify-between">
                 <div>
-                  <p className="text-xs text-slate-400">Số dư ròng tháng</p>
-                  <p className="text-2xl sm:text-3xl font-bold text-emerald-600 dark:text-emerald-400 font-display">
-                    {formatCurrency(expenseStats.netSavings, userSettings.currency)}
+                  <p className="text-xs text-slate-400 flex items-center gap-1">
+                    <span>Số dư ròng khả dụng (Dòng tiền còn lại)</span>
                   </p>
+                  <p className={`text-2xl sm:text-3xl font-bold font-display ${expenseStats.cumulativeBalance >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                    {formatCurrency(expenseStats.cumulativeBalance, userSettings.currency)}
+                  </p>
+                  {expenseStats.hasPreviousCarryover ? (
+                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+                      <span className="text-emerald-600 dark:text-emerald-400 font-mono">
+                        Từ tháng trước: {expenseStats.previousCarryoverBalance >= 0 ? '+' : ''}{formatCurrency(expenseStats.previousCarryoverBalance, userSettings.currency, true)}
+                      </span>
+                      <span>•</span>
+                      <span>
+                        Tháng này: {expenseStats.netSavings >= 0 ? '+' : ''}{formatCurrency(expenseStats.netSavings, userSettings.currency, true)}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-slate-400 mt-0.5">
+                      Tháng này: {expenseStats.netSavings >= 0 ? '+' : ''}{formatCurrency(expenseStats.netSavings, userSettings.currency, true)}
+                    </div>
+                  )}
                 </div>
                 <div className="text-right">
                   <span className="text-[11px] font-semibold text-slate-500">
