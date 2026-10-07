@@ -142,6 +142,7 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
 
         // 1. Asset matching
         let matchedAssetId = '';
+        let isCrypto = false;
         if (data.asset_symbol) {
           const cleanSymbol = data.asset_symbol.trim().toUpperCase();
           const matched = investmentAssets.find(
@@ -153,18 +154,16 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
           if (matched) {
             matchedAssetId = matched.id;
             setTxAssetId(matched.id);
-            const isCrypto =
+            isCrypto =
               matched.asset_type === 'crypto' ||
-              matched.asset_symbol === 'BTC' ||
-              matched.asset_symbol === 'ETH';
-            setTxPriceCurrency(isCrypto ? 'USDT' : 'VND');
-            setTxFeeCurrency(isCrypto ? 'BNB' : 'VND');
+              ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'DOGE', 'ADA', 'DOT', 'NEAR', 'SUI'].includes(matched.asset_symbol.toUpperCase());
           } else {
             // Prompt to quickly create asset
+            isCrypto = data.asset_type === 'crypto' || ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'DOGE', 'ADA'].includes(cleanSymbol);
             setUnmatchedSymbolPrompt({
               symbol: cleanSymbol,
               name: data.asset_name || `${cleanSymbol}`,
-              type: data.asset_type || 'stock',
+              type: data.asset_type || (isCrypto ? 'crypto' : 'stock'),
               price: data.price_per_unit || 0,
             });
           }
@@ -190,15 +189,24 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
         }
 
         // 5. Currency
-        if (data.currency === 'USDT' || data.currency === 'USD') {
+        if (data.currency === 'USDT' || data.currency === 'USD' || isCrypto) {
           setTxPriceCurrency('USDT');
         } else {
           setTxPriceCurrency('VND');
         }
 
-        // 6. Fee
+        // 6. Fee & Fee Currency
         if (data.fee !== null && data.fee !== undefined) {
           setTxFee(data.fee.toString());
+        }
+        if (data.fee_currency === 'BNB') {
+          setTxFeeCurrency('BNB');
+        } else if (data.fee_currency === 'USDT' || data.fee_currency === 'USD') {
+          setTxFeeCurrency('USDT');
+        } else if (data.fee_currency === 'VND') {
+          setTxFeeCurrency('VND');
+        } else if (isCrypto) {
+          setTxFeeCurrency('BNB');
         }
 
         // 7. Transaction Date
@@ -223,10 +231,12 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
         if (!data.transaction_date) detectedMissing.push('transaction_date');
 
         setMissingFields(detectedMissing);
+        const currDisplay = (data.currency === 'USDT' || isCrypto) ? 'USDT' : 'VND';
         setScannedSummary(
           `Đã quét: ${data.asset_symbol || 'Tài sản'} • ${data.transaction_type === 'buy' ? 'MUA' : 'BÁN'}` +
-            (data.quantity ? ` • SL: ${data.quantity.toLocaleString('vi-VN')}` : '') +
-            (data.price_per_unit ? ` • Giá: ${data.price_per_unit.toLocaleString('vi-VN')} ${data.currency || 'đ'}` : '')
+            (data.quantity ? ` • SL: ${data.quantity}` : '') +
+            (data.price_per_unit ? ` • Giá: ${data.price_per_unit.toLocaleString('vi-VN')} ${currDisplay}` : '') +
+            (data.broker_name ? ` • Sàn: ${data.broker_name}` : '')
         );
       } else {
         setScanError(result.error || 'AI không nhận diện được hóa đơn này. Vui lòng điền tay.');

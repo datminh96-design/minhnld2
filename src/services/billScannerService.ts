@@ -8,6 +8,7 @@ export interface ExtractedBillData {
   quantity: number | null;
   price_per_unit: number | null;
   fee?: number | null;
+  fee_currency?: 'BNB' | 'USDT' | 'VND' | string;
   tax?: number | null;
   total_amount?: number | null;
   currency?: 'VND' | 'USDT' | 'USD';

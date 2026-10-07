@@ -89,18 +89,20 @@ function getCandidateModels(preferredModel?: string): string[] {
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return null;
-  }
   if (!geminiClient) {
-    geminiClient = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
+    try {
+      geminiClient = new GoogleGenAI({
+        apiKey: apiKey || process.env.API_KEY || undefined,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
         },
-      },
-    });
+      });
+    } catch (e) {
+      console.error('[getGeminiClient] Init error:', e);
+      return null;
+    }
   }
   return geminiClient;
 }
@@ -127,38 +129,47 @@ app.use(express.static(path.join(process.cwd(), 'public')));
       }
 
       // Clean base64 string
-      const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+]+;base64,/, '').trim();
+      const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '').trim();
       const detectedMimeType = mimeType || (imageBase64.startsWith('data:image/png') ? 'image/png' : 'image/jpeg');
 
       const ai = getGeminiClient();
 
-      const prompt = `Bạn là một chuyên gia AI phân tích hóa đơn / biên lai lệnh mua bán chứng khoán, tiền điện tử (crypto), vàng, chứng chỉ quỹ tại thị trường Việt Nam và quốc tế (TCBS, VPS, SSI, VNDIRECT, BSC, Mirae Asset, Vietcombank Securities, Binance, OKX, Bybit, SJC, DOJI, Mi Hồng, PNJ, Dragon Capital, VinaCapital, v.v.).
+      const prompt = `Bạn là chuyên gia AI phân tích hình ảnh biên lai lệnh giao dịch tài chính cực kỳ chuẩn xác cho các sàn chứng khoán (TCBS, VPS, SSI, VNDIRECT, BSC, Mirae Asset), sàn Crypto (Binance, OKX, Bybit), vàng (SJC, DOJI, PNJ) và Quỹ đầu tư (Dragon Capital, VinaCapital, VCBF...).
 
-Hãy đọc và trích xuất chuẩn xác các thông tin từ hình ảnh hóa đơn / lệnh giao dịch:
-1. asset_symbol: Mã chứng khoán/crypto/tài sản (Ví dụ: HPG, FPT, MWG, BTC, ETH, SOL, SJC, TCBF, v.v.). Viết hoa.
-2. asset_name: Tên đầy đủ của tài sản (Ví dụ: Cổ phiếu Tập đoàn Hòa Phát, Bitcoin, Vàng miếng SJC 9999, Quỹ TCBF, v.v.).
-3. asset_type: Loại tài sản, bắt buộc là 1 trong các giá trị: 'stock' (chứng khoán), 'crypto' (tiền mã hóa), 'gold' (vàng/kim loại quý), 'fund' (chứng chỉ quỹ), 'other'.
-4. transaction_type: Loại giao dịch, bắt buộc là: 'buy' (Mua/Khớp mua), 'sell' (Bán/Khớp bán), hoặc 'dividend' (Cổ tức).
-5. quantity: Khối lượng/Số lượng khớp lệnh (số thực hoặc số nguyên dương, ví dụ: 500, 100, 0.05, 1.5). Nếu không tìm thấy, trả về null.
-6. price_per_unit: Đơn giá khớp lệnh mỗi cổ phiếu/coin/chỉ/đơn vị (bằng số, ví dụ: 28500, 95000, 8500000). Nếu giá tính theo USDT, ghi giá USDT. Nếu không tìm thấy, trả về null.
-7. fee: Phí giao dịch (số thực hoặc 0). Nếu không có, để 0.
-8. tax: Thuế thu nhập cá nhân (nếu có, hoặc 0).
-9. total_amount: Tổng giá trị giao dịch thực tế đã thanh toán.
-10. currency: Đơn vị tiền tệ ('VND', 'USDT', 'USD'). Mặc định là 'VND' nếu là sàn VN hoặc vàng, 'USDT' nếu là crypto.
-11. transaction_date: Ngày thực hiện giao dịch theo định dạng YYYY-MM-DD. Nếu hóa đơn chỉ ghi DD/MM/YYYY, hãy chuyển sang YYYY-MM-DD. Nếu không tìm thấy ngày, để null.
-12. broker_name: Tên công ty chứng khoán, sàn giao dịch hoặc tiệm vàng (ví dụ: 'TCBS', 'VPS', 'SSI', 'Binance', 'DOJI', v.v.).
-13. order_id: Mã số lệnh / Mã hóa đơn / Số chứng từ nếu có.
-14. notes: Ghi chú tóm tắt nội dung giao dịch.
-15. missing_fields: Danh sách các trường thiết yếu còn thiếu hoặc chưa quét được trong các trường sau: ['asset_symbol', 'quantity', 'price_per_unit', 'transaction_date']. Nếu trường nào bị null hoặc không rõ ràng, hãy thêm tên trường đó vào mảng này.
-16. confidence: Độ tin cậy ước tính từ 0 đến 100 (số nguyên).
+HÃY PHÂN TÍCH HÌNH ẢNH ĐƯỢC CUNG CẤP VÀ TRÍCH XUẤT CÁC THÔNG TIN:
+1. asset_symbol: Mã tài sản chính viết hoa. Ví dụ: Nếu là cặp "BTC/USDT" thì mã là "BTC". Nếu là "ETH/USDT" thì mã là "ETH". Nếu là cổ phiếu "HPG", "FPT", "VCB", "MWG" thì ghi đúng mã. Nếu là vàng SJC ghi "SJC".
+2. asset_name: Tên đầy đủ (ví dụ: "Bitcoin", "Ethereum", "Cổ phiếu Tập đoàn Hòa Phát", "Vàng miếng SJC").
+3. asset_type: Bắt buộc là 1 trong: 'crypto', 'stock', 'gold', 'fund', 'other'.
+4. transaction_type: 'buy' nếu là Mua / Khớp mua / Long; 'sell' nếu là Bán / Khớp bán / Short; 'dividend' nếu là Cổ tức.
+5. quantity: Khối lượng khớp lệnh thực tế (SỐ THỰC, ví dụ: 0.00102 hoặc 500 hoặc 1.5).
+6. price_per_unit: Đơn giá khớp lệnh mỗi đơn vị (SỐ THỰC, ví dụ: 84300 hoặc 28500 hoặc 95000).
+7. fee: Số tiền phí giao dịch nếu có (SỐ THỰC, ví dụ: 0.00008404 hoặc 15000). Nếu không có, để 0.
+8. fee_currency: Đơn vị tiền tệ của phí ('BNB', 'USDT', 'VND', 'USD').
+9. total_amount: Tổng giá trị giao dịch (SỐ THỰC, ví dụ: 85.986 hoặc 14265000).
+10. currency: Đơn vị tiền tệ của đơn giá ('USDT', 'VND', 'USD'). Nếu là cặp Crypto /USDT thì currency là 'USDT'.
+11. transaction_date: Ngày giao dịch theo định dạng chuẩn YYYY-MM-DD (Ví dụ: "2026-10-07").
+12. broker_name: Tên sàn/CTCK (ví dụ: "Binance", "TCBS", "VPS", "SSI", "OKX", "Bybit").
+13. order_id: Mã lệnh / Lệnh số / Số chứng từ nếu có (ví dụ: "67232813680").
+14. notes: Tóm tắt thông tin chi tiết lệnh giao dịch.
+15. missing_fields: Danh sách các trường thiết yếu còn thiếu nếu không tìm thấy trong ảnh ['asset_symbol', 'quantity', 'price_per_unit', 'transaction_date'].
+16. confidence: Độ tin cậy ước tính từ 0 đến 100.
 
-Danh sách các tài sản hiện có trong danh mục của người dùng để bạn ưu tiên đối chiếu mã:
+QUY TẮC BẮT BUỘC ĐỐI VỚI ĐỊNH DẠNG SỐ VIỆT NAM VÀ QUỐC TẾ:
+- Ký tự '.' hoặc ',' có thể là phân cách hàng nghìn hoặc dấu phẩy thập phân:
+  + "84.300,00" -> 84300
+  + "0,00102" -> 0.00102
+  + "0,00008404" -> 0.00008404
+  + "85,986" -> 85.986
+  + "28.500" -> 28500
+- Đảm bảo các trường số (quantity, price_per_unit, fee, total_amount) trả về dạng NUMBER thuần túy, KHÔNG phải chuỗi string có dấu phẩy.
+
+Danh sách tài sản người dùng hiện có để đối chiếu:
 ${JSON.stringify(currentAssets.map((a: any) => ({ symbol: a.asset_symbol || a.symbol, name: a.asset_name || a.name, type: a.asset_type || a.type })))}
 
-Trả về kết quả chuẩn JSON.`;
+Trả về kết quả chuẩn định dạng JSON duy nhất.`;
 
       let parsedData: any = null;
-      const visionCandidateModels = ['gemini-2.5-flash', 'gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.7-flash'];
+      const visionCandidateModels = ['gemini-2.5-flash', 'gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.7-flash'];
 
       if (ai) {
         for (const modelName of visionCandidateModels) {
@@ -166,54 +177,30 @@ Trả về kết quả chuẩn JSON.`;
           try {
             const response = await ai.models.generateContent({
               model: modelName,
-              contents: {
-                parts: [
-                  {
-                    inlineData: {
-                      mimeType: detectedMimeType,
-                      data: cleanBase64,
-                    },
+              contents: [
+                {
+                  inlineData: {
+                    mimeType: detectedMimeType,
+                    data: cleanBase64,
                   },
-                  {
-                    text: prompt,
-                  },
-                ],
-              },
+                },
+                {
+                  text: prompt,
+                },
+              ],
               config: {
                 responseMimeType: 'application/json',
-                responseSchema: {
-                  type: Type.OBJECT,
-                  properties: {
-                    asset_symbol: { type: Type.STRING, description: 'Mã tài sản viết hoa (e.g. HPG, BTC, SJC)' },
-                    asset_name: { type: Type.STRING, description: 'Tên đầy đủ của tài sản' },
-                    asset_type: { type: Type.STRING, description: 'stock | crypto | gold | fund | other' },
-                    transaction_type: { type: Type.STRING, description: 'buy | sell | dividend' },
-                    quantity: { type: Type.NUMBER, description: 'Số lượng mua/bán' },
-                    price_per_unit: { type: Type.NUMBER, description: 'Giá mua/bán đơn vị' },
-                    fee: { type: Type.NUMBER, description: 'Phí giao dịch' },
-                    tax: { type: Type.NUMBER, description: 'Thuế' },
-                    total_amount: { type: Type.NUMBER, description: 'Tổng tiền thanh toán' },
-                    currency: { type: Type.STRING, description: 'VND | USDT | USD' },
-                    transaction_date: { type: Type.STRING, description: 'Ngày giao dịch định dạng YYYY-MM-DD' },
-                    broker_name: { type: Type.STRING, description: 'Tên sàn giao dịch/CTCK' },
-                    order_id: { type: Type.STRING, description: 'Mã lệnh' },
-                    notes: { type: Type.STRING, description: 'Ghi chú' },
-                    missing_fields: {
-                      type: Type.ARRAY,
-                      items: { type: Type.STRING },
-                      description: 'Các trường bị thiếu: asset_symbol, quantity, price_per_unit, transaction_date'
-                    },
-                    confidence: { type: Type.NUMBER, description: 'Độ tin cậy 0-100' }
-                  },
-                  required: ['asset_symbol', 'transaction_type', 'missing_fields']
-                }
               },
             });
 
             const responseText = response.text || '';
             if (responseText.trim()) {
-              parsedData = JSON.parse(responseText.trim());
-              break;
+              const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+              parsedData = JSON.parse(cleanJson);
+              if (parsedData && parsedData.asset_symbol) {
+                console.log(`[Scan Investment Bill] Successfully parsed using model ${modelName}:`, parsedData.asset_symbol, parsedData.quantity, parsedData.price_per_unit);
+                break;
+              }
             }
           } catch (modelErr: any) {
             console.warn(`[Scan Investment Bill] Error with model ${modelName}:`, modelErr?.message || modelErr);
