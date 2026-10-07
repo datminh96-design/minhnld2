@@ -57,6 +57,77 @@ interface InvestmentTxModalFormProps {
   }) => Promise<void>;
 }
 
+const parseFlexibleNumber = (val: any): number | null => {
+  if (val === null || val === undefined) return null;
+  if (typeof val === 'number') return isNaN(val) || val <= 0 ? null : val;
+  if (typeof val !== 'string') return null;
+
+  let str = val.trim().toLowerCase();
+  if (!str) return null;
+
+  const kMatch = str.match(/^([\d\.,]+)\s*k$/i);
+  if (kMatch) {
+    const base = parseFlexibleNumber(kMatch[1]);
+    return base !== null ? Math.round(base * 1000) : null;
+  }
+  const trMatch = str.match(/^([\d\.,]+)\s*(?:tr|triệu|m)$/i);
+  if (trMatch) {
+    const base = parseFlexibleNumber(trMatch[1]);
+    return base !== null ? Math.round(base * 1000000) : null;
+  }
+
+  str = str.replace(/[đvndvnđ\$usdusdtbnbcp\s]/gi, '');
+
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(str)) {
+    str = str.replace(/\./g, '').replace(',', '.');
+  } else if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(str)) {
+    str = str.replace(/,/g, '');
+  } else if (str.includes(',') && !str.includes('.')) {
+    const parts = str.split(',');
+    if (parts.length === 2 && parts[1].length === 3 && parseInt(parts[0], 10) > 0 && !str.startsWith('0,')) {
+      str = parts.join('');
+    } else {
+      str = str.replace(',', '.');
+    }
+  } else if (str.includes('.') && !str.includes(',')) {
+    const parts = str.split('.');
+    if (parts.length === 2 && parts[1].length === 3 && parseInt(parts[0], 10) > 0 && !str.startsWith('0.')) {
+      str = parts.join('');
+    }
+  }
+
+  const num = parseFloat(str);
+  return isNaN(num) || num <= 0 ? null : num;
+};
+
+const parseFlexibleDateToISO = (raw: string | null | undefined): string | null => {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+  if (/^\d{4}-\d{2}-\d{2}[T\s]/.test(trimmed)) {
+    return trimmed.substring(0, 10);
+  }
+  const dmyMatch = trimmed.match(/(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})/);
+  if (dmyMatch) {
+    const day = dmyMatch[1].padStart(2, '0');
+    const month = dmyMatch[2].padStart(2, '0');
+    const year = dmyMatch[3];
+    return `${year}-${month}-${day}`;
+  }
+  const ymdMatch = trimmed.match(/(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+  if (ymdMatch) {
+    const year = ymdMatch[1];
+    const month = ymdMatch[2].padStart(2, '0');
+    const day = ymdMatch[3].padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  return null;
+};
+
 export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
   isOpen,
   onClose,
@@ -174,16 +245,18 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
           setTxType(data.transaction_type);
         }
 
-        // 3. Quantity
-        if (data.quantity !== null && data.quantity !== undefined && data.quantity > 0) {
-          setTxQuantity(data.quantity.toString());
+        // 3. Quantity with flexible decimal number parser
+        const normalizedQuantity = parseFlexibleNumber(data.quantity);
+        if (normalizedQuantity !== null && normalizedQuantity > 0) {
+          setTxQuantity(normalizedQuantity.toString());
         } else {
           setTxQuantity('');
         }
 
-        // 4. Price per unit
-        if (data.price_per_unit !== null && data.price_per_unit !== undefined && data.price_per_unit > 0) {
-          setTxPrice(data.price_per_unit.toString());
+        // 4. Price per unit with flexible decimal number parser
+        const normalizedPrice = parseFlexibleNumber(data.price_per_unit);
+        if (normalizedPrice !== null && normalizedPrice > 0) {
+          setTxPrice(normalizedPrice.toString());
         } else {
           setTxPrice('');
         }
@@ -195,10 +268,14 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
           setTxPriceCurrency('VND');
         }
 
-        // 6. Fee & Fee Currency
-        if (data.fee !== null && data.fee !== undefined) {
-          setTxFee(data.fee.toString());
+        // 6. Fee & Fee Currency with flexible parser
+        const normalizedFee = parseFlexibleNumber(data.fee);
+        if (normalizedFee !== null && normalizedFee >= 0) {
+          setTxFee(normalizedFee.toString());
+        } else {
+          setTxFee('0');
         }
+
         if (data.fee_currency === 'BNB') {
           setTxFeeCurrency('BNB');
         } else if (data.fee_currency === 'USDT' || data.fee_currency === 'USD') {
@@ -209,9 +286,10 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
           setTxFeeCurrency('BNB');
         }
 
-        // 7. Transaction Date
-        if (data.transaction_date) {
-          setTxDate(data.transaction_date);
+        // 7. Transaction Date with ISO date normalizer
+        const normalizedDate = parseFlexibleDateToISO(data.transaction_date);
+        if (normalizedDate) {
+          setTxDate(normalizedDate);
         }
 
         // 8. Notes & Broker
@@ -226,16 +304,16 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
         // 9. Re-evaluate missing fields
         const detectedMissing: string[] = [];
         if (!matchedAssetId) detectedMissing.push('asset_symbol');
-        if (!data.quantity || data.quantity <= 0) detectedMissing.push('quantity');
-        if (!data.price_per_unit || data.price_per_unit <= 0) detectedMissing.push('price_per_unit');
-        if (!data.transaction_date) detectedMissing.push('transaction_date');
+        if (!normalizedQuantity || normalizedQuantity <= 0) detectedMissing.push('quantity');
+        if (!normalizedPrice || normalizedPrice <= 0) detectedMissing.push('price_per_unit');
+        if (!normalizedDate) detectedMissing.push('transaction_date');
 
         setMissingFields(detectedMissing);
         const currDisplay = (data.currency === 'USDT' || isCrypto) ? 'USDT' : 'VND';
         setScannedSummary(
           `Đã quét: ${data.asset_symbol || 'Tài sản'} • ${data.transaction_type === 'buy' ? 'MUA' : 'BÁN'}` +
-            (data.quantity ? ` • SL: ${data.quantity}` : '') +
-            (data.price_per_unit ? ` • Giá: ${data.price_per_unit.toLocaleString('vi-VN')} ${currDisplay}` : '') +
+            (normalizedQuantity ? ` • SL: ${normalizedQuantity}` : '') +
+            (normalizedPrice ? ` • Giá: ${normalizedPrice.toLocaleString('vi-VN')} ${currDisplay}` : '') +
             (data.broker_name ? ` • Sàn: ${data.broker_name}` : '')
         );
       } else {

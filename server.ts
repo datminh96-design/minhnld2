@@ -70,6 +70,95 @@ function setModelCooldown(model: string, durationMs: number = 60000) {
   modelCooldowns.set(model, Date.now() + durationMs);
 }
 
+function parseFlexibleNumber(val: any): number | null {
+  if (val === null || val === undefined) return null;
+  if (typeof val === 'number') return isNaN(val) || val <= 0 ? null : val;
+  if (typeof val !== 'string') return null;
+
+  let str = val.trim().toLowerCase();
+  if (!str) return null;
+
+  // Multiplier suffixes: 100k -> 100,000, 2tr -> 2,000,000
+  const kMatch = str.match(/^([\d\.,]+)\s*k$/i);
+  if (kMatch) {
+    const base = parseFlexibleNumber(kMatch[1]);
+    return base !== null ? Math.round(base * 1000) : null;
+  }
+  const trMatch = str.match(/^([\d\.,]+)\s*(?:tr|triệu|m)$/i);
+  if (trMatch) {
+    const base = parseFlexibleNumber(trMatch[1]);
+    return base !== null ? Math.round(base * 1000000) : null;
+  }
+
+  // Remove currency words, symbols, whitespace
+  str = str.replace(/[đvndvnđ\$usdusdtbnbcp\s]/gi, '');
+
+  // Case 1: Vietnamese thousand dots with comma decimal: "84.300,00" or "1.250.000,50"
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(str)) {
+    str = str.replace(/\./g, '').replace(',', '.');
+  }
+  // Case 2: US thousand commas with dot decimal: "84,300.00"
+  else if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(str)) {
+    str = str.replace(/,/g, '');
+  }
+  // Case 3: Comma only, e.g. "0,00102", "0,00008404", "85,986", "28,5"
+  else if (str.includes(',') && !str.includes('.')) {
+    const parts = str.split(',');
+    // If it looks like integer thousands e.g. "500,000" or "28,500"
+    if (parts.length === 2 && parts[1].length === 3 && parseInt(parts[0], 10) > 0 && !str.startsWith('0,')) {
+      str = parts.join('');
+    } else {
+      str = str.replace(',', '.');
+    }
+  }
+  // Case 4: Dot only, e.g. "28.500" (Vietnamese thousands) vs "0.00102" (decimal)
+  else if (str.includes('.') && !str.includes(',')) {
+    const parts = str.split('.');
+    if (parts.length === 2 && parts[1].length === 3 && parseInt(parts[0], 10) > 0 && !str.startsWith('0.')) {
+      str = parts.join('');
+    }
+  }
+
+  const num = parseFloat(str);
+  return isNaN(num) || num <= 0 ? null : num;
+}
+
+function parseFlexibleDateToISO(raw: string | null | undefined): string | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  // 1. Direct match YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  // 2. ISO timestamp format: 2026-10-07T... or 2026-10-07 09:00:57
+  if (/^\d{4}-\d{2}-\d{2}[T\s]/.test(trimmed)) {
+    return trimmed.substring(0, 10);
+  }
+
+  // 3. DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+  const dmyMatch = trimmed.match(/(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})/);
+  if (dmyMatch) {
+    const day = dmyMatch[1].padStart(2, '0');
+    const month = dmyMatch[2].padStart(2, '0');
+    const year = dmyMatch[3];
+    return `${year}-${month}-${day}`;
+  }
+
+  // 4. YYYY/MM/DD or YYYY.MM.DD
+  const ymdMatch = trimmed.match(/(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+  if (ymdMatch) {
+    const year = ymdMatch[1];
+    const month = ymdMatch[2].padStart(2, '0');
+    const day = ymdMatch[3].padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  return null;
+}
+
 function getCandidateModels(preferredModel?: string): string[] {
   const validModels = [
     preferredModel,
@@ -268,20 +357,24 @@ Trả về JSON thuần túy theo đúng cấu trúc.`;
         };
       }
 
-      // Re-evaluate missing fields explicitly
+      // Re-evaluate and normalize fields with flexible number parser
+      const parsedQuantity = parseFlexibleNumber(parsedData.quantity);
+      const parsedPrice = parseFlexibleNumber(parsedData.price_per_unit);
+      const parsedFee = parseFlexibleNumber(parsedData.fee) ?? 0;
+      const parsedTotal = parseFlexibleNumber(parsedData.total_amount);
+
+      parsedData.quantity = parsedQuantity;
+      parsedData.price_per_unit = parsedPrice;
+      parsedData.fee = parsedFee;
+      parsedData.total_amount = parsedTotal;
+
       const missingFields: string[] = [];
       if (!parsedData.asset_symbol || !parsedData.asset_symbol.trim()) missingFields.push('asset_symbol');
-      if (parsedData.quantity === null || parsedData.quantity === undefined || isNaN(Number(parsedData.quantity)) || Number(parsedData.quantity) <= 0) {
+      if (parsedData.quantity === null || parsedData.quantity <= 0) {
         missingFields.push('quantity');
-        parsedData.quantity = null;
-      } else {
-        parsedData.quantity = Number(parsedData.quantity);
       }
-      if (parsedData.price_per_unit === null || parsedData.price_per_unit === undefined || isNaN(Number(parsedData.price_per_unit)) || Number(parsedData.price_per_unit) <= 0) {
+      if (parsedData.price_per_unit === null || parsedData.price_per_unit <= 0) {
         missingFields.push('price_per_unit');
-        parsedData.price_per_unit = null;
-      } else {
-        parsedData.price_per_unit = Number(parsedData.price_per_unit);
       }
       if (!parsedData.transaction_date) {
         missingFields.push('transaction_date');
