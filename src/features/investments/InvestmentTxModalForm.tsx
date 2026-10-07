@@ -936,11 +936,11 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
 
               {/* Scan Error Banner */}
               {scanError && !isScanning && (
-                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 space-y-1.5 text-xs animate-in fade-in duration-150">
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 space-y-2 text-xs animate-in fade-in duration-150">
                   <div className="flex items-center justify-between font-bold text-rose-900 dark:text-rose-200">
                     <span className="flex items-center gap-1.5">
                       <AlertCircle className="w-4 h-4 text-rose-600" />
-                      <span>Quét thất bại hoặc ảnh mờ</span>
+                      <span>Thông Báo Quét Hóa Đơn</span>
                     </span>
                     <button
                       type="button"
@@ -951,8 +951,38 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
                     </button>
                   </div>
                   <p className="text-[11px] text-rose-700 dark:text-rose-300 leading-relaxed">
-                    {scanError}. Hệ thống đã tô đỏ các ô cần thiết bên dưới để bạn điền bằng tay.
+                    {scanError}
                   </p>
+                  {(scanError.includes('GEMINI_API_KEY') || scanError.includes('API key') || scanError.includes('cấu hình')) && (
+                    <div className="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/80 border border-rose-200 dark:border-rose-900 space-y-2">
+                      <p className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                        💡 Dán khóa Gemini API Key miễn phí (từ <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-purple-600 underline">aistudio.google.com/apikey</a>) để quét trực tiếp trên Vercel:
+                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="password"
+                          placeholder="Dán khóa API (AIzaSy...)"
+                          defaultValue={typeof window !== 'undefined' ? localStorage.getItem('gemini_api_key') || '' : ''}
+                          id="custom_user_gemini_key_modal"
+                          className="flex-1 px-2.5 py-1 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const inputEl = document.getElementById('custom_user_gemini_key_modal') as HTMLInputElement;
+                            if (inputEl?.value) {
+                              localStorage.setItem('gemini_api_key', inputEl.value.trim());
+                              setScanError(null);
+                              if (scannedBillPreview) handleScanFile(scannedBillPreview);
+                            }
+                          }}
+                          className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-lg cursor-pointer"
+                        >
+                          Lưu & Quét Lại
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

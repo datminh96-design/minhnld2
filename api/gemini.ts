@@ -33,15 +33,28 @@ function getSubpath(req: any): string {
 
 let geminiClientInstance: GoogleGenAI | null = null;
 
-function getClient(): GoogleGenAI | null {
+function getClient(req?: any, body?: any): GoogleGenAI | null {
+  const customKey =
+    body?.apiKey ||
+    req?.headers?.['x-gemini-api-key'] ||
+    req?.headers?.['x-api-key'] ||
+    (typeof req?.headers?.authorization === 'string' && req.headers.authorization.startsWith('Bearer ')
+      ? req.headers.authorization.replace(/^Bearer\s+/i, '').trim()
+      : '');
+
   const apiKey =
+    customKey ||
     process.env.GEMINI_API_KEY ||
     process.env.API_KEY ||
     process.env.VITE_GEMINI_API_KEY ||
     process.env.NEXT_PUBLIC_GEMINI_API_KEY ||
     process.env.GOOGLE_API_KEY ||
     process.env.GOOGLE_GEMINI_API_KEY;
+
   if (!apiKey) return null;
+  if (customKey) {
+    return new GoogleGenAI({ apiKey: customKey });
+  }
   if (!geminiClientInstance) {
     geminiClientInstance = new GoogleGenAI({
       apiKey,
@@ -565,11 +578,12 @@ export default async function handler(req: any, res: any) {
       const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '').trim();
       const detectedMimeType = mimeType || (imageBase64.startsWith('data:image/png') ? 'image/png' : 'image/jpeg');
 
-      const ai = getClient();
+      const ai = getClient(req, body);
       if (!ai) {
         return res.status(200).json({
           success: false,
-          error: 'GEMINI_API_KEY chưa được cấu hình trên môi trường Vercel Serverless Functions.',
+          error:
+            'Chưa cấu hình GEMINI_API_KEY trên môi trường Vercel. Bạn có thể thêm biến môi trường GEMINI_API_KEY trên Vercel Dashboard hoặc nhập API key cá nhân.',
         });
       }
 
@@ -711,11 +725,12 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
       const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '').trim();
       const detectedMimeType = mimeType || (imageBase64.startsWith('data:image/png') ? 'image/png' : 'image/jpeg');
 
-      const ai = getClient();
+      const ai = getClient(req, body);
       if (!ai) {
         return res.status(200).json({
           success: false,
-          error: 'GEMINI_API_KEY chưa được cấu hình trên môi trường Vercel Serverless Functions.',
+          error:
+            'Chưa cấu hình GEMINI_API_KEY trên môi trường Vercel. Bạn có thể thêm biến môi trường GEMINI_API_KEY trên Vercel Dashboard hoặc nhập API key cá nhân.',
         });
       }
 

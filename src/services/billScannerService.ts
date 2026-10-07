@@ -517,20 +517,30 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
         }
       }, 350);
 
+      const userApiKey =
+        (typeof window !== 'undefined' &&
+          (localStorage.getItem('gemini_api_key') ||
+            localStorage.getItem('user_gemini_api_key') ||
+            localStorage.getItem('VITE_GEMINI_API_KEY'))) ||
+        '';
+
       const payload = {
         imageBase64: compressedBase64,
         mimeType: 'image/jpeg',
         existingCategories: existingCategories.map((c) => (typeof c === 'string' ? c : c.name)),
         model: preferredModel,
+        apiKey: userApiKey || undefined,
       };
 
       let resJson: ScanExpenseResponse | null = null;
+      let serverErrorMessage = '';
 
       try {
         const response = await fetch('/api/expenses/scan-bill', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            ...(userApiKey ? { 'x-gemini-api-key': userApiKey } : {}),
           },
           body: JSON.stringify(payload),
         });
@@ -550,10 +560,13 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
             clearInterval(interval);
             onProgress?.(100, 'Quét hóa đơn chi tiêu hoàn tất 100%!');
             return resJson;
+          } else if (resJson && !resJson.success) {
+            serverErrorMessage = resJson.error || resJson.message || '';
           }
         }
-      } catch (fetchErr) {
+      } catch (fetchErr: any) {
         console.warn('[scanExpenseBill] Fetch failed, switching to client-side Gemini fallback:', fetchErr);
+        serverErrorMessage = fetchErr?.message || '';
       }
 
       // If server API was unavailable or returned error (e.g. on Vercel), try direct client-side Gemini scan
@@ -564,6 +577,14 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
       if (clientResult && clientResult.success && clientResult.data) {
         onProgress?.(100, 'Quét hóa đơn chi tiêu bằng Client AI hoàn tất 100%!');
         return clientResult;
+      }
+
+      if (serverErrorMessage && (serverErrorMessage.includes('GEMINI_API_KEY') || serverErrorMessage.includes('API key'))) {
+        return {
+          success: false,
+          error: serverErrorMessage,
+          message: serverErrorMessage,
+        };
       }
 
       // Fallback draft if network and client AI unavailable
@@ -645,6 +666,13 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
         }
       }, 350);
 
+      const userApiKey =
+        (typeof window !== 'undefined' &&
+          (localStorage.getItem('gemini_api_key') ||
+            localStorage.getItem('user_gemini_api_key') ||
+            localStorage.getItem('VITE_GEMINI_API_KEY'))) ||
+        '';
+
       const payload = {
         imageBase64: compressedBase64,
         mimeType: 'image/jpeg',
@@ -654,14 +682,18 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
           type: a.asset_type,
         })),
         model: preferredModel,
+        apiKey: userApiKey || undefined,
       };
 
       let resJson: ScanBillResponse | null = null;
+      let serverErrorMessage = '';
+
       try {
         const response = await fetch('/api/investments/scan-bill', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            ...(userApiKey ? { 'x-gemini-api-key': userApiKey } : {}),
           },
           body: JSON.stringify(payload),
         });
@@ -672,10 +704,13 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
             clearInterval(interval);
             onProgress?.(100, 'Quét hóa đơn hoàn tất 100%!');
             return resJson;
+          } else if (resJson && !resJson.success) {
+            serverErrorMessage = resJson.error || resJson.message || '';
           }
         }
-      } catch (fetchErr) {
+      } catch (fetchErr: any) {
         console.warn('[scanBill] Fetch failed, switching to client-side fallback:', fetchErr);
+        serverErrorMessage = fetchErr?.message || '';
       }
 
       // If server API was unavailable or returned error (e.g. on Vercel), try direct client-side Gemini scan
@@ -686,6 +721,14 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
       if (clientResult && clientResult.success && clientResult.data) {
         onProgress?.(100, 'Quét hóa đơn đầu tư bằng Client AI hoàn tất 100%!');
         return clientResult;
+      }
+
+      if (serverErrorMessage && (serverErrorMessage.includes('GEMINI_API_KEY') || serverErrorMessage.includes('API key'))) {
+        return {
+          success: false,
+          error: serverErrorMessage,
+          message: serverErrorMessage,
+        };
       }
 
       // Fallback draft if network and client AI unavailable
