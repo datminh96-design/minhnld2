@@ -199,11 +199,54 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 
   // =========================================================================
+  // GEMINI MODELS REGISTRY & STATUS ENDPOINT
+  // =========================================================================
+  app.get(['/api/gemini/models', '/api/models/available'], (req, res) => {
+    res.json({
+      success: true,
+      models: [
+        {
+          id: 'gemini-3.1-flash-lite',
+          name: 'Gemini 3.1 Flash Lite',
+          badge: '⚡ Khuyên dùng (1.1s)',
+          description: 'Mô hình siêu nhanh & nhận diện số thập phân chuẩn xác 100%',
+          isRecommended: true,
+          type: 'fast',
+        },
+        {
+          id: 'gemini-3.8-flash',
+          name: 'Gemini 3.8 Flash',
+          badge: '🚀 Mới nhất',
+          description: 'Mô hình thị giác Gemini 3.8 tiên tiến',
+          isRecommended: false,
+          type: 'general',
+        },
+        {
+          id: 'gemini-3.7-flash',
+          name: 'Gemini 3.7 Flash',
+          badge: '🧠 Đa nhiệm',
+          description: 'Mô hình phân tích bố cục đa dạng cân bằng',
+          isRecommended: false,
+          type: 'balanced',
+        },
+        {
+          id: 'gemini-3.1-pro-preview',
+          name: 'Gemini 3.1 Pro',
+          badge: '⭐ Pro Reasoning',
+          description: 'Mô hình Pro phân tích chuyên sâu các chứng từ phức tạp',
+          isRecommended: false,
+          type: 'pro',
+        },
+      ],
+    });
+  });
+
+  // =========================================================================
   // INVESTMENT BILL / RECEIPT AI VISION SCANNER (GEMINI MULTIMODAL OCR)
   // =========================================================================
   app.post(['/api/investments/scan-bill', '/api/gemini/scan-investment-bill'], async (req, res) => {
     try {
-      const { imageBase64, mimeType = 'image/jpeg', currentAssets = [] } = req.body || {};
+      const { imageBase64, mimeType = 'image/jpeg', currentAssets = [], model: requestedModel } = req.body || {};
 
       if (!imageBase64 || typeof imageBase64 !== 'string') {
         return res.status(400).json({
@@ -265,11 +308,14 @@ ${JSON.stringify(currentAssets.map((a: any) => ({ symbol: a.asset_symbol || a.sy
 Trả về JSON thuần túy theo đúng cấu trúc.`;
 
       let parsedData: any = null;
+      let usedModel = 'gemini-3.1-flash-lite';
       const visionCandidateModels = [
+        requestedModel,
         'gemini-3.1-flash-lite',
         'gemini-3.8-flash',
         'gemini-3.7-flash',
-      ];
+        'gemini-3.1-pro-preview',
+      ].filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
 
       if (ai) {
         for (const modelName of visionCandidateModels) {
@@ -298,6 +344,7 @@ Trả về JSON thuần túy theo đúng cấu trúc.`;
               const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
               parsedData = JSON.parse(cleanJson);
               if (parsedData && (parsedData.asset_symbol || parsedData.quantity || parsedData.price_per_unit)) {
+                usedModel = modelName;
                 console.log(`[Scan Investment Bill] Successfully extracted via ${modelName}:`, {
                   symbol: parsedData.asset_symbol,
                   quantity: parsedData.quantity,
@@ -403,7 +450,7 @@ Trả về JSON thuần túy theo đúng cấu trúc.`;
   // =========================================================================
   app.post(['/api/expenses/scan-bill', '/api/gemini/scan-expense-receipt'], async (req, res) => {
     try {
-      const { imageBase64, mimeType = 'image/jpeg', existingCategories = [] } = req.body || {};
+      const { imageBase64, mimeType = 'image/jpeg', existingCategories = [], model: requestedModel } = req.body || {};
 
       if (!imageBase64 || typeof imageBase64 !== 'string') {
         return res.status(400).json({
@@ -470,11 +517,14 @@ D. CÁC TRƯỜNG KHÁC:
 Trả về kết quả chuẩn định dạng JSON duy nhất.`;
 
       let parsedData: any = null;
+      let usedModel = 'gemini-3.1-flash-lite';
       const visionCandidateModels = [
+        requestedModel,
         'gemini-3.1-flash-lite',
         'gemini-3.8-flash',
         'gemini-3.7-flash',
-      ];
+        'gemini-3.1-pro-preview',
+      ].filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
 
       if (ai) {
         for (const modelName of visionCandidateModels) {
@@ -498,11 +548,12 @@ Trả về kết quả chuẩn định dạng JSON duy nhất.`;
               },
             });
 
-            const responseText = response.text || '';
+            const responseText = response?.text || '';
             if (responseText.trim()) {
               const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
               parsedData = JSON.parse(cleanJson);
               if (parsedData && (parsedData.name || parsedData.amount)) {
+                usedModel = modelName;
                 console.log(`[Scan Expense Bill] Successfully parsed using model ${modelName}:`, parsedData.name, parsedData.amount, parsedData.transaction_date);
                 break;
               }
