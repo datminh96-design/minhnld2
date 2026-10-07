@@ -34,8 +34,14 @@ export interface ExtractedExpenseData {
   fee: number | null;
   category: string;
   transaction_type: 'expense' | 'income';
+  document_layout?: 'supermarket_pos' | 'fnb_dining' | 'ride_delivery' | 'bank_transfer' | 'utility_bill' | 'ecommerce' | 'general';
+  layout_label?: string;
   items_summary?: string;
   notes?: string;
+  currency?: string;
+  tax?: number | null;
+  raw_detected_date?: string;
+  raw_detected_amount?: string;
   missing_fields: string[];
   confidence?: number;
 }

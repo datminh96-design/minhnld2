@@ -301,7 +301,7 @@ Trả về kết quả chuẩn định dạng JSON duy nhất.`;
         });
       }
 
-      const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+]+;base64,/, '').trim();
+      const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '').trim();
       const detectedMimeType = mimeType || (imageBase64.startsWith('data:image/png') ? 'image/png' : 'image/jpeg');
 
       const ai = getGeminiClient();
@@ -310,24 +310,56 @@ Trả về kết quả chuẩn định dạng JSON duy nhất.`;
         ? existingCategories.map((c: any) => typeof c === 'string' ? c : c.name).join(', ')
         : 'Ăn uống, Mua sắm, Di chuyển, Hóa đơn & Tiện ích, Y tế, Giải trí, Giáo dục, Nhà cửa, Công việc, Khác';
 
-      const prompt = `Bạn là một trợ lý AI thông minh chuyên phân tích hóa đơn thanh toán, biên lai chi tiêu, phiếu thu/chi, hóa đơn siêu thị (WinMart, Co.opmart, Bách Hóa Xanh, Lotte, Aeon), nhà hàng/quán ăn/cà phê (Highlands, Phúc Long, The Coffee House, Starbuck), hóa đơn Grab/Be/XanhSM, tiền điện nước, mua sắm online Shopee/Lazada/Tiki...
+      const prompt = `Bạn là hệ thống AI OCR thị giác máy tính chuyên sâu về bóc tách và phân tích các loại hóa đơn, biên lai chi tiêu, phiếu thu, phiếu chi, chuyển khoản ngân hàng và chứng từ tài chính với độ chính xác tuyệt đối.
 
-Hãy đọc hình ảnh hóa đơn và trích xuất các thông tin chính xác sau:
-1. name: Tên giao dịch hoặc tên cửa hàng / người nhận / dịch vụ (Ví dụ: "Siêu thị WinMart - Mua thực phẩm", "Highlands Coffee", "Cước Grab Car", "Hóa đơn tiền điện EVN").
-2. amount: Tổng số tiền thanh toán thực tế (bằng số nguyên hoặc số thực dương VNĐ, ví dụ: 185000, 45000, 1250000). Nếu không tìm thấy, trả về null.
-3. transaction_date: Ngày thực hiện giao dịch hoặc ngày xuất hóa đơn theo định dạng YYYY-MM-DD. Nếu hóa đơn chỉ ghi DD/MM/YYYY hoặc DD-MM-YYYY, hãy chuyển sang YYYY-MM-DD. Nếu không tìm thấy ngày, để null.
-4. fee: Phí dịch vụ, phụ thu, phí giao hàng hoặc tiền thuế VAT nếu có (số nguyên/thực, hoặc 0).
-5. category: Tên danh mục phù hợp nhất từ danh sách sau hoặc danh mục chuẩn: [${categoriesListStr}].
-6. transaction_type: Loại giao dịch ('expense' nếu là chi tiêu/mua hàng, hoặc 'income' nếu là phiếu thu tiền/lương). Mặc định là 'expense'.
-7. items_summary: Tóm tắt 2-5 mặt hàng chính trong hóa đơn nếu có (Ví dụ: "2 Cà phê sữa, 1 Bánh mì", "Sữa tươi, Trứng gà, Rau xanh").
-8. notes: Ghi chú thêm chi tiết về hóa đơn, địa chỉ hoặc mã số hóa đơn nếu có.
-9. missing_fields: Mảng chứa tên các trường thiết yếu còn thiếu hoặc không nhận diện được trong 4 trường sau: ['name', 'amount', 'date', 'fee']. Nếu trường nào bị null, rỗng hoặc amount <= 0, hãy thêm vào mảng missing_fields.
-10. confidence: Ước tính độ tin cậy của việc nhận diện từ 0 đến 100 (số nguyên).
+CÁC DẠNG HÓA ĐƠN & BỐ CỤC (DOCUMENT LAYOUTS) CẦN XỬ LÝ:
+1. 'supermarket_pos': Hóa đơn siêu thị / bán lẻ in nhiệt dài hẹp (WinMart, Co.opmart, Bách Hóa Xanh, Aeon, Lotte Mart, BigC/GO!, Circle K, 7-Eleven, Ministop, Guardian, Watson, Pharmacity, Long Châu...).
+2. 'fnb_dining': Hóa đơn dịch vụ ăn uống, nhà hàng, quán cafe, trà sữa (Highlands Coffee, Phúc Long, The Coffee House, Starbucks, Katinat, Phở, Pizza, BBQ...).
+3. 'ride_delivery': Biên lai chuyến đi xe công nghệ hoặc cước vận chuyển giao hàng (GrabCar, GrabBike, Be, Xanh SM, ShopeeFood, Gojek, Viettel Post, GHTK...).
+4. 'bank_transfer': Ảnh chụp màn hình chuyển khoản ngân hàng, ví điện tử (Vietcombank, Techcombank, MB Bank, TPBank, VPBank, ACB, BIDV, MoMo, ZaloPay, VNPay, ShopeePay...).
+5. 'utility_bill': Hóa đơn tiền điện (EVN), tiền nước, cước internet viễn thông (Viettel, VNPT, FPT), vé trạm thu phí VETC/ePass, học phí, viện phí.
+6. 'ecommerce': Đơn mua hàng thương mại điện tử trực tuyến (Shopee, Lazada, Tiki, TikTok Shop).
+7. 'general': Các loại hóa đơn thanh toán / phiếu thu khác.
 
-Trả về kết quả chuẩn định dạng JSON.`;
+QUY TẮC BÓC TÁCH TRƯỜNG DỮ LIỆU ĐẶC BIỆT:
+
+A. SỐ TIỀN THANH TOÁN THỰC TẾ (amount):
+- Bắt buộc tìm và trích xuất SỐ TIỀN THỰC TẾ ĐÃ THANH TOÁN (Final Payable / Charged Amount).
+- Tìm các từ khóa: "TỔNG TIỀN THANH TOÁN", "TỔNG CỘNG", "THÀNH TIỀN", "CẦN THANH TOÁN", "TIỀN PHẢI TRẢ", "Grand Total", "Total Amount", "Amount Paid", "Số tiền giao dịch", "Số tiền chuyển".
+- NẾU CÓ CHIẾT KHẤU / GIẢM GIÁ / VOUCHER: Số tiền 'amount' PHẢI LÀ số tiền sau khi đã trừ giảm giá (ví dụ: Tiền hàng 200k, giảm 20k -> amount = 180000).
+- KHÔNG ĐƯỢC nhầm lẫn với "Tiền khách đưa" (Cash Tendered) hay "Tiền thừa trả lại" (Change Given).
+- Chuyển đổi định dạng số Việt Nam & quốc tế sang dạng NUMBER dương: "205.000 đ" -> 205000, "1,250,000" -> 1250000, "45.000,00" -> 45000, "18.50 $" -> 18.5.
+
+B. NGÀY GIAO DỊCH (transaction_date):
+- Tìm ngày thực hiện giao dịch hoặc ngày xuất hóa đơn (tìm các từ: "Ngày GD", "Ngày", "Date", "Thời gian", "Thời gian giao dịch", "Ngày lập", "Time").
+- BẮT BUỘC chuẩn hóa về định dạng duy nhất: YYYY-MM-DD (Ví dụ: "2026-10-07").
+- Xử lý các định dạng phổ biến:
+  + "07/10/2026 14:32" hoặc "07-10-2026" -> "2026-10-07"
+  + "07.10.2026" -> "2026-10-07"
+  + "2026/10/07" hoặc "2026.10.07" -> "2026-10-07"
+  + "07/10/26" -> "2026-10-07"
+  + "Ngày 07 tháng 10 năm 2026" -> "2026-10-07"
+  + "07 Oct 2026" hoặc "October 07, 2026" -> "2026-10-07"
+- Nếu hóa đơn không có ngày hoặc quá mờ, trả về null.
+
+C. TÊN GIAO DỊCH / CỬA HÀNG (name):
+- Tên thương hiệu, cửa hàng, người nhận hoặc dịch vụ (ví dụ: "Siêu thị WinMart+", "Highlands Coffee - Nguyễn Huệ", "Chuyến đi GrabCar", "Chuyển tiền cho Nguyễn Văn A", "Điện lực EVN TP.HCM").
+
+D. CÁC TRƯỜNG KHÁC:
+- fee: Phụ phí dịch vụ, VAT, phí ship, phí cầu đường (nếu có ghi riêng) bằng số, hoặc 0.
+- category: Chọn 1 danh mục phù hợp nhất từ [${categoriesListStr}].
+- transaction_type: 'expense' (chi tiêu) hoặc 'income' (thu nhập / nhận tiền).
+- items_summary: Tóm tắt 2-5 mặt hàng chính trong bill (ví dụ: "Sữa tươi, Trứng gà, Thịt heo" hoặc "Phin Sữa Đá, Trà Sen Vàng").
+- document_layout: 1 trong các giá trị ['supermarket_pos', 'fnb_dining', 'ride_delivery', 'bank_transfer', 'utility_bill', 'ecommerce', 'general'].
+- layout_label: Tên tiếng Việt của dạng bố cục (ví dụ: "Hóa đơn Siêu thị / Bán lẻ", "Hóa đơn F&B / Nhà hàng", "Biên lai Chuyến đi / Giao hàng", "Biên lai Chuyển khoản Ngân hàng", "Hóa đơn Điện nước / Tiện ích").
+- notes: Ghi chú thêm chi tiết (mã hóa đơn, địa chỉ, phương thức thanh toán...).
+- missing_fields: Danh sách các trường quan trọng còn thiếu trong mảng ['name', 'amount', 'date'].
+- confidence: Điểm tin cậy từ 0-100.
+
+Trả về kết quả chuẩn định dạng JSON duy nhất.`;
 
       let parsedData: any = null;
-      const visionCandidateModels = ['gemini-2.5-flash', 'gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.7-flash'];
+      const visionCandidateModels = ['gemini-2.5-flash', 'gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.7-flash'];
 
       if (ai) {
         for (const modelName of visionCandidateModels) {
@@ -335,48 +367,30 @@ Trả về kết quả chuẩn định dạng JSON.`;
           try {
             const response = await ai.models.generateContent({
               model: modelName,
-              contents: {
-                parts: [
-                  {
-                    inlineData: {
-                      mimeType: detectedMimeType,
-                      data: cleanBase64,
-                    },
+              contents: [
+                {
+                  inlineData: {
+                    mimeType: detectedMimeType,
+                    data: cleanBase64,
                   },
-                  {
-                    text: prompt,
-                  },
-                ],
-              },
+                },
+                {
+                  text: prompt,
+                },
+              ],
               config: {
                 responseMimeType: 'application/json',
-                responseSchema: {
-                  type: Type.OBJECT,
-                  properties: {
-                    name: { type: Type.STRING, description: 'Tên giao dịch / cửa hàng' },
-                    amount: { type: Type.NUMBER, description: 'Tổng số tiền thanh toán' },
-                    transaction_date: { type: Type.STRING, description: 'Ngày giao dịch định dạng YYYY-MM-DD' },
-                    fee: { type: Type.NUMBER, description: 'Phí dịch vụ hoặc VAT nếu có' },
-                    category: { type: Type.STRING, description: 'Danh mục chi tiêu phù hợp' },
-                    transaction_type: { type: Type.STRING, description: 'expense | income' },
-                    items_summary: { type: Type.STRING, description: 'Tóm tắt các món hàng' },
-                    notes: { type: Type.STRING, description: 'Ghi chú thêm' },
-                    missing_fields: {
-                      type: Type.ARRAY,
-                      items: { type: Type.STRING },
-                      description: 'Danh sách các trường còn thiếu: name, amount, date, fee'
-                    },
-                    confidence: { type: Type.NUMBER, description: 'Độ tin cậy 0-100' },
-                  },
-                  required: ['name', 'category', 'missing_fields'],
-                },
               },
             });
 
             const responseText = response.text || '';
             if (responseText.trim()) {
-              parsedData = JSON.parse(responseText.trim());
-              break;
+              const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+              parsedData = JSON.parse(cleanJson);
+              if (parsedData && (parsedData.name || parsedData.amount)) {
+                console.log(`[Scan Expense Bill] Successfully parsed using model ${modelName}:`, parsedData.name, parsedData.amount, parsedData.transaction_date);
+                break;
+              }
             }
           } catch (modelErr: any) {
             console.warn(`[Scan Expense Bill] Error with model ${modelName}:`, modelErr?.message || modelErr);
@@ -394,6 +408,8 @@ Trả về kết quả chuẩn định dạng JSON.`;
           fee: 0,
           category: 'Mua sắm',
           transaction_type: 'expense',
+          document_layout: 'supermarket_pos',
+          layout_label: 'Hóa đơn Siêu thị / Bán lẻ',
           items_summary: 'Mặt hàng tiêu dùng thiết yếu',
           notes: 'Đã nhận diện từ biên lai thanh toán',
           missing_fields: [],
@@ -434,6 +450,8 @@ Trả về kết quả chuẩn định dạng JSON.`;
           fee: 0,
           category: 'Ăn uống',
           transaction_type: 'expense',
+          document_layout: 'general',
+          layout_label: 'Hóa đơn chi tiêu',
           items_summary: 'Đã quét từ hóa đơn',
           notes: 'Tự động trích xuất từ biên lai',
           missing_fields: [],
