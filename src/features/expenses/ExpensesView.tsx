@@ -9,6 +9,7 @@ import { TransactionModalForm } from './TransactionModalForm';
 import { ExpensesSmartCharts } from './ExpensesSmartCharts';
 import { BudgetTrackerCard } from './BudgetTrackerCard';
 import { ExpenseCapture } from '../../components/ExpenseCapture';
+import { SpendingDashboard } from '../../components/SpendingDashboard';
 import { 
   Wallet, 
   ArrowDownLeft, 
@@ -588,12 +589,15 @@ export const ExpensesView: React.FC = () => {
       )}
 
       {viewTab === 'analytics' && (
-        <ExpensesSmartCharts
-          transactions={transactions}
-          categories={categories}
-          userSettings={userSettings}
-          onEditTransaction={(tx) => handleOpenEditTxModal(tx)}
-        />
+        <div className="space-y-6">
+          <SpendingDashboard />
+          <ExpensesSmartCharts
+            transactions={transactions}
+            categories={categories}
+            userSettings={userSettings}
+            onEditTransaction={(tx) => handleOpenEditTxModal(tx)}
+          />
+        </div>
       )}
 
       {viewTab === 'categories' && (

@@ -7,15 +7,23 @@ import './index.css';
 
 // Suppress harmless WebSocket and HMR connection errors in sandbox iframe environment
 if (typeof window !== 'undefined') {
+  const isIgnorableWsError = (msg: string) => {
+    const s = String(msg || '').toLowerCase();
+    return (
+      s.includes('websocket') ||
+      s.includes('ws://') ||
+      s.includes('wss://') ||
+      s.includes('[vite]') ||
+      s.includes('đóng mà không mở') ||
+      s.includes('không thể kết nối') ||
+      s.includes('closed without opened')
+    );
+  };
+
   window.addEventListener('unhandledrejection', (event) => {
     const reason = event.reason;
     const msg = String(reason?.message || reason || '');
-    if (
-      msg.includes('WebSocket') ||
-      msg.includes('ws://') ||
-      msg.includes('wss://') ||
-      msg.includes('[vite]')
-    ) {
+    if (isIgnorableWsError(msg)) {
       event.preventDefault();
       event.stopImmediatePropagation();
     }
@@ -23,12 +31,7 @@ if (typeof window !== 'undefined') {
 
   window.addEventListener('error', (event) => {
     const msg = String(event.message || '');
-    if (
-      msg.includes('WebSocket') ||
-      msg.includes('[vite]') ||
-      msg.includes('ws://') ||
-      msg.includes('wss://')
-    ) {
+    if (isIgnorableWsError(msg)) {
       event.preventDefault();
       event.stopImmediatePropagation();
     }

@@ -6,3 +6,5 @@ export { BudgetTrackerCard } from './BudgetTrackerCard';
 export { BudgetConfigModal } from './BudgetConfigModal';
 export { ExpenseCapture } from '../../components/ExpenseCapture';
 export type { ExpenseCaptureProps } from '../../components/ExpenseCapture';
+export { SpendingDashboard } from '../../components/SpendingDashboard';
+export type { SpendingDashboardProps } from '../../components/SpendingDashboard';
