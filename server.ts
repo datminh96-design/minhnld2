@@ -280,50 +280,57 @@ app.use(express.static(path.join(process.cwd(), 'public')));
       const ai = getGeminiClient();
 
       const prompt = `Bạn là chuyên gia thị giác AI phân tích ảnh chụp màn hình biên lai lệnh giao dịch tài chính cực kỳ chính xác.
-ĐẶC BIỆT THÔNG THẠO:
-- Sàn Crypto (Binance, OKX, Bybit, KuCoin, Gate.io): Giao diện Giao dịch của tôi / Lịch sử giao dịch / Giao ngay / Spot / Khớp lệnh Mua/Bán (Buy/Sell). Ví dụ: "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT".
-- Sàn Chứng khoán Việt Nam (TCBS, VPS SmartOne, SSI iBoard, VNDIRECT, BSC, Mirae Asset, MBS): Lệnh mua/bán cổ phiếu khớp lệnh.
-- Biên nhận Vàng miếng / Vàng nhẫn (SJC, DOJI, PNJ, Bảo Tín Minh Châu, Phú Quý).
-- Chứng chỉ quỹ mở (Dragon Capital, VinaCapital, SSIAM, VCBF).
+ĐẶC BIỆT THÔNG THẠO GIAO DIỆN SÀN GIAO DỊCH:
+1. Sàn Crypto (Binance, OKX, Bybit, KuCoin, Gate.io):
+   - MỤC TIÊU: Tìm cặp giao dịch, khối lượng đã khớp, đơn giá, phí và ngày giờ.
+   - TRƯỜNG "Đã khớp lệnh (BTC)" hoặc "Đã khớp lệnh" hoặc "Khối lượng" hoặc "Executed" hoặc "Filled": ĐÂY CHÍNH LÀ QUANTITY (ví dụ: "0,00102" -> quantity: 0.00102).
+   - TRƯỜNG "Giá (USDT)" hoặc "Giá trung bình" hoặc "Price": ĐÂY CHÍNH LÀ PRICE_PER_UNIT (ví dụ: "84.300,00" -> price_per_unit: 84300).
+   - TRƯỜNG "Phí (BNB)" hoặc "Phí (USDT)" hoặc "Fee": ĐÂY CHÍNH LÀ FEE (ví dụ: "0,00008404" -> fee: 0.00008404, fee_currency: "BNB").
+   - TRƯỜNG "Tổng (USDT)" hoặc "Total" hoặc "Số tiền": ĐÂY CHÍNH LÀ TOTAL_AMOUNT (ví dụ: "85,986" -> total_amount: 85.986).
+   - TRƯỜNG "Lệnh số" hoặc "Order ID": ĐÂY CHÍNH LÀ ORDER_ID (ví dụ: "67232813680").
+   - TRƯỜNG "Cặp giao dịch" hoặc "BTC/USDT": asset_symbol: "BTC", currency: "USDT".
+   - TRƯỜNG "Mua" (màu xanh) -> transaction_type: "buy", "Bán" (màu đỏ) -> transaction_type: "sell".
+   - TRƯỜNG "2026-10-07 09:00:57" -> transaction_date: "2026-10-07".
+   - Sàn: broker_name: "Binance".
 
-HÃY ĐỌC TOÀN BỘ CHỮ VÀ SỐ TRONG ẢNH VÀ TRÍCH XUẤT CÁC THÔNG TIN CHÍNH XÁC NHẤT:
-1. asset_symbol: Mã tài sản viết hoa.
-   - Nếu là cặp Crypto "BTC/USDT" hoặc "BTCUSDT" -> asset_symbol: "BTC".
-   - Nếu là "ETH/USDT" -> asset_symbol: "ETH".
-   - Nếu là cổ phiếu Việt Nam "HPG", "FPT", "VCB", "MWG", "TCB", "SSI" -> ghi đúng mã.
-   - Nếu là Vàng SJC -> asset_symbol: "SJC".
-2. asset_name: Tên đầy đủ (ví dụ: "Bitcoin", "Ethereum", "Cổ phiếu Hòa Phát", "Vàng miếng SJC").
-3. asset_type: 'crypto' | 'stock' | 'gold' | 'fund' | 'other'.
-4. transaction_type: 'buy' nếu là Mua / Khớp mua / Long / Xanh; 'sell' nếu là Bán / Khớp bán / Short / Đỏ; 'dividend' nếu là Cổ tức.
-5. quantity: Khối lượng khớp lệnh thực tế (SỐ THỰC CHÍNH XÁC, ví dụ: 0.00102 hoặc 500 hoặc 1.5 hoặc 2). KHÔNG LÀM TRÒN.
-6. price_per_unit: Đơn giá khớp lệnh mỗi đơn vị (SỐ THỰC CHÍNH XÁC, ví dụ: 84300 hoặc 28500 hoặc 89500000).
-7. fee: Phí giao dịch (SỐ THỰC, ví dụ: 0.00008404 hoặc 15000 hoặc 0).
-8. fee_currency: Đơn vị tiền tệ của phí giao dịch ('BNB', 'USDT', 'VND', 'USD'). (Ví dụ: trên Binance thường trả phí bằng 'BNB' hoặc 'USDT').
-9. total_amount: Tổng giá trị giao dịch (SỐ THỰC, ví dụ: 85.986 hoặc 14265000).
-10. currency: Đơn vị tiền tệ của đơn giá ('USDT', 'VND', 'USD'). Nếu là cặp Crypto /USDT thì currency là 'USDT'.
-11. transaction_date: Ngày giao dịch theo chuẩn YYYY-MM-DD (Ví dụ: "2026-10-07").
-12. broker_name: Tên sàn hoặc CTCK (ví dụ: "Binance", "TCBS", "VPS", "SSI", "OKX", "Bybit").
-13. order_id: Mã lệnh / Lệnh số / Số chứng từ nếu có (ví dụ: "67232813680").
-14. notes: Ghi chú tóm tắt lệnh giao dịch.
-15. missing_fields: Mảng các trường bắt buộc không tìm thấy trong ảnh ['asset_symbol', 'quantity', 'price_per_unit', 'transaction_date']. Nếu đã tìm thấy đầy đủ thì để mảng rỗng [].
-16. confidence: Độ tin cậy từ 0 đến 100 (ví dụ 95).
+2. Sàn Chứng khoán Việt Nam (TCBS, VPS SmartOne, SSI iBoard, VNDIRECT, BSC, Mirae Asset):
+   - Mã cổ phiếu: "HPG", "FPT", "VCB", "SSI"...
+   - Khối lượng: "500" CP -> quantity: 500.
+   - Đơn giá: "28.500" -> price_per_unit: 28500.
+   - Phí: "15.000" -> fee: 15000, fee_currency: "VND".
 
-QUY TẮC BẮT BUỘC VỀ SỐ THẬP PHÂN & DẤU PHÂN CÁCH:
-- Trên Binance tiếng Việt:
-  + "84.300,00" -> price_per_unit: 84300
-  + "0,00102" hoặc "0.00102000" -> quantity: 0.00102
-  + "0,00008404" -> fee: 0.00008404
-  + "85,986" -> total_amount: 85.986
-- Trên CTCK Việt Nam:
-  + "28.500" -> price_per_unit: 28500
-  + "500" -> quantity: 500
-  + "15.000" -> fee: 15000
-- TẤT CẢ các trường số PHẢI trả về kiểu NUMBER (ví dụ: 0.00102, 84300), TUYỆT ĐỐI KHÔNG trả về chuỗi string có dấu chấm/phẩy.
+3. Vàng miếng & Vàng nhẫn (SJC, DOJI, PNJ, Bảo Tín Minh Châu):
+   - Số lượng: 1 lượng, 2 chỉ... -> quantity: 1 hoặc 2.
+   - Đơn giá: 89.500.000 -> price_per_unit: 89500000.
 
-Danh sách tài sản sẵn có của người dùng:
+HÃY TRÍCH XUẤT CÁC TRƯỜNG SAU (TRẢ VỀ ĐÚNG ĐỊNH DẠNG JSON):
+{
+  "asset_symbol": "BTC",
+  "asset_name": "Bitcoin",
+  "asset_type": "crypto",
+  "transaction_type": "buy",
+  "quantity": 0.00102,
+  "price_per_unit": 84300,
+  "fee": 0.00008404,
+  "fee_currency": "BNB",
+  "total_amount": 85.986,
+  "currency": "USDT",
+  "transaction_date": "2026-10-07",
+  "broker_name": "Binance",
+  "order_id": "67232813680",
+  "notes": "Khớp lệnh Mua 0.00102 BTC @ 84300 USDT trên Binance",
+  "missing_fields": [],
+  "confidence": 99
+}
+
+QUY TẮC BẮT BUỘC:
+- Tất cả các trường số (quantity, price_per_unit, fee, total_amount) PHẢI là NUMBER (ví dụ: 0.00102, 84300, 0.00008404), KHÔNG trả về chuỗi string có dấu phẩy.
+- Nếu thấy trường "Đã khớp lệnh" hoặc "Số lượng" trong ảnh, TUYỆT ĐỐI KHÔNG ĐƯỢC để quantity = null.
+
+Danh sách tài sản của người dùng:
 ${JSON.stringify(currentAssets.map((a: any) => ({ symbol: a.asset_symbol || a.symbol, name: a.asset_name || a.name, type: a.asset_type || a.type })))}
 
-Trả về JSON thuần túy theo đúng cấu trúc.`;
+Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
 
       let parsedData: any = null;
       let usedModel = requestedModel || 'gemini-2.5-flash';
@@ -498,42 +505,78 @@ CÁC DẠNG HÓA ĐƠN & BỐ CỤC (DOCUMENT LAYOUTS) CẦN XỬ LÝ:
 6. 'ecommerce': Đơn mua hàng thương mại điện tử trực tuyến (Shopee, Lazada, Tiki, TikTok Shop).
 7. 'general': Các loại hóa đơn thanh toán / phiếu thu khác.
 
-QUY TẮC BÓC TÁCH TRƯỜNG DỮ LIỆU ĐẶC BIỆT:
+QUY TẮC BẮT BUỘC VỀ BÓC TÁCH CHI TIẾT TỪNG MẶT HÀNG & SỐ LƯỢNG (MANDATORY QUANTITY & LINE ITEMS EXTRACTION):
+1. TRƯỜNG "items": Bắt buộc bóc tách toàn bộ danh sách các mặt hàng / dịch vụ có trong hóa đơn. Mỗi phần tử là 1 object có cấu trúc:
+   - "name": Tên mặt hàng / sản phẩm / dịch vụ (chuỗi string).
+   - "quantity": SỐ LƯỢNG MẶT HÀNG (kiểu NUMBER dương, ví dụ: 1, 2, 0.5, 3).
+     + Nếu hóa đơn ghi "x2", "SL: 2", "Qty: 2", "2 ly", "2 cái", "0.5 kg" -> quantity: 2 hoặc 0.5.
+     + Nếu không ghi rõ số lượng từng món, mặc định quantity: 1.
+     + TUYỆT ĐỐI KHÔNG ĐỂ quantity = null hoặc 0.
+   - "unit_price": Đơn giá của 1 đơn vị (kiểu NUMBER, ví dụ: 36000).
+   - "total_price": Thành tiền của món = quantity * unit_price (kiểu NUMBER, ví dụ: 72000).
+   - "unit": Đơn vị tính nếu có ("hộp", "ly", "cái", "kg", "chai", "suất", "gói"...).
+2. TRƯỜNG "total_quantity": Tổng số lượng tất cả các sản phẩm mua trên hóa đơn (kiểu NUMBER, ví dụ: 5).
+3. TRƯỜNG "items_summary": Chuỗi tóm tắt các món kèm số lượng và thành tiền (ví dụ: "2x Sữa tươi Vinamilk 1L (72.000 đ), 1x Trứng gà Ba Huân hộp 10 quả (34.000 đ), 1x Thịt nạc heo CP (85.000 đ)").
 
+QUY TẮC BÓC TÁCH CÁC TRƯỜNG CHÍNH:
 A. SỐ TIỀN THANH TOÁN THỰC TẾ (amount):
 - Bắt buộc tìm và trích xuất SỐ TIỀN THỰC TẾ ĐÃ THANH TOÁN (Final Payable / Charged Amount).
 - Tìm các từ khóa: "TỔNG TIỀN THANH TOÁN", "TỔNG CỘNG", "THÀNH TIỀN", "CẦN THANH TOÁN", "TIỀN PHẢI TRẢ", "Grand Total", "Total Amount", "Amount Paid", "Số tiền giao dịch", "Số tiền chuyển".
-- NẾU CÓ CHIẾT KHẤU / GIẢM GIÁ / VOUCHER: Số tiền 'amount' PHẢI LÀ số tiền sau khi đã trừ giảm giá (ví dụ: Tiền hàng 200k, giảm 20k -> amount = 180000).
-- KHÔNG ĐƯỢC nhầm lẫn với "Tiền khách đưa" (Cash Tendered) hay "Tiền thừa trả lại" (Change Given).
-- Chuyển đổi định dạng số Việt Nam & quốc tế sang dạng NUMBER dương: "205.000 đ" -> 205000, "1,250,000" -> 1250000, "45.000,00" -> 45000, "18.50 $" -> 18.5.
+- NẾU CÓ CHIẾT KHẤU / GIẢM GIÁ / VOUCHER: Số tiền 'amount' PHẢI LÀ số tiền sau khi đã trừ giảm giá.
+- Chuyển đổi định dạng số Việt Nam & quốc tế sang dạng NUMBER dương: "205.000 đ" -> 205000, "1,250,000" -> 1250000.
 
 B. NGÀY GIAO DỊCH (transaction_date):
-- Tìm ngày thực hiện giao dịch hoặc ngày xuất hóa đơn (tìm các từ: "Ngày GD", "Ngày", "Date", "Thời gian", "Thời gian giao dịch", "Ngày lập", "Time").
-- BẮT BUỘC chuẩn hóa về định dạng duy nhất: YYYY-MM-DD (Ví dụ: "2026-10-07").
-- Xử lý các định dạng phổ biến:
-  + "07/10/2026 14:32" hoặc "07-10-2026" -> "2026-10-07"
-  + "07.10.2026" -> "2026-10-07"
-  + "2026/10/07" hoặc "2026.10.07" -> "2026-10-07"
-  + "07/10/26" -> "2026-10-07"
-  + "Ngày 07 tháng 10 năm 2026" -> "2026-10-07"
-  + "07 Oct 2026" hoặc "October 07, 2026" -> "2026-10-07"
-- Nếu hóa đơn không có ngày hoặc quá mờ, trả về null.
+- Tìm ngày thực hiện giao dịch hoặc ngày xuất hóa đơn (chuẩn hóa về định dạng duy nhất: YYYY-MM-DD, ví dụ: "2026-10-07").
 
 C. TÊN GIAO DỊCH / CỬA HÀNG (name):
-- Tên thương hiệu, cửa hàng, người nhận hoặc dịch vụ (ví dụ: "Siêu thị WinMart+", "Highlands Coffee - Nguyễn Huệ", "Chuyến đi GrabCar", "Chuyển tiền cho Nguyễn Văn A", "Điện lực EVN TP.HCM").
+- Tên thương hiệu, cửa hàng, người nhận hoặc dịch vụ (ví dụ: "Siêu thị WinMart+", "Highlands Coffee - Vincom", "GrabCar", "Chuyển tiền cho Nguyễn Văn A", "EVN TP.HCM").
 
 D. CÁC TRƯỜNG KHÁC:
-- fee: Phụ phí dịch vụ, VAT, phí ship, phí cầu đường (nếu có ghi riêng) bằng số, hoặc 0.
+- fee: Phụ phí dịch vụ, phí ship, phí cầu đường (nếu có ghi riêng) bằng số, hoặc 0.
+- tax: Tiền thuế VAT nếu có ghi riêng bằng số, hoặc 0.
 - category: Chọn 1 danh mục phù hợp nhất từ [${categoriesListStr}].
 - transaction_type: 'expense' (chi tiêu) hoặc 'income' (thu nhập / nhận tiền).
-- items_summary: Tóm tắt 2-5 mặt hàng chính trong bill (ví dụ: "Sữa tươi, Trứng gà, Thịt heo" hoặc "Phin Sữa Đá, Trà Sen Vàng").
 - document_layout: 1 trong các giá trị ['supermarket_pos', 'fnb_dining', 'ride_delivery', 'bank_transfer', 'utility_bill', 'ecommerce', 'general'].
-- layout_label: Tên tiếng Việt của dạng bố cục (ví dụ: "Hóa đơn Siêu thị / Bán lẻ", "Hóa đơn F&B / Nhà hàng", "Biên lai Chuyến đi / Giao hàng", "Biên lai Chuyển khoản Ngân hàng", "Hóa đơn Điện nước / Tiện ích").
+- layout_label: Tên tiếng Việt của bố cục (ví dụ: "Hóa đơn Siêu thị / Bán lẻ", "Hóa đơn F&B / Nhà hàng").
 - notes: Ghi chú thêm chi tiết (mã hóa đơn, địa chỉ, phương thức thanh toán...).
-- missing_fields: Danh sách các trường quan trọng còn thiếu trong mảng ['name', 'amount', 'date'].
+- missing_fields: Danh sách các trường quan trọng còn thiếu trong mảng ['name', 'amount', 'transaction_date']. Nếu đủ thì để mảng rỗng [].
 - confidence: Điểm tin cậy từ 0-100.
 
-Trả về kết quả chuẩn định dạng JSON duy nhất.`;
+CẤU TRÚC JSON MẪU BẮT BUỘC TRẢ VỀ:
+{
+  "name": "Siêu thị WinMart+",
+  "amount": 215000,
+  "transaction_date": "2026-10-07",
+  "fee": 0,
+  "tax": 0,
+  "category": "Ăn uống",
+  "transaction_type": "expense",
+  "document_layout": "supermarket_pos",
+  "layout_label": "Hóa đơn Siêu thị / Bán lẻ",
+  "total_quantity": 5,
+  "items": [
+    {
+      "name": "Sữa tươi tiệt trùng Vinamilk 1L",
+      "quantity": 2,
+      "unit_price": 36000,
+      "total_price": 72000,
+      "unit": "hộp"
+    },
+    {
+      "name": "Trứng gà Ba Huân hộp 10 quả",
+      "quantity": 1,
+      "unit_price": 34000,
+      "total_price": 34000,
+      "unit": "hộp"
+    }
+  ],
+  "items_summary": "2x Sữa tươi Vinamilk 1L (72.000 đ), 1x Trứng gà Ba Huân (34.000 đ)",
+  "notes": "Hóa đơn HD-8849204 | Thẻ Vietcombank",
+  "missing_fields": [],
+  "confidence": 98
+}
+
+Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
 
       let parsedData: any = null;
       let usedModel = requestedModel || 'gemini-2.5-flash';
@@ -570,11 +613,24 @@ Trả về kết quả chuẩn định dạng JSON duy nhất.`;
 
             const responseText = response?.text || '';
             if (responseText.trim()) {
+              console.log(`\n======================================================`);
+              console.log(`🔍 [DEBUG Expense Scanner - RAW Gemini AI Output (${modelName})]:`);
+              console.log(responseText);
+              console.log(`======================================================\n`);
+
               const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
               parsedData = JSON.parse(cleanJson);
               if (parsedData && (parsedData.name || parsedData.amount)) {
                 usedModel = modelName;
-                console.log(`[Scan Expense Bill] Successfully parsed using model ${modelName}:`, parsedData.name, parsedData.amount, parsedData.transaction_date);
+                parsedData._raw_ai_text = responseText;
+                parsedData._used_model = modelName;
+                console.log(`[Scan Expense Bill] Successfully parsed using model ${modelName}:`, {
+                  name: parsedData.name,
+                  amount: parsedData.amount,
+                  total_quantity: parsedData.total_quantity,
+                  items_count: parsedData.items?.length,
+                  date: parsedData.transaction_date,
+                });
                 break;
               }
             }
@@ -612,6 +668,24 @@ Trả về kết quả chuẩn định dạng JSON duy nhất.`;
       parsedData.fee = parsedExpenseFee;
       parsedData.transaction_date = parsedExpenseDate;
 
+      // Normalize individual line items and quantity
+      if (Array.isArray(parsedData.items) && parsedData.items.length > 0) {
+        parsedData.items = parsedData.items.map((it: any) => ({
+          name: typeof it.name === 'string' ? it.name.trim() : 'Mặt hàng',
+          quantity: parseFlexibleNumber(it.quantity) || 1,
+          unit_price: parseFlexibleNumber(it.unit_price) || null,
+          total_price: parseFlexibleNumber(it.total_price) || null,
+          unit: typeof it.unit === 'string' ? it.unit.trim() : null,
+        }));
+
+        if (!parsedData.total_quantity || parsedData.total_quantity <= 0) {
+          parsedData.total_quantity = parsedData.items.reduce((sum: number, it: any) => sum + (it.quantity || 1), 0);
+        }
+      } else {
+        parsedData.items = [];
+        parsedData.total_quantity = 1;
+      }
+
       // Re-evaluate missing fields
       const missingFields: string[] = [];
       if (!parsedData.name || !parsedData.name.trim()) missingFields.push('name');
@@ -623,6 +697,8 @@ Trả về kết quả chuẩn định dạng JSON duy nhất.`;
       return res.json({
         success: true,
         data: parsedData,
+        raw_output: parsedData?._raw_ai_text || null,
+        used_model: usedModel,
         message: missingFields.length === 0
           ? 'Quét hóa đơn chi tiêu hoàn tất 100%!'
           : `Đã quét hóa đơn, còn ${missingFields.length} thông tin cần bổ sung`,

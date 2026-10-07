@@ -202,6 +202,11 @@ export const ExpenseScanner: React.FC<ExpenseScannerProps> = ({
   const [txCategory, setTxCategory] = useState(defaultCategory || 'Ăn uống');
   const [txType, setTxType] = useState<'expense' | 'income'>('expense');
   const [txNotes, setTxNotes] = useState('');
+  const [scannedItems, setScannedItems] = useState<any[]>([]);
+  const [scannedTotalQty, setScannedTotalQty] = useState<number | null>(null);
+  const [rawDebugJson, setRawDebugJson] = useState<string | null>(null);
+  const [isDebugModeOpen, setIsDebugModeOpen] = useState<boolean>(false);
+  const [copiedDebug, setCopiedDebug] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [autoAddAfterScan, setAutoAddAfterScan] = useState(false);
 
@@ -319,6 +324,18 @@ export const ExpenseScanner: React.FC<ExpenseScannerProps> = ({
 
       if (result.success && result.data) {
         const data = result.data;
+        const rawJsonString = result.raw_output || JSON.stringify(data, null, 2);
+        setRawDebugJson(rawJsonString);
+
+        // 🔍 DEBUG MODE: Console log the raw JSON output from Gemini API before app processing
+        console.group('🔍 [Expense Scanner DEBUG MODE] Raw Gemini JSON Output');
+        console.log('Model Used:', result.used_model || selectedModel);
+        console.log('Raw JSON from Gemini:', rawJsonString);
+        console.log('Extracted items array:', data.items);
+        console.log('Extracted total_quantity:', data.total_quantity);
+        console.log('Parsed data object:', data);
+        console.groupEnd();
+
         setScanSuccess(true);
         setScanConfidence(data.confidence || 95);
         setDetectedLayout(data.document_layout || 'general');
@@ -372,7 +389,16 @@ export const ExpenseScanner: React.FC<ExpenseScannerProps> = ({
           setTxType(data.transaction_type);
         }
 
-        // 7. Notes & Summary
+        // 7. Line Items & Quantities
+        if (Array.isArray(data.items) && data.items.length > 0) {
+          setScannedItems(data.items);
+          setScannedTotalQty(data.total_quantity || data.items.reduce((s, it) => s + (it.quantity || 1), 0));
+        } else {
+          setScannedItems([]);
+          setScannedTotalQty(null);
+        }
+
+        // 8. Notes & Summary
         const noteSegments: string[] = [];
         if (data.items_summary && data.items_summary.trim()) {
           noteSegments.push(`Chi tiết: ${data.items_summary.trim()}`);
@@ -387,7 +413,7 @@ export const ExpenseScanner: React.FC<ExpenseScannerProps> = ({
           setTxNotes(noteSegments.join(' • '));
         }
 
-        // 8. Missing Required Fields Inspection
+        // 9. Missing Required Fields Inspection
         const currentMissing: string[] = [];
         if (!data.name || !data.name.trim()) currentMissing.push('name');
         if (normalizedAmount === null || normalizedAmount <= 0) currentMissing.push('amount');
@@ -891,13 +917,64 @@ export const ExpenseScanner: React.FC<ExpenseScannerProps> = ({
               </span>
             </div>
             {layoutLabel && (
-              <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
-                <span className="font-semibold">Bố cục nhận diện:</span>
-                <span className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-100 font-medium">
-                  {layoutLabel}
-                </span>
+              <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">Bố cục nhận diện:</span>
+                  <span className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-100 font-medium">
+                    {layoutLabel}
+                  </span>
+                </div>
+                {rawDebugJson && (
+                  <button
+                    type="button"
+                    onClick={() => setIsDebugModeOpen(!isDebugModeOpen)}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-purple-700 dark:text-purple-300 hover:underline cursor-pointer"
+                  >
+                    <SlidersHorizontal className="w-3 h-3" />
+                    <span>{isDebugModeOpen ? 'Ẩn Debug JSON' : '🛠️ Debug Mode (Xem JSON Gốc)'}</span>
+                  </button>
+                )}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Interactive Debug Mode Viewer: Raw JSON Output from Gemini API */}
+        {isDebugModeOpen && rawDebugJson && (
+          <div className="p-3.5 rounded-xl bg-slate-900 text-slate-100 border border-slate-700 space-y-2 text-xs font-mono animate-in fade-in duration-150">
+            <div className="flex items-center justify-between border-b border-slate-700 pb-2">
+              <span className="flex items-center gap-1.5 font-bold text-emerald-400">
+                <span>🔍 RAW GEMINI API JSON OUTPUT</span>
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(rawDebugJson);
+                    setCopiedDebug(true);
+                    setTimeout(() => setCopiedDebug(false), 2000);
+                  }}
+                  className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-sans font-semibold border border-slate-600 cursor-pointer flex items-center gap-1"
+                >
+                  {copiedDebug ? <Check className="w-3 h-3 text-emerald-400" /> : null}
+                  <span>{copiedDebug ? 'Đã sao chép' : 'Sao chép JSON'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsDebugModeOpen(false)}
+                  className="text-slate-400 hover:text-white p-0.5"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <pre className="p-2.5 rounded-lg bg-slate-950/80 overflow-x-auto text-[11px] text-emerald-300 leading-relaxed max-h-60 overflow-y-auto">
+              {rawDebugJson}
+            </pre>
+            <p className="text-[10px] text-slate-400 font-sans">
+              💡 Bạn cũng có thể mở <kbd className="px-1 py-0.5 bg-slate-800 rounded">F12 &gt; Console</kbd> để xem log nhóm chi tiết: <code className="text-emerald-400 font-mono">[Expense Scanner DEBUG MODE]</code>.
+            </p>
           </div>
         )}
 
@@ -1086,6 +1163,56 @@ export const ExpenseScanner: React.FC<ExpenseScannerProps> = ({
             </select>
           </div>
         </div>
+
+        {/* Extracted Line Items with Quantity badges */}
+        {scannedItems.length > 0 && (
+          <div className="p-3.5 rounded-xl bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/80 dark:border-purple-800/50 space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold text-purple-950 dark:text-purple-200">
+              <span className="flex items-center gap-1.5">
+                <ShoppingBag className="w-3.5 h-3.5 text-purple-600" />
+                Danh Sách Mặt Hàng Đã Bóc Tách ({scannedItems.length} món)
+              </span>
+              {scannedTotalQty !== null && (
+                <span className="px-2 py-0.5 rounded-full bg-purple-200 dark:bg-purple-900/60 text-purple-800 dark:text-purple-200 text-[10px] font-bold">
+                  Tổng SL: {scannedTotalQty}
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+              {scannedItems.map((item, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white/90 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 text-xs"
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <span className="px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 font-extrabold text-[10px] shrink-0">
+                      x{item.quantity || 1}
+                    </span>
+                    <span className="font-medium text-slate-800 dark:text-slate-200 truncate">
+                      {item.name}
+                    </span>
+                    {item.unit && (
+                      <span className="text-[10px] text-slate-400">({item.unit})</span>
+                    )}
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    {item.total_price ? (
+                      <span className="font-bold text-slate-900 dark:text-white">
+                        {formatCurrency(item.total_price)}
+                      </span>
+                    ) : item.unit_price ? (
+                      <span className="text-slate-500 text-[11px]">
+                        @{formatCurrency(item.unit_price)}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Row 3: Notes & Itemized details */}
         <div>

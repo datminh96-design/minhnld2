@@ -27,6 +27,14 @@ export interface ScanBillResponse {
   message?: string;
 }
 
+export interface ReceiptLineItem {
+  name: string;
+  quantity: number;
+  unit_price?: number | null;
+  total_price?: number | null;
+  unit?: string | null;
+}
+
 export interface ExtractedExpenseData {
   name: string;
   amount: number | null;
@@ -36,6 +44,8 @@ export interface ExtractedExpenseData {
   transaction_type: 'expense' | 'income';
   document_layout?: 'supermarket_pos' | 'fnb_dining' | 'ride_delivery' | 'bank_transfer' | 'utility_bill' | 'ecommerce' | 'general';
   layout_label?: string;
+  items?: ReceiptLineItem[];
+  total_quantity?: number | null;
   items_summary?: string;
   notes?: string;
   currency?: string;
@@ -49,6 +59,8 @@ export interface ExtractedExpenseData {
 export interface ScanExpenseResponse {
   success: boolean;
   data?: ExtractedExpenseData;
+  raw_output?: string | null;
+  used_model?: string;
   error?: string;
   message?: string;
 }
@@ -69,15 +81,15 @@ export const billScannerService = {
   /**
    * Compress image on client side if too large, while maintaining high crispness for OCR
    */
-  async compressImage(dataUrl: string, maxWidth = 2000, maxHeight = 2000, quality = 0.92): Promise<string> {
+  async compressImage(dataUrl: string, maxWidth = 2400, maxHeight = 2400, quality = 0.95): Promise<string> {
     if (typeof window === 'undefined') return dataUrl;
 
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
         let { width, height } = img;
-        // If image is already reasonably sized and within limits, return directly
-        if (width <= maxWidth && height <= maxHeight && dataUrl.length < 3 * 1024 * 1024) {
+        // If image is already reasonably sized and under 5MB, keep pristine original for maximum OCR accuracy
+        if (width <= maxWidth && height <= maxHeight && dataUrl.length < 5 * 1024 * 1024) {
           resolve(dataUrl);
           return;
         }
@@ -169,6 +181,16 @@ export const billScannerService = {
 
         if (response.ok) {
           resJson = await response.json();
+          if (resJson) {
+            console.group('🔍 [DEBUG Mode - Expense Scanner RAW Gemini Output]');
+            console.log('API Success Status:', resJson.success);
+            console.log('Model Used:', resJson.used_model);
+            console.log('Parsed Data Structure:', resJson.data);
+            console.log('Extracted Line Items (with Quantities):', resJson.data?.items);
+            console.log('Total Quantity:', resJson.data?.total_quantity);
+            console.log('Raw JSON String from Gemini API:\n', resJson.raw_output || JSON.stringify(resJson.data, null, 2));
+            console.groupEnd();
+          }
         }
       } catch (fetchErr) {
         clearInterval(interval);
