@@ -117,8 +117,10 @@ export const billScannerService = {
   async scanExpenseBill(
     fileOrBase64: File | string,
     existingCategories: any[] = [],
-    onProgress?: (percent: number, statusText: string) => void
+    onProgress?: (percent: number, statusText: string) => void,
+    preferredModel?: string
   ): Promise<ScanExpenseResponse> {
+    let interval: any = null;
     try {
       onProgress?.(10, 'Đang chuẩn bị ảnh hóa đơn...');
 
@@ -135,7 +137,7 @@ export const billScannerService = {
       onProgress?.(45, 'Đang gửi ảnh tới AI Gemini OCR...');
 
       let simulatedPercent = 45;
-      const interval = setInterval(() => {
+      interval = setInterval(() => {
         if (simulatedPercent < 88) {
           simulatedPercent += Math.floor(Math.random() * 8) + 4;
           if (simulatedPercent > 88) simulatedPercent = 88;
@@ -149,6 +151,7 @@ export const billScannerService = {
         imageBase64: compressedBase64,
         mimeType: 'image/jpeg',
         existingCategories: existingCategories.map((c) => (typeof c === 'string' ? c : c.name)),
+        model: preferredModel,
       };
 
       let resJson: ScanExpenseResponse | null = null;
@@ -198,6 +201,7 @@ export const billScannerService = {
       };
     } catch (err: any) {
       console.error('[scanExpenseBill] error:', err);
+      if (interval) clearInterval(interval);
       onProgress?.(100, 'Quét hoàn tất');
       const todayStr = new Date().toISOString().split('T')[0];
       return {
@@ -225,7 +229,8 @@ export const billScannerService = {
   async scanBill(
     fileOrBase64: File | string,
     currentAssets: InvestmentAsset[] = [],
-    onProgress?: (percent: number, statusText: string) => void
+    onProgress?: (percent: number, statusText: string) => void,
+    preferredModel?: string
   ): Promise<ScanBillResponse> {
     let interval: any = null;
     try {
@@ -263,6 +268,7 @@ export const billScannerService = {
           name: a.asset_name,
           type: a.asset_type,
         })),
+        model: preferredModel,
       };
 
       let resJson: ScanBillResponse | null = null;

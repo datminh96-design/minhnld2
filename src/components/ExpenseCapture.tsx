@@ -179,6 +179,7 @@ export const ExpenseCapture: React.FC<ExpenseCaptureProps> = ({
   const [detectedLayout, setDetectedLayout] = useState<string | null>(null);
   const [layoutLabel, setLayoutLabel] = useState<string | null>(null);
   const [missingFields, setMissingFields] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-flash-lite');
 
   // Form Field States (Extracted details: name, amount, date, fee, category, type)
   const [txName, setTxName] = useState('');
@@ -230,7 +231,8 @@ export const ExpenseCapture: React.FC<ExpenseCaptureProps> = ({
         (percent, status) => {
           setScanProgress(percent);
           setScanStatusText(status);
-        }
+        },
+        selectedModel
       );
 
       if (result.success && result.data) {
@@ -652,6 +654,26 @@ export const ExpenseCapture: React.FC<ExpenseCaptureProps> = ({
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Model AI Selector (Free & High Accuracy) */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-xl bg-purple-50/70 dark:bg-purple-950/40 border border-purple-200/80 dark:border-purple-800/60 text-xs">
+            <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200">
+              <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+              <span>Model AI Quét Hóa Đơn:</span>
+            </div>
+            <select
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              disabled={isScanning}
+              className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-purple-300 dark:border-purple-700 text-xs font-semibold focus:outline-hidden focus:ring-1 focus:ring-purple-500 cursor-pointer shadow-2xs"
+            >
+              <option value="gemini-3.1-flash-lite">⚡ Gemini 3.1 Flash Lite (🆓 Miễn phí • Siêu tốc 1.1s)</option>
+              <option value="gemini-2.5-flash">⚡ Gemini 2.5 Flash (🆓 Miễn phí • Bóc tách số chuẩn)</option>
+              <option value="gemini-3.8-flash">🚀 Gemini 3.8 Flash (🆓 Miễn phí • Thị giác mới nhất)</option>
+              <option value="gemini-flash-latest">🧠 Gemini Flash Latest (🆓 Miễn phí • Tự động)</option>
+              <option value="gemini-3.7-flash">🎯 Gemini 3.7 Flash (🆓 Miễn phí • Đa nhiệm)</option>
+            </select>
           </div>
 
           {/* Quick Demo Sample Bills - 5 Document Layout Types */}

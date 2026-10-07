@@ -159,21 +159,31 @@ function parseFlexibleDateToISO(raw: string | null | undefined): string | null {
   return null;
 }
 
+function normalizeVisionModelName(model?: string): string {
+  if (!model) return 'gemini-3.1-flash-lite';
+  const m = model.toLowerCase().trim();
+  if (m.includes('3.5') || m.includes('lite') || m.includes('3.1-flash-lite')) return 'gemini-3.1-flash-lite';
+  if (m.includes('2.5')) return 'gemini-2.5-flash';
+  if (m.includes('3.8')) return 'gemini-3.8-flash';
+  if (m.includes('3.7')) return 'gemini-3.7-flash';
+  if (m.includes('latest')) return 'gemini-flash-latest';
+  return model;
+}
+
 function getCandidateModels(preferredModel?: string): string[] {
+  const normPreferred = preferredModel ? normalizeVisionModelName(preferredModel) : 'gemini-3.1-flash-lite';
   const validModels = [
-    preferredModel,
+    normPreferred,
     'gemini-3.1-flash-lite',
-    'gemini-2.5-pro',
-    'gemini-3.1-pro',
+    'gemini-2.5-flash',
     'gemini-3.8-flash',
     'gemini-flash-latest',
     'gemini-3.7-flash',
-    'gemini-2.5-flash',
   ].filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
 
   // Exclude models in cooldown
   const available = validModels.filter((m) => !isModelInCooldown(m));
-  return available.slice(0, 3);
+  return available.length > 0 ? available.slice(0, 3) : validModels.slice(0, 3);
 }
 
 function getGeminiClient(): GoogleGenAI | null {
@@ -206,11 +216,19 @@ app.use(express.static(path.join(process.cwd(), 'public')));
       success: true,
       models: [
         {
+          id: 'gemini-2.5-flash',
+          name: 'Gemini 2.5 Flash',
+          badge: '🆓 Miễn phí & Cực chuẩn',
+          description: 'Mô hình thị giác Gemini tiêu chuẩn, nhận diện bảng biểu & hóa đơn số 1',
+          isRecommended: true,
+          type: 'fast',
+        },
+        {
           id: 'gemini-3.1-flash-lite',
           name: 'Gemini 3.1 Flash Lite',
-          badge: '⚡ Khuyên dùng (1.1s)',
-          description: 'Mô hình siêu nhanh & nhận diện số thập phân chuẩn xác 100%',
-          isRecommended: true,
+          badge: '⚡ Siêu nhanh (1.1s)',
+          description: 'Mô hình siêu nhẹ thế hệ 3.1 tối ưu tốc độ',
+          isRecommended: false,
           type: 'fast',
         },
         {
@@ -222,20 +240,20 @@ app.use(express.static(path.join(process.cwd(), 'public')));
           type: 'general',
         },
         {
+          id: 'gemini-flash-latest',
+          name: 'Gemini Flash Latest',
+          badge: '⚡ Flash Mới',
+          description: 'Phiên bản Flash cập nhật trực tiếp',
+          isRecommended: false,
+          type: 'general',
+        },
+        {
           id: 'gemini-3.7-flash',
           name: 'Gemini 3.7 Flash',
           badge: '🧠 Đa nhiệm',
           description: 'Mô hình phân tích bố cục đa dạng cân bằng',
           isRecommended: false,
           type: 'balanced',
-        },
-        {
-          id: 'gemini-3.1-pro-preview',
-          name: 'Gemini 3.1 Pro',
-          badge: '⭐ Pro Reasoning',
-          description: 'Mô hình Pro phân tích chuyên sâu các chứng từ phức tạp',
-          isRecommended: false,
-          type: 'pro',
         },
       ],
     });
@@ -263,9 +281,9 @@ app.use(express.static(path.join(process.cwd(), 'public')));
 
       const prompt = `Bạn là chuyên gia thị giác AI phân tích ảnh chụp màn hình biên lai lệnh giao dịch tài chính cực kỳ chính xác.
 ĐẶC BIỆT THÔNG THẠO:
-- Sàn Crypto (Binance, OKX, Bybit, KuCoin): Giao diện Giao dịch của tôi / Lịch sử giao dịch / Giao ngay / Spot, khớp lệnh Mua/Bán (Buy/Sell). Ví dụ cặp "BTC/USDT", "ETH/USDT", "SOL/USDT".
-- Sàn Chứng khoán Việt Nam (TCBS, VPS SmartOne, SSI iBoard, VNDIRECT, BSC, Mirae Asset): Lệnh mua/bán cổ phiếu khớp lệnh.
-- Biên nhận Vàng miếng / Vàng nhẫn (SJC, DOJI, PNJ, Bảo Tín Minh Châu).
+- Sàn Crypto (Binance, OKX, Bybit, KuCoin, Gate.io): Giao diện Giao dịch của tôi / Lịch sử giao dịch / Giao ngay / Spot / Khớp lệnh Mua/Bán (Buy/Sell). Ví dụ: "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT".
+- Sàn Chứng khoán Việt Nam (TCBS, VPS SmartOne, SSI iBoard, VNDIRECT, BSC, Mirae Asset, MBS): Lệnh mua/bán cổ phiếu khớp lệnh.
+- Biên nhận Vàng miếng / Vàng nhẫn (SJC, DOJI, PNJ, Bảo Tín Minh Châu, Phú Quý).
 - Chứng chỉ quỹ mở (Dragon Capital, VinaCapital, SSIAM, VCBF).
 
 HÃY ĐỌC TOÀN BỘ CHỮ VÀ SỐ TRONG ẢNH VÀ TRÍCH XUẤT CÁC THÔNG TIN CHÍNH XÁC NHẤT:
@@ -276,8 +294,8 @@ HÃY ĐỌC TOÀN BỘ CHỮ VÀ SỐ TRONG ẢNH VÀ TRÍCH XUẤT CÁC THÔNG 
    - Nếu là Vàng SJC -> asset_symbol: "SJC".
 2. asset_name: Tên đầy đủ (ví dụ: "Bitcoin", "Ethereum", "Cổ phiếu Hòa Phát", "Vàng miếng SJC").
 3. asset_type: 'crypto' | 'stock' | 'gold' | 'fund' | 'other'.
-4. transaction_type: 'buy' nếu là Mua / Khớp mua / Long; 'sell' nếu là Bán / Khớp bán / Short; 'dividend' nếu là Cổ tức.
-5. quantity: Khối lượng khớp lệnh thực tế (SỐ THỰC CHÍNH XÁC, ví dụ: 0.00102 hoặc 500 hoặc 1.5). KHÔNG LÀM TRÒN.
+4. transaction_type: 'buy' nếu là Mua / Khớp mua / Long / Xanh; 'sell' nếu là Bán / Khớp bán / Short / Đỏ; 'dividend' nếu là Cổ tức.
+5. quantity: Khối lượng khớp lệnh thực tế (SỐ THỰC CHÍNH XÁC, ví dụ: 0.00102 hoặc 500 hoặc 1.5 hoặc 2). KHÔNG LÀM TRÒN.
 6. price_per_unit: Đơn giá khớp lệnh mỗi đơn vị (SỐ THỰC CHÍNH XÁC, ví dụ: 84300 hoặc 28500 hoặc 89500000).
 7. fee: Phí giao dịch (SỐ THỰC, ví dụ: 0.00008404 hoặc 15000 hoặc 0).
 8. fee_currency: Đơn vị tiền tệ của phí giao dịch ('BNB', 'USDT', 'VND', 'USD'). (Ví dụ: trên Binance thường trả phí bằng 'BNB' hoặc 'USDT').
@@ -287,13 +305,13 @@ HÃY ĐỌC TOÀN BỘ CHỮ VÀ SỐ TRONG ẢNH VÀ TRÍCH XUẤT CÁC THÔNG 
 12. broker_name: Tên sàn hoặc CTCK (ví dụ: "Binance", "TCBS", "VPS", "SSI", "OKX", "Bybit").
 13. order_id: Mã lệnh / Lệnh số / Số chứng từ nếu có (ví dụ: "67232813680").
 14. notes: Ghi chú tóm tắt lệnh giao dịch.
-15. missing_fields: Mảng các trường bắt buộc không tìm thấy trong ảnh ['asset_symbol', 'quantity', 'price_per_unit', 'transaction_date'].
-16. confidence: Độ tin cậy từ 0 đến 100.
+15. missing_fields: Mảng các trường bắt buộc không tìm thấy trong ảnh ['asset_symbol', 'quantity', 'price_per_unit', 'transaction_date']. Nếu đã tìm thấy đầy đủ thì để mảng rỗng [].
+16. confidence: Độ tin cậy từ 0 đến 100 (ví dụ 95).
 
 QUY TẮC BẮT BUỘC VỀ SỐ THẬP PHÂN & DẤU PHÂN CÁCH:
 - Trên Binance tiếng Việt:
   + "84.300,00" -> price_per_unit: 84300
-  + "0,00102" -> quantity: 0.00102
+  + "0,00102" hoặc "0.00102000" -> quantity: 0.00102
   + "0,00008404" -> fee: 0.00008404
   + "85,986" -> total_amount: 85.986
 - Trên CTCK Việt Nam:
@@ -308,13 +326,14 @@ ${JSON.stringify(currentAssets.map((a: any) => ({ symbol: a.asset_symbol || a.sy
 Trả về JSON thuần túy theo đúng cấu trúc.`;
 
       let parsedData: any = null;
-      let usedModel = 'gemini-3.1-flash-lite';
+      let usedModel = requestedModel || 'gemini-2.5-flash';
       const visionCandidateModels = [
         requestedModel,
+        'gemini-2.5-flash',
         'gemini-3.1-flash-lite',
         'gemini-3.8-flash',
+        'gemini-flash-latest',
         'gemini-3.7-flash',
-        'gemini-3.1-pro-preview',
       ].filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
 
       if (ai) {
@@ -517,13 +536,14 @@ D. CÁC TRƯỜNG KHÁC:
 Trả về kết quả chuẩn định dạng JSON duy nhất.`;
 
       let parsedData: any = null;
-      let usedModel = 'gemini-3.1-flash-lite';
+      let usedModel = requestedModel || 'gemini-2.5-flash';
       const visionCandidateModels = [
         requestedModel,
+        'gemini-2.5-flash',
         'gemini-3.1-flash-lite',
         'gemini-3.8-flash',
+        'gemini-flash-latest',
         'gemini-3.7-flash',
-        'gemini-3.1-pro-preview',
       ].filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
 
       if (ai) {

@@ -9,6 +9,7 @@ import { TransactionModalForm } from './TransactionModalForm';
 import { ExpensesSmartCharts } from './ExpensesSmartCharts';
 import { BudgetTrackerCard } from './BudgetTrackerCard';
 import { ExpenseCapture } from '../../components/ExpenseCapture';
+import { ExpenseScanner } from '../../components/ExpenseScanner';
 import { SpendingDashboard } from '../../components/SpendingDashboard';
 import { 
   Wallet, 
@@ -851,11 +852,11 @@ export const ExpensesView: React.FC = () => {
         <Modal
           isOpen={isExpenseCaptureModalOpen}
           onClose={() => setIsExpenseCaptureModalOpen(false)}
-          title="Quét Hóa Đơn Chi Tiêu AI"
-          subtitle="Tự động bóc tách tên, số tiền, ngày và phí bằng Gemini Vision OCR"
+          title="📸 AI Expense Scanner"
+          subtitle="Chụp hoặc tải ảnh hóa đơn để tự động bóc tách và lưu vào sổ chi tiêu"
           maxWidth="lg"
         >
-          <ExpenseCapture
+          <ExpenseScanner
             onClose={() => setIsExpenseCaptureModalOpen(false)}
             categories={categories}
           />

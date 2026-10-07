@@ -169,6 +169,7 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
   const [scannedSummary, setScannedSummary] = useState<string | null>(null);
   const [scannedBroker, setScannedBroker] = useState<string | null>(null);
   const [unmatchedSymbolPrompt, setUnmatchedSymbolPrompt] = useState<{ symbol: string; name?: string; type?: string; price?: number } | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-flash-lite');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -199,10 +200,15 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
         setScannedBillPreview(fileOrBase64);
       }
 
-      const result = await billScannerService.scanBill(fileOrBase64, investmentAssets, (pct, status) => {
-        setScanProgress(pct);
-        setScanStatusText(status);
-      });
+      const result = await billScannerService.scanBill(
+        fileOrBase64,
+        investmentAssets,
+        (pct, status) => {
+          setScanProgress(pct);
+          setScanStatusText(status);
+        },
+        selectedModel
+      );
 
       if (result.success && result.data) {
         const data = result.data;
@@ -832,6 +838,26 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
                     </p>
                   </div>
                 )}
+              </div>
+
+              {/* Model AI Selector (Free & High Accuracy) */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 rounded-xl bg-purple-50/70 dark:bg-purple-950/40 border border-purple-200/80 dark:border-purple-800/60 text-xs">
+                <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Model AI Quét Hóa Đơn:</span>
+                </div>
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  disabled={isScanning}
+                  className="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-purple-300 dark:border-purple-700 text-xs font-semibold focus:outline-hidden focus:ring-1 focus:ring-purple-500 cursor-pointer shadow-2xs"
+                >
+                  <option value="gemini-3.1-flash-lite">⚡ Gemini 3.1 Flash Lite (🆓 Miễn phí • Siêu tốc 1.1s)</option>
+                  <option value="gemini-2.5-flash">⚡ Gemini 2.5 Flash (🆓 Miễn phí • Bóc tách số chuẩn)</option>
+                  <option value="gemini-3.8-flash">🚀 Gemini 3.8 Flash (🆓 Miễn phí • Thị giác mới nhất)</option>
+                  <option value="gemini-flash-latest">🧠 Gemini Flash Latest (🆓 Miễn phí • Tự động)</option>
+                  <option value="gemini-3.7-flash">🎯 Gemini 3.7 Flash (🆓 Miễn phí • Đa nhiệm)</option>
+                </select>
               </div>
 
               {/* Quick Sample Bills (Binance, TCBS, SJC) */}
