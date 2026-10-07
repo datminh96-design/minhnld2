@@ -134,71 +134,108 @@ app.use(express.static(path.join(process.cwd(), 'public')));
 
       const ai = getGeminiClient();
 
-      const prompt = `Bạn là chuyên gia AI phân tích hình ảnh biên lai lệnh giao dịch tài chính cực kỳ chuẩn xác cho các sàn chứng khoán (TCBS, VPS, SSI, VNDIRECT, BSC, Mirae Asset), sàn Crypto (Binance, OKX, Bybit), vàng (SJC, DOJI, PNJ) và Quỹ đầu tư (Dragon Capital, VinaCapital, VCBF...).
+      const prompt = `Bạn là chuyên gia thị giác AI phân tích ảnh chụp màn hình biên lai lệnh giao dịch tài chính cực kỳ chính xác.
+ĐẶC BIỆT THÔNG THẠO:
+- Sàn Crypto (Binance, OKX, Bybit, KuCoin): Giao diện Giao dịch của tôi / Lịch sử giao dịch / Giao ngay / Spot, khớp lệnh Mua/Bán (Buy/Sell). Ví dụ cặp "BTC/USDT", "ETH/USDT", "SOL/USDT".
+- Sàn Chứng khoán Việt Nam (TCBS, VPS SmartOne, SSI iBoard, VNDIRECT, BSC, Mirae Asset): Lệnh mua/bán cổ phiếu khớp lệnh.
+- Biên nhận Vàng miếng / Vàng nhẫn (SJC, DOJI, PNJ, Bảo Tín Minh Châu).
+- Chứng chỉ quỹ mở (Dragon Capital, VinaCapital, SSIAM, VCBF).
 
-HÃY PHÂN TÍCH HÌNH ẢNH ĐƯỢC CUNG CẤP VÀ TRÍCH XUẤT CÁC THÔNG TIN:
-1. asset_symbol: Mã tài sản chính viết hoa. Ví dụ: Nếu là cặp "BTC/USDT" thì mã là "BTC". Nếu là "ETH/USDT" thì mã là "ETH". Nếu là cổ phiếu "HPG", "FPT", "VCB", "MWG" thì ghi đúng mã. Nếu là vàng SJC ghi "SJC".
-2. asset_name: Tên đầy đủ (ví dụ: "Bitcoin", "Ethereum", "Cổ phiếu Tập đoàn Hòa Phát", "Vàng miếng SJC").
-3. asset_type: Bắt buộc là 1 trong: 'crypto', 'stock', 'gold', 'fund', 'other'.
+HÃY ĐỌC TOÀN BỘ CHỮ VÀ SỐ TRONG ẢNH VÀ TRÍCH XUẤT CÁC THÔNG TIN CHÍNH XÁC NHẤT:
+1. asset_symbol: Mã tài sản viết hoa.
+   - Nếu là cặp Crypto "BTC/USDT" hoặc "BTCUSDT" -> asset_symbol: "BTC".
+   - Nếu là "ETH/USDT" -> asset_symbol: "ETH".
+   - Nếu là cổ phiếu Việt Nam "HPG", "FPT", "VCB", "MWG", "TCB", "SSI" -> ghi đúng mã.
+   - Nếu là Vàng SJC -> asset_symbol: "SJC".
+2. asset_name: Tên đầy đủ (ví dụ: "Bitcoin", "Ethereum", "Cổ phiếu Hòa Phát", "Vàng miếng SJC").
+3. asset_type: 'crypto' | 'stock' | 'gold' | 'fund' | 'other'.
 4. transaction_type: 'buy' nếu là Mua / Khớp mua / Long; 'sell' nếu là Bán / Khớp bán / Short; 'dividend' nếu là Cổ tức.
-5. quantity: Khối lượng khớp lệnh thực tế (SỐ THỰC, ví dụ: 0.00102 hoặc 500 hoặc 1.5).
-6. price_per_unit: Đơn giá khớp lệnh mỗi đơn vị (SỐ THỰC, ví dụ: 84300 hoặc 28500 hoặc 95000).
-7. fee: Số tiền phí giao dịch nếu có (SỐ THỰC, ví dụ: 0.00008404 hoặc 15000). Nếu không có, để 0.
-8. fee_currency: Đơn vị tiền tệ của phí ('BNB', 'USDT', 'VND', 'USD').
+5. quantity: Khối lượng khớp lệnh thực tế (SỐ THỰC CHÍNH XÁC, ví dụ: 0.00102 hoặc 500 hoặc 1.5). KHÔNG LÀM TRÒN.
+6. price_per_unit: Đơn giá khớp lệnh mỗi đơn vị (SỐ THỰC CHÍNH XÁC, ví dụ: 84300 hoặc 28500 hoặc 89500000).
+7. fee: Phí giao dịch (SỐ THỰC, ví dụ: 0.00008404 hoặc 15000 hoặc 0).
+8. fee_currency: Đơn vị tiền tệ của phí giao dịch ('BNB', 'USDT', 'VND', 'USD'). (Ví dụ: trên Binance thường trả phí bằng 'BNB' hoặc 'USDT').
 9. total_amount: Tổng giá trị giao dịch (SỐ THỰC, ví dụ: 85.986 hoặc 14265000).
 10. currency: Đơn vị tiền tệ của đơn giá ('USDT', 'VND', 'USD'). Nếu là cặp Crypto /USDT thì currency là 'USDT'.
-11. transaction_date: Ngày giao dịch theo định dạng chuẩn YYYY-MM-DD (Ví dụ: "2026-10-07").
-12. broker_name: Tên sàn/CTCK (ví dụ: "Binance", "TCBS", "VPS", "SSI", "OKX", "Bybit").
+11. transaction_date: Ngày giao dịch theo chuẩn YYYY-MM-DD (Ví dụ: "2026-10-07").
+12. broker_name: Tên sàn hoặc CTCK (ví dụ: "Binance", "TCBS", "VPS", "SSI", "OKX", "Bybit").
 13. order_id: Mã lệnh / Lệnh số / Số chứng từ nếu có (ví dụ: "67232813680").
-14. notes: Tóm tắt thông tin chi tiết lệnh giao dịch.
-15. missing_fields: Danh sách các trường thiết yếu còn thiếu nếu không tìm thấy trong ảnh ['asset_symbol', 'quantity', 'price_per_unit', 'transaction_date'].
-16. confidence: Độ tin cậy ước tính từ 0 đến 100.
+14. notes: Ghi chú tóm tắt lệnh giao dịch.
+15. missing_fields: Mảng các trường bắt buộc không tìm thấy trong ảnh ['asset_symbol', 'quantity', 'price_per_unit', 'transaction_date'].
+16. confidence: Độ tin cậy từ 0 đến 100.
 
-QUY TẮC BẮT BUỘC ĐỐI VỚI ĐỊNH DẠNG SỐ VIỆT NAM VÀ QUỐC TẾ:
-- Ký tự '.' hoặc ',' có thể là phân cách hàng nghìn hoặc dấu phẩy thập phân:
-  + "84.300,00" -> 84300
-  + "0,00102" -> 0.00102
-  + "0,00008404" -> 0.00008404
-  + "85,986" -> 85.986
-  + "28.500" -> 28500
-- Đảm bảo các trường số (quantity, price_per_unit, fee, total_amount) trả về dạng NUMBER thuần túy, KHÔNG phải chuỗi string có dấu phẩy.
+QUY TẮC BẮT BUỘC VỀ SỐ THẬP PHÂN & DẤU PHÂN CÁCH:
+- Trên Binance tiếng Việt:
+  + "84.300,00" -> price_per_unit: 84300
+  + "0,00102" -> quantity: 0.00102
+  + "0,00008404" -> fee: 0.00008404
+  + "85,986" -> total_amount: 85.986
+- Trên CTCK Việt Nam:
+  + "28.500" -> price_per_unit: 28500
+  + "500" -> quantity: 500
+  + "15.000" -> fee: 15000
+- TẤT CẢ các trường số PHẢI trả về kiểu NUMBER (ví dụ: 0.00102, 84300), TUYỆT ĐỐI KHÔNG trả về chuỗi string có dấu chấm/phẩy.
 
-Danh sách tài sản người dùng hiện có để đối chiếu:
+Danh sách tài sản sẵn có của người dùng:
 ${JSON.stringify(currentAssets.map((a: any) => ({ symbol: a.asset_symbol || a.symbol, name: a.asset_name || a.name, type: a.asset_type || a.type })))}
 
-Trả về kết quả chuẩn định dạng JSON duy nhất.`;
+Trả về JSON thuần túy theo đúng cấu trúc.`;
 
       let parsedData: any = null;
-      const visionCandidateModels = ['gemini-2.5-flash', 'gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.7-flash'];
+      const visionCandidateModels = [
+        'gemini-2.5-flash',
+        'gemini-3.1-flash-lite',
+        'gemini-3.8-flash',
+        'gemini-flash-latest',
+        'gemini-3.7-flash',
+      ];
 
       if (ai) {
         for (const modelName of visionCandidateModels) {
           if (isModelInCooldown(modelName)) continue;
           try {
-            const response = await ai.models.generateContent({
-              model: modelName,
-              contents: [
-                {
-                  inlineData: {
-                    mimeType: detectedMimeType,
-                    data: cleanBase64,
-                  },
-                },
-                {
-                  text: prompt,
-                },
-              ],
-              config: {
-                responseMimeType: 'application/json',
+            const imagePart = {
+              inlineData: {
+                mimeType: detectedMimeType,
+                data: cleanBase64,
               },
-            });
+            };
+            const textPart = {
+              text: prompt,
+            };
 
-            const responseText = response.text || '';
+            let response: any = null;
+            try {
+              response = await ai.models.generateContent({
+                model: modelName,
+                contents: {
+                  parts: [imagePart, textPart],
+                },
+                config: {
+                  responseMimeType: 'application/json',
+                },
+              });
+            } catch (partsErr) {
+              response = await ai.models.generateContent({
+                model: modelName,
+                contents: [imagePart, textPart],
+                config: {
+                  responseMimeType: 'application/json',
+                },
+              });
+            }
+
+            const responseText = response?.text || '';
             if (responseText.trim()) {
               const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
               parsedData = JSON.parse(cleanJson);
-              if (parsedData && parsedData.asset_symbol) {
-                console.log(`[Scan Investment Bill] Successfully parsed using model ${modelName}:`, parsedData.asset_symbol, parsedData.quantity, parsedData.price_per_unit);
+              if (parsedData && (parsedData.asset_symbol || parsedData.quantity || parsedData.price_per_unit)) {
+                console.log(`[Scan Investment Bill] Successfully extracted via ${modelName}:`, {
+                  symbol: parsedData.asset_symbol,
+                  quantity: parsedData.quantity,
+                  price: parsedData.price_per_unit,
+                  fee: parsedData.fee,
+                  currency: parsedData.currency,
+                });
                 break;
               }
             }
@@ -209,42 +246,44 @@ Trả về kết quả chuẩn định dạng JSON duy nhất.`;
         }
       }
 
-      // If AI did not return valid result (offline/quota/fail), construct intelligent heuristic fallback
-      if (!parsedData || !parsedData.asset_symbol) {
-        const defaultSymbol = currentAssets.length > 0 ? (currentAssets[0].asset_symbol || currentAssets[0].symbol || 'HPG') : 'HPG';
-        const defaultName = currentAssets.length > 0 ? (currentAssets[0].asset_name || currentAssets[0].name || 'Cổ phiếu Hòa Phát') : 'Cổ phiếu Tập đoàn Hòa Phát';
-        const defaultType = currentAssets.length > 0 ? (currentAssets[0].asset_type || currentAssets[0].type || 'stock') : 'stock';
-
+      // If AI did not return valid result, do NOT inject fake quantity 500 or fake price 28500
+      if (!parsedData) {
         parsedData = {
-          asset_symbol: defaultSymbol,
-          asset_name: defaultName,
-          asset_type: defaultType,
+          asset_symbol: currentAssets.length > 0 ? (currentAssets[0].asset_symbol || currentAssets[0].symbol) : '',
+          asset_name: currentAssets.length > 0 ? (currentAssets[0].asset_name || currentAssets[0].name) : '',
+          asset_type: currentAssets.length > 0 ? (currentAssets[0].asset_type || 'stock') : 'stock',
           transaction_type: 'buy',
-          quantity: 500,
-          price_per_unit: 28500,
-          fee: 15000,
-          tax: 0,
-          total_amount: 14265000,
+          quantity: null,
+          price_per_unit: null,
+          fee: 0,
+          fee_currency: 'VND',
+          total_amount: null,
           currency: 'VND',
           transaction_date: new Date().toISOString().split('T')[0],
-          broker_name: 'TCBS',
-          order_id: `TCBS-${Math.floor(10000000 + Math.random() * 90000000)}`,
-          notes: 'Lệnh mua khớp 100% qua CTCK TCBS',
-          missing_fields: [],
-          confidence: 90,
+          broker_name: null,
+          order_id: null,
+          notes: 'Không nhận diện được rõ số liệu từ ảnh, vui lòng điền các ô viền đỏ',
+          missing_fields: ['asset_symbol', 'quantity', 'price_per_unit'],
+          confidence: 0,
         };
       }
 
       // Re-evaluate missing fields explicitly
-      const missingFields: string[] = Array.isArray(parsedData.missing_fields) ? [...parsedData.missing_fields] : [];
-      if (!parsedData.asset_symbol && !missingFields.includes('asset_symbol')) missingFields.push('asset_symbol');
-      if ((parsedData.quantity === null || parsedData.quantity === undefined || parsedData.quantity <= 0) && !missingFields.includes('quantity')) {
+      const missingFields: string[] = [];
+      if (!parsedData.asset_symbol || !parsedData.asset_symbol.trim()) missingFields.push('asset_symbol');
+      if (parsedData.quantity === null || parsedData.quantity === undefined || isNaN(Number(parsedData.quantity)) || Number(parsedData.quantity) <= 0) {
         missingFields.push('quantity');
+        parsedData.quantity = null;
+      } else {
+        parsedData.quantity = Number(parsedData.quantity);
       }
-      if ((parsedData.price_per_unit === null || parsedData.price_per_unit === undefined || parsedData.price_per_unit <= 0) && !missingFields.includes('price_per_unit')) {
+      if (parsedData.price_per_unit === null || parsedData.price_per_unit === undefined || isNaN(Number(parsedData.price_per_unit)) || Number(parsedData.price_per_unit) <= 0) {
         missingFields.push('price_per_unit');
+        parsedData.price_per_unit = null;
+      } else {
+        parsedData.price_per_unit = Number(parsedData.price_per_unit);
       }
-      if (!parsedData.transaction_date && !missingFields.includes('transaction_date')) {
+      if (!parsedData.transaction_date) {
         missingFields.push('transaction_date');
       }
 
@@ -259,30 +298,29 @@ Trả về kết quả chuẩn định dạng JSON duy nhất.`;
       });
     } catch (err: any) {
       console.error('[Scan Bill API Error]:', err);
-      // Even on outer exception, provide fallback draft so user isn't stuck
       const reqAssets = req.body?.currentAssets || [];
       const todayStr = new Date().toISOString().split('T')[0];
       return res.json({
         success: true,
         data: {
-          asset_symbol: reqAssets[0]?.asset_symbol || reqAssets[0]?.symbol || 'HPG',
-          asset_name: reqAssets[0]?.asset_name || reqAssets[0]?.name || 'Cổ phiếu',
+          asset_symbol: reqAssets[0]?.asset_symbol || reqAssets[0]?.symbol || '',
+          asset_name: reqAssets[0]?.asset_name || reqAssets[0]?.name || '',
           asset_type: 'stock',
           transaction_type: 'buy',
-          quantity: 500,
-          price_per_unit: 28500,
-          fee: 15000,
-          tax: 0,
-          total_amount: 14265000,
+          quantity: null,
+          price_per_unit: null,
+          fee: 0,
+          fee_currency: 'VND',
+          total_amount: null,
           currency: 'VND',
           transaction_date: todayStr,
-          broker_name: 'TCBS',
-          order_id: 'TCBS-89421598',
-          notes: 'Đã nhận diện từ ảnh chụp hóa đơn',
-          missing_fields: [],
-          confidence: 85,
+          broker_name: null,
+          order_id: null,
+          notes: 'Vui lòng bổ sung thông tin trong các ô viền đỏ',
+          missing_fields: ['asset_symbol', 'quantity', 'price_per_unit'],
+          confidence: 0,
         },
-        message: 'Đã quét hóa đơn giao dịch thành công!',
+        message: 'Chưa bóc tách được số liệu, vui lòng nhập bổ sung bằng tay.',
       });
     }
   });

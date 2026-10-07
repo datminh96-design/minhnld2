@@ -290,8 +290,8 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
     return () => window.removeEventListener('paste', handlePaste);
   }, [isOpen, investmentAssets]);
 
-  // Demo sample bill test
-  const handleSampleBillTest = async () => {
+  // Demo sample bill test for 3 realistic document layouts
+  const handleSampleBillTest = async (type: 'binance' | 'tcbs' | 'sjc' = 'binance') => {
     setIsScanPanelOpen(true);
     setIsScanning(true);
     setScanProgress(15);
@@ -302,27 +302,80 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
     try {
       const canvas = document.createElement('canvas');
       canvas.width = 640;
-      canvas.height = 420;
+      canvas.height = 460;
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.fillStyle = '#f8fafc';
-        ctx.fillRect(0, 0, 640, 420);
-        ctx.fillStyle = '#0f172a';
-        ctx.font = 'bold 22px sans-serif';
-        ctx.fillText('CÔNG TY CỔ PHẦN CHỨNG KHOÁN TCBS', 40, 55);
-        ctx.font = 'bold 16px sans-serif';
-        ctx.fillStyle = '#059669';
-        ctx.fillText('KẾT QUẢ KHỚP LỆNH MUA CHỨNG KHOÁN', 40, 95);
-        ctx.fillStyle = '#334155';
-        ctx.font = '15px sans-serif';
-        ctx.fillText(`Mã cổ phiếu: ${investmentAssets[0]?.asset_symbol || 'HPG'}`, 40, 140);
-        ctx.fillText('Loại lệnh: MUA (BUY) - Khớp 100%', 40, 180);
-        ctx.fillText('Khối lượng khớp: 500 CP', 40, 220);
-        ctx.fillText('Đơn giá khớp: 28,500 VND', 40, 260);
-        ctx.fillText('Phí giao dịch: 15,000 VND', 40, 300);
-        ctx.fillText(`Ngày giao dịch: ${new Date().toISOString().split('T')[0]}`, 40, 340);
-        ctx.fillText('Mã lệnh: TCBS-89421598', 40, 380);
-        const sampleDataUrl = canvas.toDataURL('image/jpeg');
+        const todayStr = new Date().toISOString().split('T')[0];
+        
+        if (type === 'binance') {
+          // Dark Theme Binance App Layout
+          ctx.fillStyle = '#181a20';
+          ctx.fillRect(0, 0, 640, 460);
+          ctx.fillStyle = '#f0b90b';
+          ctx.font = 'bold 22px sans-serif';
+          ctx.fillText('BINANCE SPOT - LỊCH SỬ GIAO DỊCH', 40, 50);
+          ctx.font = 'bold 16px sans-serif';
+          ctx.fillStyle = '#0ecb81';
+          ctx.fillText('LỆNH MUA (BUY) - BTC / USDT', 40, 90);
+          ctx.fillStyle = '#eaecef';
+          ctx.font = '15px sans-serif';
+          ctx.fillText('Cặp giao dịch: BTC/USDT', 40, 135);
+          ctx.fillText('Khối lượng khớp (Filled): 0.00102 BTC', 40, 175);
+          ctx.fillText('Đơn giá khớp (Price): 84,300.00 USDT', 40, 215);
+          ctx.fillText('Phí giao dịch (Fee): 0.00008404 BNB', 40, 255);
+          ctx.fillText('Tổng giá trị (Total): 85.986 USDT', 40, 295);
+          ctx.fillText(`Thời gian: ${todayStr} 09:00:57`, 40, 335);
+          ctx.fillStyle = '#848e9c';
+          ctx.font = '13px sans-serif';
+          ctx.fillText('Mã lệnh / Order ID: 67232813680', 40, 380);
+          ctx.fillText('Trạng thái: Khớp hoàn toàn (Filled 100%)', 40, 410);
+        } else if (type === 'sjc') {
+          // Gold Invoice Layout
+          ctx.fillStyle = '#fffdf0';
+          ctx.fillRect(0, 0, 640, 460);
+          ctx.fillStyle = '#b45309';
+          ctx.font = 'bold 22px sans-serif';
+          ctx.fillText('CÔNG TY VÀNG BẠC ĐÁ QUÝ SÀI GÒN - SJC', 40, 50);
+          ctx.font = 'bold 16px sans-serif';
+          ctx.fillStyle = '#059669';
+          ctx.fillText('HÓA ĐƠN BÁN LẺ VÀNG MIẾNG', 40, 90);
+          ctx.fillStyle = '#1e293b';
+          ctx.font = '15px sans-serif';
+          ctx.fillText('Mặt hàng: Vàng miếng SJC 99.99 (Mã: SJC)', 40, 135);
+          ctx.fillText('Loại giao dịch: MUA VÀNG (BUY)', 40, 175);
+          ctx.fillText('Số lượng: 2 lượng (cây)', 40, 215);
+          ctx.fillText('Đơn giá niêm yết: 89,500,000 VND / lượng', 40, 255);
+          ctx.fillText('Phí gia công / Bảo hiểm: 0 VND', 40, 295);
+          ctx.fillText('Tổng tiền thanh toán: 179,000,000 VND', 40, 335);
+          ctx.fillText(`Ngày xuất hóa đơn: ${todayStr}`, 40, 375);
+          ctx.fillStyle = '#64748b';
+          ctx.font = '13px sans-serif';
+          ctx.fillText('Số chứng từ: SJC-HN-20261007', 40, 415);
+        } else {
+          // TCBS Stock Order Layout
+          ctx.fillStyle = '#f8fafc';
+          ctx.fillRect(0, 0, 640, 460);
+          ctx.fillStyle = '#0f172a';
+          ctx.font = 'bold 22px sans-serif';
+          ctx.fillText('CÔNG TY CỔ PHẦN CHỨNG KHOÁN TCBS', 40, 50);
+          ctx.font = 'bold 16px sans-serif';
+          ctx.fillStyle = '#059669';
+          ctx.fillText('KẾT QUẢ KHỚP LỆNH MUA CHỨNG KHOÁN', 40, 90);
+          ctx.fillStyle = '#334155';
+          ctx.font = '15px sans-serif';
+          ctx.fillText('Mã cổ phiếu: HPG - CTCP Tập đoàn Hòa Phát', 40, 135);
+          ctx.fillText('Loại lệnh: MUA (BUY) - Khớp 100%', 40, 175);
+          ctx.fillText('Khối lượng khớp: 500 CP', 40, 215);
+          ctx.fillText('Đơn giá khớp: 28,500 VND', 40, 255);
+          ctx.fillText('Phí giao dịch: 15,000 VND', 40, 295);
+          ctx.fillText('Tổng tiền khớp: 14,265,000 VND', 40, 335);
+          ctx.fillText(`Ngày giao dịch: ${todayStr}`, 40, 375);
+          ctx.fillStyle = '#64748b';
+          ctx.font = '13px sans-serif';
+          ctx.fillText('Mã lệnh: TCBS-89421598', 40, 415);
+        }
+
+        const sampleDataUrl = canvas.toDataURL('image/jpeg', 0.95);
         setScannedBillPreview(sampleDataUrl);
         await handleScanFile(sampleDataUrl);
       }
@@ -618,10 +671,10 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
-                onClick={handleSampleBillTest}
+                onClick={() => handleSampleBillTest('binance')}
                 disabled={isScanning}
                 className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 text-[11px] font-medium text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-purple-400 transition-colors cursor-pointer shadow-2xs disabled:opacity-50"
-                title="Dùng thử hóa đơn mẫu TCBS"
+                title="Dùng thử hóa đơn mẫu Binance Spot"
               >
                 <Sparkles className="w-3 h-3 text-amber-500" />
                 <span>Hóa đơn mẫu</span>
@@ -703,6 +756,39 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
                 )}
               </div>
 
+              {/* Quick Sample Bills (Binance, TCBS, SJC) */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-amber-500" /> Bố cục mẫu:
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleSampleBillTest('binance')}
+                    disabled={isScanning}
+                    className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-purple-50 dark:hover:bg-purple-950/50 text-slate-700 dark:text-slate-300 hover:text-purple-600 text-[11px] font-semibold border border-slate-200 dark:border-slate-700 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    🪙 Binance (BTC)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSampleBillTest('tcbs')}
+                    disabled={isScanning}
+                    className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-purple-50 dark:hover:bg-purple-950/50 text-slate-700 dark:text-slate-300 hover:text-purple-600 text-[11px] font-semibold border border-slate-200 dark:border-slate-700 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    📈 CTCK TCBS (HPG)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSampleBillTest('sjc')}
+                    disabled={isScanning}
+                    className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-purple-50 dark:hover:bg-purple-950/50 text-slate-700 dark:text-slate-300 hover:text-purple-600 text-[11px] font-semibold border border-slate-200 dark:border-slate-700 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    🥇 Vàng SJC (2 lượng)
+                  </button>
+                </div>
+              </div>
+
               {/* Progress Bar & Percentage Indicator */}
               {isScanning && (
                 <div className="space-y-1.5 p-3 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60">
@@ -754,7 +840,7 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
                     </span>
                     <button
                       type="button"
-                      onClick={handleSampleBillTest}
+                      onClick={() => handleSampleBillTest('binance')}
                       className="text-[10px] font-bold text-rose-700 dark:text-rose-300 underline cursor-pointer"
                     >
                       Thử hóa đơn mẫu
