@@ -146,17 +146,13 @@ export const billScannerService = {
   /**
    * Compress image on client side if too large, while maintaining high crispness for OCR
    */
-  async compressImage(dataUrl: string, maxWidth = 2400, maxHeight = 2400, quality = 0.95): Promise<string> {
+  async compressImage(dataUrl: string, maxWidth = 1800, maxHeight = 1800, quality = 0.88): Promise<string> {
     if (typeof window === 'undefined') return dataUrl;
 
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
         let { width, height } = img;
-        if (width <= maxWidth && height <= maxHeight && dataUrl.length < 5 * 1024 * 1024) {
-          resolve(dataUrl);
-          return;
-        }
 
         if (width > maxWidth || height > maxHeight) {
           if (width > height) {

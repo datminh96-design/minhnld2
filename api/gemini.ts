@@ -1,5 +1,14 @@
 import { GoogleGenAI, Type } from '@google/genai';
 
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '25mb',
+    },
+  },
+  maxDuration: 60,
+};
+
 function parseBody(req: any) {
   if (!req.body) return {};
   if (typeof req.body === 'object') return req.body;
@@ -29,7 +38,9 @@ function getClient(): GoogleGenAI | null {
     process.env.GEMINI_API_KEY ||
     process.env.API_KEY ||
     process.env.VITE_GEMINI_API_KEY ||
-    process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+    process.env.NEXT_PUBLIC_GEMINI_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    process.env.GOOGLE_GEMINI_API_KEY;
   if (!apiKey) return null;
   if (!geminiClientInstance) {
     geminiClientInstance = new GoogleGenAI({
