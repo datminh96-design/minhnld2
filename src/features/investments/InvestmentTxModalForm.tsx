@@ -171,7 +171,7 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
   const [scannedSummary, setScannedSummary] = useState<string | null>(null);
   const [scannedBroker, setScannedBroker] = useState<string | null>(null);
   const [unmatchedSymbolPrompt, setUnmatchedSymbolPrompt] = useState<{ symbol: string; name?: string; type?: string; price?: number } | null>(null);
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-flash-lite');
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.8-flash');
   const [isDiagnosticModalOpen, setIsDiagnosticModalOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -865,9 +865,8 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
                   disabled={isScanning}
                   className="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-purple-300 dark:border-purple-700 text-xs font-semibold focus:outline-hidden focus:ring-1 focus:ring-purple-500 cursor-pointer shadow-2xs"
                 >
+                  <option value="gemini-3.8-flash">🚀 Gemini 3.8 Flash (🆓 Miễn phí • Thị giác mới nhất chuẩn số 1)</option>
                   <option value="gemini-3.1-flash-lite">⚡ Gemini 3.1 Flash Lite (🆓 Miễn phí • Siêu tốc 1.1s)</option>
-                  <option value="gemini-2.5-flash">⚡ Gemini 2.5 Flash (🆓 Miễn phí • Bóc tách số chuẩn)</option>
-                  <option value="gemini-3.8-flash">🚀 Gemini 3.8 Flash (🆓 Miễn phí • Thị giác mới nhất)</option>
                   <option value="gemini-flash-latest">🧠 Gemini Flash Latest (🆓 Miễn phí • Tự động)</option>
                   <option value="gemini-3.7-flash">🎯 Gemini 3.7 Flash (🆓 Miễn phí • Đa nhiệm)</option>
                 </select>

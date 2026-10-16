@@ -644,15 +644,14 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
 
       const candidateModels = [
         requestedModel,
-        'gemini-3.1-flash-lite',
-        'gemini-2.5-flash',
         'gemini-3.8-flash',
+        'gemini-3.1-flash-lite',
         'gemini-flash-latest',
         'gemini-3.7-flash',
       ].filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
 
       let parsedData: any = null;
-      let usedModel = 'gemini-3.1-flash-lite';
+      let usedModel = 'gemini-3.8-flash';
 
       for (const mName of candidateModels) {
         try {
@@ -822,15 +821,14 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
 
       const candidateModels = [
         requestedModel,
-        'gemini-3.1-flash-lite',
-        'gemini-2.5-flash',
         'gemini-3.8-flash',
+        'gemini-3.1-flash-lite',
         'gemini-flash-latest',
         'gemini-3.7-flash',
       ].filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
 
       let parsedData: any = null;
-      let usedModel = 'gemini-3.1-flash-lite';
+      let usedModel = 'gemini-3.8-flash';
 
       for (const mName of candidateModels) {
         try {
@@ -950,7 +948,6 @@ Hãy sử dụng trí tuệ nhân tạo Gemini AI và khả năng nghiên cứu 
 
       const candidateModels = [
         body?.model,
-        'gemini-2.5-flash',
         'gemini-3.8-flash',
         'gemini-3.1-flash-lite',
         'gemini-flash-latest',
@@ -1040,7 +1037,7 @@ Hãy sử dụng trí tuệ nhân tạo Gemini AI và khả năng nghiên cứu 
   // 2. Specialized Handler: Batch Probabilities
   if (subpath === 'batch-probabilities') {
     const { items = [], model } = body || {};
-    const chosenModel = model || 'gemini-2.5-flash';
+    const chosenModel = model || 'gemini-3.8-flash';
 
     const buildFallback = () => {
       const fallbackResult: Record<string, any> = {};
@@ -1228,7 +1225,7 @@ QUY TẮC BẮT BUỘC:
 
   try {
     const prompt = body?.prompt || body?.message || 'Phân tích tài chính cá nhân';
-    const model = body?.model || 'gemini-2.5-flash';
+    const model = body?.model || 'gemini-3.8-flash';
 
     const response = await ai.models.generateContent({
       model,

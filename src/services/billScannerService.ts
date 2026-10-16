@@ -384,9 +384,9 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
 
       const candidateModels = [
         preferredModel,
-        'gemini-3.1-flash-lite',
-        'gemini-2.5-flash',
         'gemini-3.8-flash',
+        'gemini-3.1-flash-lite',
+        'gemini-flash-latest',
         'gemini-3.7-flash',
       ].filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
 
@@ -524,9 +524,9 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
 
       const candidateModels = [
         preferredModel,
-        'gemini-3.1-flash-lite',
-        'gemini-2.5-flash',
         'gemini-3.8-flash',
+        'gemini-3.1-flash-lite',
+        'gemini-flash-latest',
         'gemini-3.7-flash',
       ].filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
 

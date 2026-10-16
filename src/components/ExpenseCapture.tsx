@@ -179,7 +179,7 @@ export const ExpenseCapture: React.FC<ExpenseCaptureProps> = ({
   const [detectedLayout, setDetectedLayout] = useState<string | null>(null);
   const [layoutLabel, setLayoutLabel] = useState<string | null>(null);
   const [missingFields, setMissingFields] = useState<string[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-flash-lite');
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.8-flash');
 
   // Form Field States (Extracted details: name, amount, date, fee, category, type)
   const [txName, setTxName] = useState('');
@@ -668,9 +668,8 @@ export const ExpenseCapture: React.FC<ExpenseCaptureProps> = ({
               disabled={isScanning}
               className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-purple-300 dark:border-purple-700 text-xs font-semibold focus:outline-hidden focus:ring-1 focus:ring-purple-500 cursor-pointer shadow-2xs"
             >
+              <option value="gemini-3.8-flash">🚀 Gemini 3.8 Flash (🆓 Miễn phí • Thị giác mới nhất chuẩn số 1)</option>
               <option value="gemini-3.1-flash-lite">⚡ Gemini 3.1 Flash Lite (🆓 Miễn phí • Siêu tốc 1.1s)</option>
-              <option value="gemini-2.5-flash">⚡ Gemini 2.5 Flash (🆓 Miễn phí • Bóc tách số chuẩn)</option>
-              <option value="gemini-3.8-flash">🚀 Gemini 3.8 Flash (🆓 Miễn phí • Thị giác mới nhất)</option>
               <option value="gemini-flash-latest">🧠 Gemini Flash Latest (🆓 Miễn phí • Tự động)</option>
               <option value="gemini-3.7-flash">🎯 Gemini 3.7 Flash (🆓 Miễn phí • Đa nhiệm)</option>
             </select>

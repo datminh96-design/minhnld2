@@ -1,4 +1,4 @@
-import { FileCategory } from '../types/file';
+import type { FileCategory } from '../types/file.ts';
 
 /**
  * Format bytes into human readable string (KB, MB, GB)

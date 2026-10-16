@@ -268,7 +268,9 @@ class ReceiptDiagnosticLogger {
     }
 
     const success = !!(resJson && resJson.success);
-    const errorMsg = resJson?.error || resJson?.message || (response && !response.ok ? `HTTP ${response.status} ${response.statusText}` : undefined);
+    const errorMsg = !success
+      ? (resJson?.error || (response && !response.ok ? `HTTP ${response.status} ${response.statusText}` : undefined))
+      : undefined;
 
     let extractedSummary = '';
     if (resJson?.data) {
@@ -304,7 +306,7 @@ class ReceiptDiagnosticLogger {
     console.log('Response Status:', log.response.status, log.response.statusText);
     console.log('Success:', success);
     console.log('Diagnosis:', log.diagnosis);
-    if (log.response.error) console.error('Error Details:', log.response.error);
+    if (!success && log.response.error) console.error('Error Details:', log.response.error);
     console.groupEnd();
   }
 
@@ -631,7 +633,7 @@ class ReceiptDiagnosticLogger {
     if (resp?.status === 429 || (resp?.error && resp.error.includes('quota'))) {
       summary = 'Đạt giới hạn lượt gọi (Rate Limit 429) của mô hình Gemini.';
       recs.push('Hệ thống đã tự động kích hoạt cơ chế Exponential Backoff để thử lại.');
-      recs.push('Thử chuyển sang model khác như Gemini 2.5 Flash hoặc Gemini 3.8 Flash.');
+      recs.push('Thử chuyển sang model khác như Gemini 3.8 Flash hoặc Gemini 3.1 Flash Lite.');
     }
 
     if (recs.length === 0) {

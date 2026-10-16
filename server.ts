@@ -160,23 +160,21 @@ function parseFlexibleDateToISO(raw: string | null | undefined): string | null {
 }
 
 function normalizeVisionModelName(model?: string): string {
-  if (!model) return 'gemini-3.1-flash-lite';
+  if (!model) return 'gemini-3.8-flash';
   const m = model.toLowerCase().trim();
+  if (m.includes('2.5') || m.includes('3.8')) return 'gemini-3.8-flash';
   if (m.includes('3.5') || m.includes('lite') || m.includes('3.1-flash-lite')) return 'gemini-3.1-flash-lite';
-  if (m.includes('2.5')) return 'gemini-2.5-flash';
-  if (m.includes('3.8')) return 'gemini-3.8-flash';
   if (m.includes('3.7')) return 'gemini-3.7-flash';
   if (m.includes('latest')) return 'gemini-flash-latest';
   return model;
 }
 
 function getCandidateModels(preferredModel?: string): string[] {
-  const normPreferred = preferredModel ? normalizeVisionModelName(preferredModel) : 'gemini-3.1-flash-lite';
+  const normPreferred = preferredModel ? normalizeVisionModelName(preferredModel) : 'gemini-3.8-flash';
   const validModels = [
     normPreferred,
-    'gemini-3.1-flash-lite',
-    'gemini-2.5-flash',
     'gemini-3.8-flash',
+    'gemini-3.1-flash-lite',
     'gemini-flash-latest',
     'gemini-3.7-flash',
   ].filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
@@ -216,12 +214,12 @@ app.use(express.static(path.join(process.cwd(), 'public')));
       success: true,
       models: [
         {
-          id: 'gemini-2.5-flash',
-          name: 'Gemini 2.5 Flash',
-          badge: '🆓 Miễn phí & Cực chuẩn',
-          description: 'Mô hình thị giác Gemini tiêu chuẩn, nhận diện bảng biểu & hóa đơn số 1',
+          id: 'gemini-3.8-flash',
+          name: 'Gemini 3.8 Flash',
+          badge: '🚀 Mới nhất & Khuyên dùng',
+          description: 'Mô hình thị giác Gemini 3.8 tiêu chuẩn, nhận diện bảng biểu & hóa đơn số 1',
           isRecommended: true,
-          type: 'fast',
+          type: 'general',
         },
         {
           id: 'gemini-3.1-flash-lite',
@@ -230,14 +228,6 @@ app.use(express.static(path.join(process.cwd(), 'public')));
           description: 'Mô hình siêu nhẹ thế hệ 3.1 tối ưu tốc độ',
           isRecommended: false,
           type: 'fast',
-        },
-        {
-          id: 'gemini-3.8-flash',
-          name: 'Gemini 3.8 Flash',
-          badge: '🚀 Mới nhất',
-          description: 'Mô hình thị giác Gemini 3.8 tiên tiến',
-          isRecommended: false,
-          type: 'general',
         },
         {
           id: 'gemini-flash-latest',
@@ -333,12 +323,11 @@ ${JSON.stringify(currentAssets.map((a: any) => ({ symbol: a.asset_symbol || a.sy
 Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
 
       let parsedData: any = null;
-      let usedModel = requestedModel || 'gemini-2.5-flash';
+      let usedModel = requestedModel ? normalizeVisionModelName(requestedModel) : 'gemini-3.8-flash';
       const visionCandidateModels = [
-        requestedModel,
-        'gemini-2.5-flash',
-        'gemini-3.1-flash-lite',
+        usedModel,
         'gemini-3.8-flash',
+        'gemini-3.1-flash-lite',
         'gemini-flash-latest',
         'gemini-3.7-flash',
       ].filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
@@ -579,12 +568,11 @@ CẤU TRÚC JSON MẪU BẮT BUỘC TRẢ VỀ:
 Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
 
       let parsedData: any = null;
-      let usedModel = requestedModel || 'gemini-2.5-flash';
+      let usedModel = requestedModel ? normalizeVisionModelName(requestedModel) : 'gemini-3.8-flash';
       const visionCandidateModels = [
-        requestedModel,
-        'gemini-2.5-flash',
-        'gemini-3.1-flash-lite',
+        usedModel,
         'gemini-3.8-flash',
+        'gemini-3.1-flash-lite',
         'gemini-flash-latest',
         'gemini-3.7-flash',
       ].filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
