@@ -7,6 +7,7 @@ import { TransactionalEmailSection } from './TransactionalEmailSection';
 import { PayOSSection } from './PayOSSection';
 import { UserProfile } from '../../components/UserProfile';
 import { AdminDiagnosticLogsViewer } from './AdminDiagnosticLogsViewer';
+import { SupabaseOverview } from './SupabaseOverview';
 import { 
   Settings, 
   Clock, 
@@ -37,7 +38,8 @@ import {
   KeyRound,
   X,
   Lock,
-  Activity
+  Activity,
+  ArrowRight
 } from 'lucide-react';
 
 export const SettingsView: React.FC = () => {
@@ -95,7 +97,7 @@ export const SettingsView: React.FC = () => {
 
   // Copied SQL state
   const [copiedSql, setCopiedSql] = useState(false);
-  const [activeAdminTab, setActiveAdminTab] = useState<'settings' | 'ocr_logs'>('settings');
+  const [activeAdminTab, setActiveAdminTab] = useState<'settings' | 'supabase_overview' | 'ocr_logs'>('settings');
 
   // Load Cloudflare R2 status & backups on mount
   useEffect(() => {
@@ -326,7 +328,7 @@ ALTER TABLE public.work_settings ADD COLUMN IF NOT EXISTS standard_days_per_mont
     <div className="space-y-6 pb-16 max-w-5xl">
       {/* 0. Top Admin Sub-Navigation */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-2 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
-        <div className="flex items-center gap-1.5 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
           <button
             type="button"
             onClick={() => setActiveAdminTab('settings')}
@@ -338,6 +340,22 @@ ALTER TABLE public.work_settings ADD COLUMN IF NOT EXISTS standard_days_per_mont
           >
             <Settings className="w-4 h-4 text-indigo-500" />
             <span>Cấu Hình Hệ Thống & Lưu Trữ</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveAdminTab('supabase_overview')}
+            className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+              activeAdminTab === 'supabase_overview'
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-500/20'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Database className="w-4 h-4 text-emerald-400" />
+            <span>⚡ Tổng Quan Supabase</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-500/30 text-emerald-200 border border-emerald-400/30 font-mono">
+              Live
+            </span>
           </button>
 
           <button
@@ -360,6 +378,8 @@ ALTER TABLE public.work_settings ADD COLUMN IF NOT EXISTS standard_days_per_mont
 
       {activeAdminTab === 'ocr_logs' ? (
         <AdminDiagnosticLogsViewer />
+      ) : activeAdminTab === 'supabase_overview' ? (
+        <SupabaseOverview />
       ) : (
         <>
           {/* 0. Thông tin Tài Khoản & Người Dùng */}
@@ -625,6 +645,25 @@ ALTER TABLE public.work_settings ADD COLUMN IF NOT EXISTS standard_days_per_mont
               <p className="text-slate-500 dark:text-slate-400 text-[11px] leading-relaxed">
                 Hệ thống tự động kích hoạt tính năng sao lưu và làm sáng bóng đèn trạng thái trên thanh Header mỗi khi có thao tác thêm mới, sửa chữa hoặc xóa dữ liệu.
               </p>
+
+              {/* Quick shortcut to full Supabase Overview */}
+              <div className="p-3 rounded-xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-purple-500/10 border border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <Database className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <div>
+                    <p className="text-xs font-bold text-slate-800 dark:text-slate-100">Bảng Tổng Quan Supabase Chi Tiết</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">Xem thống kê bản ghi các bảng, độ trễ Ping, giám sát Realtime, dự án và biểu đồ thu chi</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveAdminTab('supabase_overview')}
+                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                >
+                  <span>Mở Tổng Quan Supabase</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
 
               <div className="flex flex-wrap items-center gap-2.5 pt-1">
                 <button

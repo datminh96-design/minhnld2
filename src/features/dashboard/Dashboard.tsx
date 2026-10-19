@@ -30,7 +30,8 @@ import {
   Film,
   HelpCircle,
   Edit3,
-  Trash2
+  Trash2,
+  Database
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -46,9 +47,11 @@ import {
 } from 'recharts';
 import { Analytics } from './Analytics';
 import { NetBalanceTrendChart } from '../../components/NetBalanceTrendChart';
+import { MonthlyIncomeExpenseChart } from '../../components/MonthlyIncomeExpenseChart';
+import { CategorySpendingPieChart } from '../../components/CategorySpendingPieChart';
+import { DateRangePicker, DateFilterValue } from '../../components/DateRangePicker';
 import { TransactionModalForm } from '../expenses/TransactionModalForm';
 import { Transaction, ExpenseCategory } from '../../types';
-import { Dashboard as SupabaseDashboard } from '../../components/Dashboard';
 
 export interface DashboardProps {
   onNavigateTab?: (tab: 'work' | 'expenses' | 'investments' | 'storage' | 'reports' | 'settings') => void;
@@ -88,8 +91,45 @@ export const Dashboard: React.FC<DashboardProps> = ({
     userSettings 
   } = useData();
 
-  // Dashboard Sub-navigation (Supabase Summary vs Wealth Portfolio)
-  const [activeDashboardTab, setActiveDashboardTab] = useState<'supabase_summary' | 'wealth_investments'>('supabase_summary');
+  // Current active date reference
+  const d = new Date();
+  const currentMonth = d.getMonth() + 1;
+  const currentYear = d.getFullYear();
+  const monthStr = String(currentMonth).padStart(2, '0');
+  const prefix = getCurrentMonthPrefix();
+
+  // Date Range Filter State for Charts & Dashboard
+  const [dateFilter, setDateFilter] = useState<DateFilterValue>({
+    mode: 'month',
+    year: currentYear,
+    month: currentMonth,
+  });
+
+  const availableYears = useMemo(() => {
+    const set = new Set<number>();
+    set.add(currentYear);
+    transactions.forEach(t => {
+      if (t.transaction_date && t.transaction_date.length >= 4) {
+        const y = parseInt(t.transaction_date.substring(0, 4), 10);
+        if (!isNaN(y) && y > 2000 && y < 2100) set.add(y);
+      }
+    });
+    return Array.from(set).sort((a, b) => b - a);
+  }, [transactions, currentYear]);
+
+  // Filter transactions for category pie chart based on dateFilter
+  const filteredCategoryTransactions = useMemo(() => {
+    if (dateFilter.mode === 'year') {
+      const yearPrefix = `${dateFilter.year}-`;
+      return transactions.filter(t => t.transaction_date?.startsWith(yearPrefix));
+    }
+    const monthPrefix = `${dateFilter.year}-${String(dateFilter.month).padStart(2, '0')}`;
+    return transactions.filter(t => t.transaction_date?.startsWith(monthPrefix));
+  }, [transactions, dateFilter.mode, dateFilter.year, dateFilter.month]);
+
+  const selectedPeriodLabel = dateFilter.mode === 'year'
+    ? `Cả Năm ${dateFilter.year}`
+    : `Tháng ${dateFilter.month}/${dateFilter.year}`;
 
   // Transaction Edit Modal State
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
@@ -130,13 +170,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
       color: catData.color || '#10B981',
     });
   };
-
-  // Current active date reference
-  const d = new Date();
-  const currentMonth = d.getMonth() + 1;
-  const currentYear = d.getFullYear();
-  const monthStr = String(currentMonth).padStart(2, '0');
-  const prefix = getCurrentMonthPrefix();
 
   // ==========================================
   // CARD 1 – STATS GIỜ CÔNG
@@ -367,44 +400,37 @@ export const Dashboard: React.FC<DashboardProps> = ({
   return (
     <div className="space-y-6 pb-12">
       {/* 0. Top Dashboard Navigation Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 p-1.5 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
-        <div className="flex flex-wrap items-center gap-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-3 p-2 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+        <div className="flex items-center gap-2">
+          <div className="p-1.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+            <Sparkles className="w-4 h-4" />
+          </div>
+          <div>
+            <h2 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white font-display">
+              Bảng Điều Khiển Tài Chính & Tài Sản
+            </h2>
+            <p className="text-[11px] text-slate-400">
+              Tổng hợp giờ công, dòng tiền thu chi, danh mục đầu tư và tài sản ròng
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setActiveDashboardTab('supabase_summary')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-              activeDashboardTab === 'supabase_summary'
-                ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
+            onClick={() => onNavigateTab('settings')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-semibold shadow-xs transition-all cursor-pointer"
+            title="Xem bảng điều khiển tổng quan cơ sở dữ liệu Supabase Cloud trong Cài Đặt"
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>⚡ Tổng Quan Supabase (Thu Nhập • Chi Tiêu • Dự Án)</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveDashboardTab('wealth_investments')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-              activeDashboardTab === 'wealth_investments'
-                ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span>💎 Danh Mục Đầu Tư & Dòng Tiền Tích Lũy</span>
+            <Database className="w-3.5 h-3.5 text-emerald-500" />
+            <span>Tổng Quan Supabase (Cài Đặt)</span>
+            <ArrowRight className="w-3 h-3 text-slate-400" />
           </button>
         </div>
       </div>
 
-      {activeDashboardTab === 'supabase_summary' ? (
-        <SupabaseDashboard
-          onNavigateTab={onNavigateTab}
-          onQuickAction={onQuickAction}
-        />
-      ) : (
-        <>
-          {/* Top Banner: Total Balance & Net Worth Hero */}
-          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 p-6 sm:p-8 text-white shadow-xl border border-slate-700/50">
+      {/* Top Banner: Total Balance & Net Worth Hero */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 p-6 sm:p-8 text-white shadow-xl border border-slate-700/50">
         <div className="absolute -right-12 -top-12 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -left-12 -bottom-12 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
 
@@ -445,6 +471,23 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <TrendingUp className="w-3.5 h-3.5" /> + Đầu Tư
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Date Range Picker Filter Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+        <div className="flex items-center gap-2">
+          <DateRangePicker
+            value={dateFilter}
+            onChange={setDateFilter}
+            availableYears={availableYears}
+          />
+        </div>
+        <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+          <span>Dữ liệu biểu đồ & phân tích theo:</span>
+          <span className="font-bold text-slate-800 dark:text-slate-200 font-display">
+            {selectedPeriodLabel}
+          </span>
         </div>
       </div>
 
@@ -895,10 +938,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* 5. BIỂU ĐỒ ĐƯỜNG XU HƯỚNG SỐ DƯ RÒNG LŨY KẾ THEO THỜI GIAN (RECHARTS NET BALANCE TREND LINE) */}
+      {/* 5. BIỂU ĐỒ RECHARTS THU NHẬP & CHI TIÊU HÀNG THÁNG */}
+      <MonthlyIncomeExpenseChart
+        transactions={transactions}
+        selectedYear={dateFilter.year}
+        selectedMonth={dateFilter.month}
+        filterMode={dateFilter.mode}
+        onQuickAddTransaction={() => onQuickAction('add-transaction')}
+      />
+
+      {/* 6. BIỂU ĐỒ TRÒN RECHARTS CƠ CẤU CHI TIÊU THEO DANH MỤC */}
+      <CategorySpendingPieChart
+        transactions={filteredCategoryTransactions}
+        categories={categories}
+        title={`Cơ Cấu Chi Tiêu Theo Danh Mục (${selectedPeriodLabel})`}
+        selectedPeriodLabel={selectedPeriodLabel}
+        onQuickAddExpense={() => onQuickAction('add-transaction')}
+      />
+
+      {/* 7. BIỂU ĐỒ ĐƯỜNG XU HƯỚNG SỐ DƯ RÒNG LŨY KẾ THEO THỜI GIAN (RECHARTS NET BALANCE TREND LINE) */}
       <NetBalanceTrendChart />
 
-      {/* 6. PHÂN TÍCH CƠ CẤU THU CHI RECHARTS (ANALYTICS) */}
+      {/* 8. PHÂN TÍCH CƠ CẤU THU CHI RECHARTS (ANALYTICS) */}
       <Analytics />
 
       {/* 7. BIỂU ĐỒ DÒNG TIỀN THU VÀO & CHI RA HÀNG THÁNG (RECHARTS BAR CHART) */}
@@ -1237,8 +1298,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
         onSave={handleSaveEditedTx}
         onAddCategory={handleQuickAddCategory}
       />
-        </>
-      )}
     </div>
   );
 };

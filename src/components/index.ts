@@ -14,4 +14,6 @@ export { DateRangePicker } from './DateRangePicker';
 export type { DateRangePickerProps, DateFilterMode, DateFilterValue } from './DateRangePicker';
 export { CategorySpendingPieChart } from './CategorySpendingPieChart';
 export type { CategorySpendingPieChartProps } from './CategorySpendingPieChart';
+export { SupabaseOverview } from '../features/settings/SupabaseOverview';
+export type { SupabaseOverviewProps } from '../features/settings/SupabaseOverview';
 export * from './layout';

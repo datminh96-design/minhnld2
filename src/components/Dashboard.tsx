@@ -562,67 +562,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   return (
     <div className="space-y-6 pb-16">
       {/* =========================================================================
-          SUPABASE LIVE CONNECTIVITY & CLOUD SYNCHRONIZATION BAR
-          ========================================================================= */}
-      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-              supabaseStatus.isConfigured 
-                ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800' 
-                : 'bg-amber-50 dark:bg-amber-950/50 text-amber-600 border border-amber-200'
-            }`}>
-              <Database className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-sm text-slate-900 dark:text-white">
-                  Supabase Cloud Database
-                </span>
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                  supabaseStatus.isConfigured 
-                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' 
-                    : 'bg-amber-100 text-amber-800'
-                }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${supabaseStatus.isConfigured ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-                  {supabaseStatus.isConfigured ? 'Đã Kết Nối' : 'Chưa Cấu Hình'}
-                </span>
-                {supabaseLatencyMs !== null && (
-                  <span className="text-[11px] font-mono font-medium text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md">
-                    {supabaseLatencyMs}ms
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-2">
-                <span className="font-mono text-[11px] truncate max-w-xs">{supabaseStatus.maskedUrl || supabaseStatus.url}</span>
-                <span>•</span>
-                <span>Đồng bộ: {lastSyncedAt ? new Date(lastSyncedAt).toLocaleTimeString('vi-VN') : 'Mới khởi động'}</span>
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
-              <Layers className="w-3.5 h-3.5 text-purple-500" />
-              <span>{transactions.length} Giao dịch</span>
-              <span className="text-slate-400">•</span>
-              <span>{projects.length} Dự án</span>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleManualSync}
-              disabled={isManualSyncing || syncStatus === 'syncing'}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs disabled:opacity-60 transition-all cursor-pointer"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isManualSyncing || syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
-              <span>{isManualSyncing ? 'Đang đồng bộ...' : 'Đồng bộ Supabase'}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* =========================================================================
           DATE RANGE PICKER (BY MONTH OR YEAR) & QUICK ACTIONS
           ========================================================================= */}
       <div className="flex flex-wrap items-center justify-between gap-3">
