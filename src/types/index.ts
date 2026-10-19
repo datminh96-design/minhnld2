@@ -246,3 +246,21 @@ export interface BusinessTripExpense {
   updated_at?: string;
 }
 
+export type ProjectStatus = 'in_progress' | 'completed' | 'review' | 'on_hold' | 'planning';
+
+export interface Project {
+  id: string;
+  user_id?: string;
+  name: string;
+  client?: string;
+  description?: string;
+  status: ProjectStatus;
+  progress: number; // 0 - 100%
+  budget: number;
+  spent?: number;
+  deadline?: string;
+  priority?: 'high' | 'medium' | 'low';
+  created_at?: string;
+  updated_at?: string;
+}
+

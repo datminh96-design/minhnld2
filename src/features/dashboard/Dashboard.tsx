@@ -48,6 +48,7 @@ import { Analytics } from './Analytics';
 import { NetBalanceTrendChart } from '../../components/NetBalanceTrendChart';
 import { TransactionModalForm } from '../expenses/TransactionModalForm';
 import { Transaction, ExpenseCategory } from '../../types';
+import { Dashboard as SupabaseDashboard } from '../../components/Dashboard';
 
 export interface DashboardProps {
   onNavigateTab?: (tab: 'work' | 'expenses' | 'investments' | 'storage' | 'reports' | 'settings') => void;
@@ -86,6 +87,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
     addToast,
     userSettings 
   } = useData();
+
+  // Dashboard Sub-navigation (Supabase Summary vs Wealth Portfolio)
+  const [activeDashboardTab, setActiveDashboardTab] = useState<'supabase_summary' | 'wealth_investments'>('supabase_summary');
 
   // Transaction Edit Modal State
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
@@ -362,8 +366,45 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   return (
     <div className="space-y-6 pb-12">
-      {/* Top Banner: Total Balance & Net Worth Hero */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 p-6 sm:p-8 text-white shadow-xl border border-slate-700/50">
+      {/* 0. Top Dashboard Navigation Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 p-1.5 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setActiveDashboardTab('supabase_summary')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeDashboardTab === 'supabase_summary'
+                ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>⚡ Tổng Quan Supabase (Thu Nhập • Chi Tiêu • Dự Án)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveDashboardTab('wealth_investments')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeDashboardTab === 'wealth_investments'
+                ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <TrendingUp className="w-3.5 h-3.5" />
+            <span>💎 Danh Mục Đầu Tư & Dòng Tiền Tích Lũy</span>
+          </button>
+        </div>
+      </div>
+
+      {activeDashboardTab === 'supabase_summary' ? (
+        <SupabaseDashboard
+          onNavigateTab={onNavigateTab}
+          onQuickAction={onQuickAction}
+        />
+      ) : (
+        <>
+          {/* Top Banner: Total Balance & Net Worth Hero */}
+          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 p-6 sm:p-8 text-white shadow-xl border border-slate-700/50">
         <div className="absolute -right-12 -top-12 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -left-12 -bottom-12 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
 
@@ -1196,6 +1237,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
         onSave={handleSaveEditedTx}
         onAddCategory={handleQuickAddCategory}
       />
+        </>
+      )}
     </div>
   );
 };

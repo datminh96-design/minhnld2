@@ -8,7 +8,8 @@ import {
   WorkSettings,
   UserSettings,
   Profile,
-  BusinessTripExpense
+  BusinessTripExpense,
+  Project
 } from '../types';
 
 export const DEFAULT_PROFILE: Profile = {
@@ -91,5 +92,62 @@ export const getInitialPortfolioSnapshots = (): PortfolioSnapshot[] => {
 
 export const getInitialBusinessTrips = (): BusinessTripExpense[] => {
   return [];
+};
+
+export const getInitialProjects = (): Project[] => {
+  return [
+    {
+      id: 'p0000000-0000-4000-8000-000000000001',
+      name: 'Nâng cấp Hệ Thống Quản Lý Tài Chính & Chấm Công',
+      client: 'MinhTech Corp',
+      description: 'Phát triển dashboard tài chính, theo dõi thu chi và tích hợp đồng bộ Supabase',
+      status: 'in_progress',
+      progress: 85,
+      budget: 35000000,
+      spent: 19500000,
+      deadline: '2026-11-15',
+      priority: 'high',
+      created_at: new Date(Date.now() - 14 * 86400000).toISOString(),
+    },
+    {
+      id: 'p0000000-0000-4000-8000-000000000002',
+      name: 'Tích hợp OCR Gemini 3.8 Flash & Scan Hóa Đơn',
+      client: 'Fintech Solutions',
+      description: 'Module bóc tách dữ liệu biên lai chuyển khoản & hóa đơn GTGT tự động',
+      status: 'completed',
+      progress: 100,
+      budget: 22000000,
+      spent: 16000000,
+      deadline: '2026-10-18',
+      priority: 'medium',
+      created_at: new Date(Date.now() - 25 * 86400000).toISOString(),
+    },
+    {
+      id: 'p0000000-0000-4000-8000-000000000003',
+      name: 'Cổng Tự Động Hóa Email Giao Dịch & Cảnh Báo Ngân Sách',
+      client: 'Internal Enterprise',
+      description: 'Thiết lập cron job cảnh báo chi tiêu vượt ngưỡng và gửi báo cáo tuần qua email',
+      status: 'review',
+      progress: 70,
+      budget: 15000000,
+      spent: 9800000,
+      deadline: '2026-10-31',
+      priority: 'medium',
+      created_at: new Date(Date.now() - 8 * 86400000).toISOString(),
+    },
+    {
+      id: 'p0000000-0000-4000-8000-000000000004',
+      name: 'Tối Ưu Hóa & Sao Lưu Cloudflare R2 / Supabase',
+      client: 'Data Storage Infra',
+      description: 'Bảo mật kho lưu trữ tài liệu, presigned upload URLs và snapshot danh mục',
+      status: 'in_progress',
+      progress: 60,
+      budget: 18000000,
+      spent: 10500000,
+      deadline: '2026-11-20',
+      priority: 'high',
+      created_at: new Date(Date.now() - 5 * 86400000).toISOString(),
+    },
+  ];
 };
 

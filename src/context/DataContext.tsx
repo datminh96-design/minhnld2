@@ -3,7 +3,7 @@ import {
   WorkSettings, WorkLog, ExpenseCategory, Transaction, TransactionType,
   InvestmentAsset, InvestmentTransaction, PortfolioSnapshot,
   UserSettings, CloudSyncStatus, ToastMessage, CalculatedAssetHolding,
-  MonthlySalaryData, SalaryRecord, BusinessTripExpense
+  MonthlySalaryData, SalaryRecord, BusinessTripExpense, Project
 } from '../types';
 import {
   DEFAULT_WORK_SETTINGS,
@@ -15,6 +15,7 @@ import {
   getInitialInvestmentTransactions,
   getInitialPortfolioSnapshots,
   getInitialBusinessTrips,
+  getInitialProjects,
 } from '../lib/seedData';
 import { useAuth } from './AuthContext';
 import { getSupabaseClient } from '../lib/supabase';
@@ -33,6 +34,7 @@ interface DataContextType {
   investmentTransactions: InvestmentTransaction[];
   portfolioSnapshots: PortfolioSnapshot[];
   salaryRecords: Record<string, MonthlySalaryData>;
+  projects: Project[];
   userSettings: UserSettings;
   calculatedHoldings: CalculatedAssetHolding[];
   toasts: ToastMessage[];
@@ -60,6 +62,8 @@ interface DataContextType {
   deleteInvestmentAsset: (id: string) => Promise<void>;
   saveInvestmentTransaction: (tx: Omit<InvestmentTransaction, 'id'> & { id?: string }) => Promise<void>;
   deleteInvestmentTransaction: (id: string) => Promise<void>;
+  saveProject: (project: Omit<Project, 'id'> & { id?: string }) => Promise<void>;
+  deleteProject: (id: string) => Promise<void>;
   refreshMarketPrices: (silent?: boolean, skipCloudSave?: boolean) => Promise<void>;
   takeDailySnapshot: (totalValue: number, totalCost: number) => Promise<void>;
   updateUserSettings: (settings: Partial<UserSettings>) => Promise<void>;
@@ -219,6 +223,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     }
     return initialMap;
+  });
+
+  const [projects, setProjects] = useState<Project[]>(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('app_projects') : null;
+    return saved ? JSON.parse(saved) : getInitialProjects();
   });
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -918,6 +927,36 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       } catch (snapErr) {
         console.warn('Lỗi tải portfolio_snapshots:', snapErr);
+      }
+
+      // 11. Tải projects từ Supabase
+      try {
+        let queryProj = client.from('projects').select('*');
+        if (user?.id) queryProj = queryProj.or(`user_id.eq.${user.id},user_id.eq.admin123,user_id.is.null`);
+        const { data: projData, error: projError } = await queryProj.order('created_at', { ascending: false });
+        if (!projError && projData && Array.isArray(projData) && projData.length > 0) {
+          const formatted: Project[] = projData.map((p: any) => ({
+            id: p.id,
+            user_id: p.user_id,
+            name: p.name || 'Dự án',
+            client: p.client || '',
+            description: p.description || '',
+            status: p.status || 'in_progress',
+            progress: Number(p.progress) || 0,
+            budget: Number(p.budget) || 0,
+            spent: Number(p.spent) || 0,
+            deadline: p.deadline || '',
+            priority: p.priority || 'medium',
+            created_at: p.created_at || new Date().toISOString(),
+            updated_at: p.updated_at || new Date().toISOString(),
+          }));
+          setProjects(formatted);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('app_projects', JSON.stringify(formatted));
+          }
+        }
+      } catch (projErr) {
+        // Table may not yet be created on Supabase; local fallback remains fully functional
       }
 
       setSyncStatus('synced');
@@ -2399,6 +2438,54 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, [userSettings.theme]);
 
+  const saveProject = async (projData: Omit<Project, 'id'> & { id?: string }) => {
+    const id = projData.id || generateUUID();
+    const newProj: Project = {
+      ...projData,
+      id,
+      user_id: user?.id || 'admin123',
+      updated_at: new Date().toISOString(),
+      created_at: (projData as any).created_at || new Date().toISOString(),
+    };
+
+    setProjects(prev => {
+      const exists = prev.some(p => p.id === id);
+      const updated = exists ? prev.map(p => p.id === id ? newProj : p) : [newProj, ...prev];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_projects', JSON.stringify(updated));
+      }
+      return updated;
+    });
+
+    const { client, isConfigured } = getSupabaseClient();
+    if (isConfigured && client) {
+      try {
+        await client.from('projects').upsert(newProj);
+      } catch (e) {
+        // Supabase table fallback
+      }
+    }
+  };
+
+  const deleteProject = async (id: string) => {
+    setProjects(prev => {
+      const updated = prev.filter(p => p.id !== id);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_projects', JSON.stringify(updated));
+      }
+      return updated;
+    });
+
+    const { client, isConfigured } = getSupabaseClient();
+    if (isConfigured && client) {
+      try {
+        await client.from('projects').delete().eq('id', id);
+      } catch (e) {
+        // Supabase table fallback
+      }
+    }
+  };
+
   const clearAllData = () => {
     setWorkSettings(DEFAULT_WORK_SETTINGS);
     setUserSettings(DEFAULT_USER_SETTINGS);
@@ -2410,6 +2497,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setInvestmentTransactions([]);
     setPortfolioSnapshots([]);
     setSalaryRecords({});
+    setProjects([]);
     localStorage.removeItem('app_work_logs');
     localStorage.removeItem('app_business_trips');
     localStorage.removeItem('app_transactions');
@@ -2417,6 +2505,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.removeItem('app_investment_txs');
     localStorage.removeItem('app_portfolio_snapshots');
     localStorage.removeItem('app_salary_records');
+    localStorage.removeItem('app_projects');
     triggerCloudBackup(false);
     addToast('Đã xóa toàn bộ dữ liệu', 'success');
   };
@@ -2432,6 +2521,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setInvestmentTransactions(getInitialInvestmentTransactions());
     setPortfolioSnapshots(getInitialPortfolioSnapshots());
     setSalaryRecords({});
+    setProjects(getInitialProjects());
+    localStorage.setItem('app_projects', JSON.stringify(getInitialProjects()));
     triggerCloudBackup(false);
     addToast('Đã nạp lại dữ liệu mẫu thành công', 'success');
   };
@@ -2563,12 +2654,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   return (
     <DataContext.Provider value={{
       workSettings, workLogs, businessTrips, categories, transactions, investmentAssets, investmentTransactions, portfolioSnapshots,
-      salaryRecords, userSettings, calculatedHoldings, toasts, loadingData, isOnline, syncStatus, lastSyncedAt, syncMessage, isRefreshingPrices,
+      salaryRecords, projects, userSettings, calculatedHoldings, toasts, loadingData, isOnline, syncStatus, lastSyncedAt, syncMessage, isRefreshingPrices,
       updateWorkSettings, saveSalaryRecord, getSalaryRecord, saveWorkLog, deleteWorkLog, getWorkLogsForMonth,
       saveBusinessTrip, deleteBusinessTrip, toggleBusinessTripPayment,
       saveTransaction, deleteTransaction,
       saveCategory, deleteCategory, saveInvestmentAsset, updateAssetPrice, deleteInvestmentAsset,
-      saveInvestmentTransaction, deleteInvestmentTransaction, refreshMarketPrices, takeDailySnapshot, updateUserSettings,
+      saveInvestmentTransaction, deleteInvestmentTransaction, saveProject, deleteProject, refreshMarketPrices, takeDailySnapshot, updateUserSettings,
       addToast, removeToast, clearAllData, resetToSampleData, syncWithSupabase, triggerCloudBackup,
       backupToCloudflareR2, restoreFromCloudflareR2, sendTransactionalEmailNotification
     }}>
