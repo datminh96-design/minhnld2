@@ -286,12 +286,25 @@ export const MonthlyIncomeExpenseChart: React.FC<MonthlyIncomeExpenseChartProps>
           <div className="flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-slate-300">
               <span className="w-2.5 h-2.5 rounded-xs bg-rose-500" />
-              <span>Chi tiêu:</span>
+              <span>Chi sinh hoạt:</span>
             </span>
             <span className="font-mono font-bold text-rose-400">
               {formatCurrency(dataPoint.expense, currency)}
             </span>
           </div>
+
+          {/* Investment row */}
+          {dataPoint.investment > 0 && (
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-slate-300">
+                <span className="w-2.5 h-2.5 rounded-xs bg-sky-500" />
+                <span>Tích lũy & Đầu tư:</span>
+              </span>
+              <span className="font-mono font-bold text-sky-400">
+                {formatCurrency(dataPoint.investment, currency)}
+              </span>
+            </div>
+          )}
 
           {/* Net Cashflow row */}
           <div className="pt-2 mt-1 border-t border-slate-800/80 flex items-center justify-between">
@@ -310,7 +323,7 @@ export const MonthlyIncomeExpenseChart: React.FC<MonthlyIncomeExpenseChartProps>
     );
   };
 
-  const hasData = chartData.some((d) => d.income > 0 || d.expense > 0);
+  const hasData = chartData.some((d) => d.income > 0 || d.expense > 0 || d.investment > 0);
 
   return (
     <div
@@ -330,7 +343,7 @@ export const MonthlyIncomeExpenseChart: React.FC<MonthlyIncomeExpenseChartProps>
                 {title || 'Tương Quan Thu Nhập & Chi Tiêu Hàng Tháng'}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                {subtitle || 'Theo dõi cân đối dòng tiền, tỷ lệ tiết kiệm và xu hướng thu chi theo thời gian'}
+                {subtitle || 'Theo dõi cân đối dòng tiền thu vào, chi tiêu sinh hoạt, tích lũy đầu tư và tỷ lệ tiết kiệm'}
               </p>
             </div>
           </div>
@@ -539,6 +552,10 @@ export const MonthlyIncomeExpenseChart: React.FC<MonthlyIncomeExpenseChartProps>
             <span className="w-3 h-3 rounded-xs bg-rose-500" />
             <span>Chi tiêu</span>
           </span>
+          <span className="flex items-center gap-1.5 font-medium text-slate-700 dark:text-slate-300">
+            <span className="w-3 h-3 rounded-xs bg-sky-500" />
+            <span>Tích lũy & Đầu tư</span>
+          </span>
           {chartType === 'composed' && (
             <span className="flex items-center gap-1.5 font-medium text-purple-600 dark:text-purple-400">
               <span className="w-3 h-0.5 bg-purple-500" />
@@ -649,8 +666,9 @@ export const MonthlyIncomeExpenseChart: React.FC<MonthlyIncomeExpenseChartProps>
                     <ReferenceLine y={kpis.avgExpense} stroke="#F43F5E" strokeDasharray="4 4" opacity={0.6} />
                   </>
                 )}
-                <Bar dataKey="income" name="Thu nhập" fill="#10B981" radius={[4, 4, 0, 0]} maxBarSize={32} />
-                <Bar dataKey="expense" name="Chi tiêu" fill="#F43F5E" radius={[4, 4, 0, 0]} maxBarSize={32} />
+                <Bar dataKey="income" name="Thu nhập" fill="#10B981" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                <Bar dataKey="expense" name="Chi tiêu" fill="#F43F5E" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                <Bar dataKey="investment" name="Tích lũy & Đầu tư" fill="#0EA5E9" radius={[4, 4, 0, 0]} maxBarSize={28} />
               </BarChart>
             ) : (
               <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
@@ -664,8 +682,9 @@ export const MonthlyIncomeExpenseChart: React.FC<MonthlyIncomeExpenseChartProps>
                     <ReferenceLine y={kpis.avgExpense} stroke="#F43F5E" strokeDasharray="4 4" opacity={0.6} />
                   </>
                 )}
-                <Bar dataKey="income" name="Thu nhập" fill="#10B981" radius={[4, 4, 0, 0]} maxBarSize={28} />
-                <Bar dataKey="expense" name="Chi tiêu" fill="#F43F5E" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                <Bar dataKey="income" name="Thu nhập" fill="#10B981" radius={[4, 4, 0, 0]} maxBarSize={24} />
+                <Bar dataKey="expense" name="Chi tiêu" fill="#F43F5E" radius={[4, 4, 0, 0]} maxBarSize={24} />
+                <Bar dataKey="investment" name="Tích lũy & Đầu tư" fill="#0EA5E9" radius={[4, 4, 0, 0]} maxBarSize={24} />
                 {showNetLine && (
                   <Line
                     type="monotone"

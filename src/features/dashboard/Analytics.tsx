@@ -1,22 +1,18 @@
 import React, { useState, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
-import { formatCurrency, formatPercent, getCurrentMonthPrefix, isInvestmentTransaction } from '../../lib/utils';
+import { formatCurrency, formatPercent, formatDateVN, getCurrentMonthPrefix, isInvestmentTransaction } from '../../lib/utils';
 import { getCategoryIconMeta } from '../../lib/categoryIcons';
+import { Transaction } from '../../types';
 import {
   PieChart as PieIcon,
-  TrendingUp,
   ArrowDownLeft,
   ArrowUpRight,
   Sparkles,
-  Calendar,
-  Layers,
-  Filter,
   DollarSign,
   PieChart as LucidePieChart,
-  BarChart2,
-  Receipt,
   Coins,
-  PiggyBank
+  X,
+  Edit3
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -24,17 +20,12 @@ import {
   Pie,
   Cell,
   Tooltip,
-  Legend,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
 } from 'recharts';
 
 export interface AnalyticsProps {
   className?: string;
   defaultTimeRange?: 'current_month' | 'last_month' | 'last_3m' | 'last_6m' | 'all';
+  onEditTransaction?: (tx: Transaction) => void;
 }
 
 const COLOR_PALETTE = [
@@ -55,23 +46,23 @@ const COLOR_PALETTE = [
 export const Analytics: React.FC<AnalyticsProps> = ({
   className = '',
   defaultTimeRange = 'current_month',
+  onEditTransaction,
 }) => {
   const { transactions, userSettings } = useData();
 
-  const [viewMode, setViewMode] = useState<'expense' | 'investment' | 'income' | 'comparison'>('expense');
+  const [viewMode, setViewMode] = useState<'expense' | 'all_outflow' | 'investment' | 'income' | 'comparison'>('expense');
   const [timeRange, setTimeRange] = useState<'current_month' | 'last_month' | 'last_3m' | 'last_6m' | 'all'>(defaultTimeRange);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [selectedCategoryDrilldown, setSelectedCategoryDrilldown] = useState<string | null>(null);
 
   // Filter transactions by selected time range
   const filteredTransactions = useMemo(() => {
     const now = new Date();
     const currentPrefix = getCurrentMonthPrefix(); // 'YYYY-MM'
 
-    // Last month prefix
     const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastMonthPrefix = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`;
 
-    // 3 months ago timestamp
     const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1).toISOString().split('T')[0];
     const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1).toISOString().split('T')[0];
 
@@ -93,15 +84,20 @@ export const Analytics: React.FC<AnalyticsProps> = ({
     });
   }, [transactions, timeRange]);
 
-  // Aggregate totals and category distributions (STRICT SEPARATION OF INVESTMENT FROM EXPENSE)
+  // Aggregate totals and category distributions (with transaction counts)
   const analyticsData = useMemo(() => {
     let totalIncome = 0;
     let totalLivingExpense = 0;
     let totalInvestment = 0;
 
-    const expenseCategoryMap: Record<string, number> = {};
-    const investmentCategoryMap: Record<string, number> = {};
-    const incomeCategoryMap: Record<string, number> = {};
+    let incomeCount = 0;
+    let livingExpenseCount = 0;
+    let investmentCount = 0;
+
+    const expenseCategoryMap: Record<string, { value: number; count: number }> = {};
+    const investmentCategoryMap: Record<string, { value: number; count: number }> = {};
+    const allOutflowCategoryMap: Record<string, { value: number; count: number }> = {};
+    const incomeCategoryMap: Record<string, { value: number; count: number }> = {};
 
     filteredTransactions.forEach((tx) => {
       const amt = Number(tx.amount) || 0;
@@ -109,69 +105,100 @@ export const Analytics: React.FC<AnalyticsProps> = ({
 
       if (tx.transaction_type === 'income') {
         totalIncome += amt;
-        incomeCategoryMap[cat] = (incomeCategoryMap[cat] || 0) + amt;
+        incomeCount += 1;
+        if (!incomeCategoryMap[cat]) incomeCategoryMap[cat] = { value: 0, count: 0 };
+        incomeCategoryMap[cat].value += amt;
+        incomeCategoryMap[cat].count += 1;
       } else if (isInvestmentTransaction(tx)) {
-        // Tích lũy & Đầu tư - NẰM RIÊNG BIỆT, không tính vào chi tiêu sinh hoạt
         totalInvestment += amt;
-        investmentCategoryMap[cat] = (investmentCategoryMap[cat] || 0) + amt;
+        investmentCount += 1;
+        if (!investmentCategoryMap[cat]) investmentCategoryMap[cat] = { value: 0, count: 0 };
+        investmentCategoryMap[cat].value += amt;
+        investmentCategoryMap[cat].count += 1;
+
+        if (!allOutflowCategoryMap[cat]) allOutflowCategoryMap[cat] = { value: 0, count: 0 };
+        allOutflowCategoryMap[cat].value += amt;
+        allOutflowCategoryMap[cat].count += 1;
       } else {
-        // Chi tiêu sinh hoạt
         totalLivingExpense += amt;
-        expenseCategoryMap[cat] = (expenseCategoryMap[cat] || 0) + amt;
+        livingExpenseCount += 1;
+        if (!expenseCategoryMap[cat]) expenseCategoryMap[cat] = { value: 0, count: 0 };
+        expenseCategoryMap[cat].value += amt;
+        expenseCategoryMap[cat].count += 1;
+
+        if (!allOutflowCategoryMap[cat]) allOutflowCategoryMap[cat] = { value: 0, count: 0 };
+        allOutflowCategoryMap[cat].value += amt;
+        allOutflowCategoryMap[cat].count += 1;
       }
     });
 
-    // 1. Living Expense Pie Data
+    const totalOutflowAndInvestment = totalLivingExpense + totalInvestment;
+    const totalOutflowCount = livingExpenseCount + investmentCount;
+
     const expenseDistribution = Object.entries(expenseCategoryMap)
-      .map(([name, value], idx) => {
+      .map(([name, item], idx) => {
         const meta = getCategoryIconMeta(name);
         return {
           name,
-          value,
-          percent: totalLivingExpense > 0 ? (value / totalLivingExpense) * 100 : 0,
+          value: item.value,
+          count: item.count,
+          percent: totalLivingExpense > 0 ? (item.value / totalLivingExpense) * 100 : 0,
           color: meta.color || COLOR_PALETTE[idx % COLOR_PALETTE.length],
         };
       })
       .sort((a, b) => b.value - a.value);
 
-    // 2. Investment & Savings Pie Data (NẰM RIÊNG)
-    const investmentDistribution = Object.entries(investmentCategoryMap)
-      .map(([name, value], idx) => {
+    const allOutflowDistribution = Object.entries(allOutflowCategoryMap)
+      .map(([name, item], idx) => {
         const meta = getCategoryIconMeta(name);
         return {
           name,
-          value,
-          percent: totalInvestment > 0 ? (value / totalInvestment) * 100 : 0,
+          value: item.value,
+          count: item.count,
+          percent: totalOutflowAndInvestment > 0 ? (item.value / totalOutflowAndInvestment) * 100 : 0,
+          color: meta.color || COLOR_PALETTE[idx % COLOR_PALETTE.length],
+        };
+      })
+      .sort((a, b) => b.value - a.value);
+
+    const investmentDistribution = Object.entries(investmentCategoryMap)
+      .map(([name, item], idx) => {
+        const meta = getCategoryIconMeta(name);
+        return {
+          name,
+          value: item.value,
+          count: item.count,
+          percent: totalInvestment > 0 ? (item.value / totalInvestment) * 100 : 0,
           color: meta.color || ['#0EA5E9', '#8B5CF6', '#06B6D4', '#F59E0B', '#10B981'][idx % 5],
         };
       })
       .sort((a, b) => b.value - a.value);
 
-    // 3. Income Pie Data
     const incomeDistribution = Object.entries(incomeCategoryMap)
-      .map(([name, value], idx) => {
+      .map(([name, item], idx) => {
         const meta = getCategoryIconMeta(name);
         return {
           name,
-          value,
-          percent: totalIncome > 0 ? (value / totalIncome) * 100 : 0,
+          value: item.value,
+          count: item.count,
+          percent: totalIncome > 0 ? (item.value / totalIncome) * 100 : 0,
           color: meta.color || COLOR_PALETTE[idx % COLOR_PALETTE.length],
         };
       })
       .sort((a, b) => b.value - a.value);
 
-    // 4. Comparison Data (Thu Nhập vs Chi Tiêu Sinh Hoạt vs Tích Lũy & Đầu Tư)
-    const totalOutflowAndInvestment = totalLivingExpense + totalInvestment;
     const comparisonData = [
       {
         name: 'Chi Tiêu Sinh Hoạt',
         value: totalLivingExpense,
+        count: livingExpenseCount,
         percent: totalOutflowAndInvestment > 0 ? (totalLivingExpense / totalOutflowAndInvestment) * 100 : 0,
         color: '#F43F5E',
       },
       {
         name: 'Tích Lũy & Đầu Tư',
         value: totalInvestment,
+        count: investmentCount,
         percent: totalOutflowAndInvestment > 0 ? (totalInvestment / totalOutflowAndInvestment) * 100 : 0,
         color: '#0EA5E9',
       },
@@ -185,10 +212,16 @@ export const Analytics: React.FC<AnalyticsProps> = ({
       totalIncome,
       totalLivingExpense,
       totalInvestment,
+      totalOutflowAndInvestment,
+      incomeCount,
+      livingExpenseCount,
+      investmentCount,
+      totalOutflowCount,
       netCashflow,
       savingsRate,
       investmentRate,
       expenseDistribution,
+      allOutflowDistribution,
       investmentDistribution,
       incomeDistribution,
       comparisonData,
@@ -196,9 +229,9 @@ export const Analytics: React.FC<AnalyticsProps> = ({
     };
   }, [filteredTransactions]);
 
-  // Current active dataset for pie visualization
   const currentChartData = useMemo(() => {
     if (viewMode === 'expense') return analyticsData.expenseDistribution;
+    if (viewMode === 'all_outflow') return analyticsData.allOutflowDistribution;
     if (viewMode === 'investment') return analyticsData.investmentDistribution;
     if (viewMode === 'income') return analyticsData.incomeDistribution;
     return analyticsData.comparisonData;
@@ -206,10 +239,29 @@ export const Analytics: React.FC<AnalyticsProps> = ({
 
   const currentTotal = useMemo(() => {
     if (viewMode === 'expense') return analyticsData.totalLivingExpense;
+    if (viewMode === 'all_outflow') return analyticsData.totalOutflowAndInvestment;
     if (viewMode === 'investment') return analyticsData.totalInvestment;
     if (viewMode === 'income') return analyticsData.totalIncome;
-    return analyticsData.totalLivingExpense + analyticsData.totalInvestment;
+    return analyticsData.totalOutflowAndInvestment;
   }, [viewMode, analyticsData]);
+
+  const currentTxCount = useMemo(() => {
+    if (viewMode === 'expense') return analyticsData.livingExpenseCount;
+    if (viewMode === 'all_outflow') return analyticsData.totalOutflowCount;
+    if (viewMode === 'investment') return analyticsData.investmentCount;
+    if (viewMode === 'income') return analyticsData.incomeCount;
+    return analyticsData.totalOutflowCount;
+  }, [viewMode, analyticsData]);
+
+  const activeDataPoint = activeIndex !== null && currentChartData[activeIndex] ? currentChartData[activeIndex] : null;
+
+  // Drilldown transactions for selected category
+  const drilldownTransactions = useMemo(() => {
+    if (!selectedCategoryDrilldown || viewMode === 'comparison') return [];
+    return filteredTransactions
+      .filter((t) => (t.category_name || 'Khác') === selectedCategoryDrilldown)
+      .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date));
+  }, [filteredTransactions, selectedCategoryDrilldown, viewMode]);
 
   return (
     <div className={`rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-xs space-y-6 ${className}`}>
@@ -222,14 +274,14 @@ export const Analytics: React.FC<AnalyticsProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-base font-bold text-slate-900 dark:text-white font-display tracking-tight">
-                Phân Tích Cơ Cấu Dòng Tiền (Thu • Chi • Tích Lũy & Đầu Tư)
+                Phân Tích Cơ Cấu Dòng Tiền & Danh Mục (Thu • Chi • Tích Lũy & Đầu Tư)
               </h3>
               <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800">
-                <Sparkles className="w-3 h-3" /> Tách Riêng Đầu Tư
+                <Sparkles className="w-3 h-3" /> Biểu Đồ Hợp Nhất
               </span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Tích lũy & Đầu tư nằm riêng biệt, không tính chung vào chi tiêu sinh hoạt
+              Tỷ trọng chi tiêu theo từng nhóm danh mục • Tích lũy & Đầu tư tách riêng minh bạch
             </p>
           </div>
         </div>
@@ -237,22 +289,45 @@ export const Analytics: React.FC<AnalyticsProps> = ({
         {/* View Mode & Time Range Buttons */}
         <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
           {/* View Mode Segment */}
-          <div className="p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl flex items-center text-xs font-semibold">
+          <div className="p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl flex flex-wrap items-center text-xs font-semibold">
             <button
               type="button"
-              onClick={() => setViewMode('expense')}
-              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+              onClick={() => {
+                setViewMode('expense');
+                setActiveIndex(null);
+                setSelectedCategoryDrilldown(null);
+              }}
+              className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
                 viewMode === 'expense'
                   ? 'bg-white dark:bg-slate-900 text-rose-600 dark:text-rose-400 shadow-xs font-bold'
                   : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
               }`}
             >
-              Chi Tiêu
+              Chi Sinh Hoạt
             </button>
             <button
               type="button"
-              onClick={() => setViewMode('investment')}
-              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+              onClick={() => {
+                setViewMode('all_outflow');
+                setActiveIndex(null);
+                setSelectedCategoryDrilldown(null);
+              }}
+              className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                viewMode === 'all_outflow'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs font-bold'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              Tất Cả Chi
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setViewMode('investment');
+                setActiveIndex(null);
+                setSelectedCategoryDrilldown(null);
+              }}
+              className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
                 viewMode === 'investment'
                   ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs font-bold'
                   : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
@@ -262,8 +337,12 @@ export const Analytics: React.FC<AnalyticsProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setViewMode('income')}
-              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+              onClick={() => {
+                setViewMode('income');
+                setActiveIndex(null);
+                setSelectedCategoryDrilldown(null);
+              }}
+              className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
                 viewMode === 'income'
                   ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs font-bold'
                   : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
@@ -273,8 +352,12 @@ export const Analytics: React.FC<AnalyticsProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setViewMode('comparison')}
-              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+              onClick={() => {
+                setViewMode('comparison');
+                setActiveIndex(null);
+                setSelectedCategoryDrilldown(null);
+              }}
+              className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
                 viewMode === 'comparison'
                   ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-xs font-bold'
                   : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
@@ -334,9 +417,8 @@ export const Analytics: React.FC<AnalyticsProps> = ({
         </div>
       </div>
 
-      {/* 2. Top Summary KPI 4-Card Grid (SEPARATING INVESTMENT & EXPENSES) */}
+      {/* 2. Top Summary KPI 4-Card Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {/* Total Income */}
         <div className="p-3.5 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40">
           <div className="flex items-center justify-between text-xs text-emerald-700 dark:text-emerald-400 font-semibold">
             <span className="flex items-center gap-1.5">
@@ -348,7 +430,6 @@ export const Analytics: React.FC<AnalyticsProps> = ({
           </p>
         </div>
 
-        {/* Living Expense (Excluded Investment) */}
         <div className="p-3.5 rounded-2xl bg-rose-50/60 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40">
           <div className="flex items-center justify-between text-xs text-rose-600 dark:text-rose-400 font-semibold">
             <span className="flex items-center gap-1.5">
@@ -363,7 +444,6 @@ export const Analytics: React.FC<AnalyticsProps> = ({
           </p>
         </div>
 
-        {/* Investment & Savings (DISTINCT SEPARATE BUCKET) */}
         <div className="p-3.5 rounded-2xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40">
           <div className="flex items-center justify-between text-xs text-blue-700 dark:text-blue-400 font-semibold">
             <span className="flex items-center gap-1.5">
@@ -378,7 +458,6 @@ export const Analytics: React.FC<AnalyticsProps> = ({
           </p>
         </div>
 
-        {/* Net Cashflow Remaining */}
         <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
           <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400 font-semibold">
             <span className="flex items-center gap-1.5">
@@ -409,7 +488,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
           {/* Donut Chart Canvas (5 cols) */}
           <div className="lg:col-span-5 flex flex-col items-center justify-center relative">
-            <div className="w-full h-64 sm:h-72">
+            <div className="w-full h-64 sm:h-72 relative">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
@@ -419,9 +498,15 @@ export const Analytics: React.FC<AnalyticsProps> = ({
                     innerRadius={70}
                     outerRadius={105}
                     paddingAngle={3}
+                    cornerRadius={4}
                     dataKey="value"
                     onMouseEnter={(_, index) => setActiveIndex(index)}
                     onMouseLeave={() => setActiveIndex(null)}
+                    onClick={(entry) => {
+                      if (viewMode !== 'comparison' && entry?.name) {
+                        setSelectedCategoryDrilldown((prev) => (prev === entry.name ? null : entry.name));
+                      }
+                    }}
                   >
                     {currentChartData.map((entry, index) => (
                       <Cell
@@ -429,7 +514,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({
                         fill={entry.color}
                         stroke="transparent"
                         className="transition-all duration-300 cursor-pointer outline-none"
-                        opacity={activeIndex === null || activeIndex === index ? 1 : 0.5}
+                        opacity={activeIndex === null || activeIndex === index ? 1 : 0.45}
                       />
                     ))}
                   </Pie>
@@ -438,7 +523,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({
                       if (active && payload && payload.length) {
                         const item = payload[0].payload;
                         return (
-                          <div className="rounded-2xl bg-slate-900/95 text-white p-3 shadow-2xl border border-slate-700/80 text-xs space-y-1 backdrop-blur-md min-w-[160px]">
+                          <div className="rounded-2xl bg-slate-900/95 text-white p-3 shadow-2xl border border-slate-700/80 text-xs space-y-1 backdrop-blur-md min-w-[180px]">
                             <div className="flex items-center justify-between pb-1 border-b border-slate-800">
                               <span className="font-bold flex items-center gap-1.5">
                                 <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
@@ -451,6 +536,9 @@ export const Analytics: React.FC<AnalyticsProps> = ({
                             <p className="text-sm font-bold font-mono text-slate-100">
                               {formatCurrency(item.value, userSettings.currency)}
                             </p>
+                            <p className="text-[11px] text-slate-400">
+                              {item.count} giao dịch
+                            </p>
                           </div>
                         );
                       }
@@ -459,36 +547,72 @@ export const Analytics: React.FC<AnalyticsProps> = ({
                   />
                 </PieChart>
               </ResponsiveContainer>
-            </div>
 
-            {/* Center Donut Info Overlay */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center px-4">
-              <span className="text-[11px] font-semibold text-slate-400">
-                {viewMode === 'expense' && 'Tổng Chi Tiêu'}
-                {viewMode === 'investment' && 'Tổng Tích Lũy'}
-                {viewMode === 'income' && 'Tổng Thu Nhập'}
-                {viewMode === 'comparison' && 'Chi & Đầu Tư'}
-              </span>
-              <span className="text-base sm:text-lg font-bold font-mono text-slate-900 dark:text-white">
-                {formatCurrency(currentTotal, userSettings.currency, true)}
-              </span>
+              {/* Center Donut Info Overlay */}
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center px-4">
+                {activeDataPoint ? (
+                  <>
+                    <span className="text-[11px] font-semibold text-slate-400 truncate max-w-[140px]">
+                      {activeDataPoint.name}
+                    </span>
+                    <span className="text-base sm:text-lg font-extrabold font-mono text-slate-900 dark:text-white mt-0.5">
+                      {formatCurrency(activeDataPoint.value, userSettings.currency, true)}
+                    </span>
+                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                      {activeDataPoint.percent.toFixed(1)}% ({activeDataPoint.count} gd)
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-[11px] font-semibold text-slate-400">
+                      {viewMode === 'expense' && 'Chi sinh hoạt'}
+                      {viewMode === 'all_outflow' && 'Tổng chi tiêu'}
+                      {viewMode === 'investment' && 'Tổng tích lũy'}
+                      {viewMode === 'income' && 'Tổng thu nhập'}
+                      {viewMode === 'comparison' && 'Chi & Đầu Tư'}
+                    </span>
+                    <span className="text-base sm:text-lg font-extrabold font-mono text-slate-900 dark:text-white mt-0.5">
+                      {formatCurrency(currentTotal, userSettings.currency, true)}
+                    </span>
+                    <span className="text-[11px] text-slate-400 mt-0.5">
+                      {currentTxCount} giao dịch
+                    </span>
+                  </>
+                )}
+              </div>
             </div>
+            <p className="text-[11px] text-slate-400 text-center mt-1">
+              Di chuột hoặc chạm vào danh mục để xem chi tiết giao dịch
+            </p>
           </div>
 
           {/* Detailed Category Breakdown Table / Progress List (7 cols) */}
           <div className="lg:col-span-7 space-y-2.5 max-h-80 overflow-y-auto pr-1">
+            <div className="flex items-center justify-between text-xs text-slate-500 pb-1 border-b border-slate-100 dark:border-slate-800">
+              <span className="font-semibold">Danh mục ({currentChartData.length})</span>
+              <span className="font-semibold">Chi tiêu / Tỷ lệ</span>
+            </div>
+
             {currentChartData.map((item, index) => {
               const meta = getCategoryIconMeta(item.name);
               const Icon = meta.Icon;
               const isHovered = activeIndex === index;
+              const isSelected = selectedCategoryDrilldown === item.name;
 
               return (
                 <div
                   key={item.name}
                   onMouseEnter={() => setActiveIndex(index)}
                   onMouseLeave={() => setActiveIndex(null)}
+                  onClick={() => {
+                    if (viewMode !== 'comparison') {
+                      setSelectedCategoryDrilldown((prev) => (prev === item.name ? null : item.name));
+                    }
+                  }}
                   className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                    isHovered
+                    isSelected
+                      ? 'bg-purple-50/70 dark:bg-purple-950/30 border-purple-300 dark:border-purple-700 shadow-xs'
+                      : isHovered
                       ? 'bg-slate-50 dark:bg-slate-800/80 border-slate-300 dark:border-slate-700 shadow-xs'
                       : 'bg-white dark:bg-slate-900/60 border-slate-100 dark:border-slate-800/70 hover:border-slate-200 dark:hover:border-slate-800'
                   }`}
@@ -503,6 +627,9 @@ export const Analytics: React.FC<AnalyticsProps> = ({
                       </div>
                       <span className="font-bold text-slate-800 dark:text-slate-200 truncate">
                         {item.name}
+                      </span>
+                      <span className="text-[10px] text-slate-400 shrink-0">
+                        ({item.count} gd)
                       </span>
                     </div>
 
@@ -529,6 +656,54 @@ export const Analytics: React.FC<AnalyticsProps> = ({
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Drilldown Transaction List when clicking a category */}
+      {selectedCategoryDrilldown && drilldownTransactions.length > 0 && (
+        <div className="p-4 rounded-2xl border border-purple-200 dark:border-purple-800/60 bg-purple-50/30 dark:bg-purple-950/20 space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <span>Chi tiết giao dịch danh mục:</span>
+              <span className="text-purple-600 dark:text-purple-400">{selectedCategoryDrilldown}</span>
+              <span className="text-[11px] font-normal text-slate-400">({drilldownTransactions.length} giao dịch)</span>
+            </h4>
+            <button
+              type="button"
+              onClick={() => setSelectedCategoryDrilldown(null)}
+              className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="max-h-56 overflow-y-auto divide-y divide-slate-200/60 dark:divide-slate-800 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 px-3">
+            {drilldownTransactions.map((tx) => (
+              <div key={tx.id} className="py-2.5 flex items-center justify-between text-xs gap-2">
+                <div className="min-w-0">
+                  <p className="font-semibold text-slate-800 dark:text-slate-200 truncate">
+                    {tx.note || tx.category_name}
+                  </p>
+                  <p className="text-[11px] text-slate-400">{formatDateVN(tx.transaction_date)}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="font-mono font-bold text-slate-900 dark:text-white">
+                    {formatCurrency(tx.amount, userSettings.currency)}
+                  </span>
+                  {onEditTransaction && (
+                    <button
+                      type="button"
+                      onClick={() => onEditTransaction(tx)}
+                      className="p-1 rounded-lg text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                      title="Sửa giao dịch"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
