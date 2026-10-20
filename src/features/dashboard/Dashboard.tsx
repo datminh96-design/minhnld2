@@ -30,8 +30,7 @@ import {
   Film,
   HelpCircle,
   Edit3,
-  Trash2,
-  Database
+  Trash2
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -399,36 +398,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   return (
     <div className="space-y-6 pb-12">
-      {/* 0. Top Dashboard Navigation Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 p-2 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-            <Sparkles className="w-4 h-4" />
-          </div>
-          <div>
-            <h2 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white font-display">
-              Bảng Điều Khiển Tài Chính & Tài Sản
-            </h2>
-            <p className="text-[11px] text-slate-400">
-              Tổng hợp giờ công, dòng tiền thu chi, danh mục đầu tư và tài sản ròng
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onNavigateTab('settings')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-semibold shadow-xs transition-all cursor-pointer"
-            title="Xem bảng điều khiển tổng quan cơ sở dữ liệu Supabase Cloud trong Cài Đặt"
-          >
-            <Database className="w-3.5 h-3.5 text-emerald-500" />
-            <span>Tổng Quan Supabase (Cài Đặt)</span>
-            <ArrowRight className="w-3 h-3 text-slate-400" />
-          </button>
-        </div>
-      </div>
-
       {/* Top Banner: Total Balance & Net Worth Hero */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 p-6 sm:p-8 text-white shadow-xl border border-slate-700/50">
         <div className="absolute -right-12 -top-12 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
