@@ -14,6 +14,10 @@ import { AddAssetQuickSection } from './AddAssetQuickSection';
 import { TechnicalAnalysis4HSection } from './TechnicalAnalysis4HSection';
 import { InvestmentTxModalForm } from './InvestmentTxModalForm';
 import { PortfolioSmartCharts } from './PortfolioSmartCharts';
+import {
+  RealtimeTransactionInlineBanner,
+  TransactionRowStatusBadge,
+} from '../../components/ui/RealtimeTransactionStatus';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -401,6 +405,9 @@ export const InvestmentsView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Real-time Investment Transaction Status Tracker */}
+      <RealtimeTransactionInlineBanner filterCategory="investment" />
 
       {/* Control Bar: Tabs, Filters, Refresh and Action Buttons */}
       <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
@@ -963,6 +970,7 @@ export const InvestmentsView: React.FC = () => {
                       <th className="py-3 px-3 text-right">Phí giao dịch</th>
                       <th className="py-3 px-4 text-right">Tổng thanh toán / Thực nhận</th>
                       <th className="py-3 px-4">Ghi chú</th>
+                      <th className="py-3 px-3">Trạng thái</th>
                       <th className="py-3 px-3 text-right">Thao tác</th>
                     </tr>
                   </thead>
@@ -1069,6 +1077,9 @@ export const InvestmentsView: React.FC = () => {
                           </td>
                           <td className="py-3 px-4 text-slate-500 truncate max-w-xs">
                             {((tx.notes || tx.note || '').replace(/\[DIVIDEND_META\]:\{.*?\}/g, '').trim()) || (isCashDiv ? 'Cổ tức tiền mặt tính thẳng vào chốt lời' : isStockDiv ? 'Cổ tức cổ phiếu' : '--')}
+                          </td>
+                          <td className="py-3 px-3 whitespace-nowrap">
+                            <TransactionRowStatusBadge txId={tx.id} />
                           </td>
                           <td className="py-3 px-3 text-right whitespace-nowrap">
                             <div className="flex items-center justify-end gap-1">

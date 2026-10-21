@@ -264,3 +264,27 @@ export interface Project {
   updated_at?: string;
 }
 
+export type TransactionProcessState = 'processing' | 'completed' | 'error';
+
+export type TransactionProcessStep = 'local_saved' | 'cloud_syncing' | 'completed' | 'error';
+
+export interface TransactionProcessItem {
+  id: string;
+  txId: string;
+  title: string;
+  subtitle: string;
+  amount?: number;
+  category?: string;
+  txType: 'expense' | 'income' | 'investment' | 'work' | 'trip';
+  action: 'create' | 'update' | 'delete';
+  status: TransactionProcessState;
+  step: TransactionProcessStep;
+  stepMessage: string;
+  progress: number; // 0 - 100
+  timestamp: string; // ISO string
+  durationMs?: number;
+  errorDetail?: string;
+  rawPayload?: any;
+}
+
+

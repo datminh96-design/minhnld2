@@ -12,6 +12,10 @@ import { ExpenseScanner } from '../../components/ExpenseScanner';
 import { NetBalanceTrendChart } from '../../components/NetBalanceTrendChart';
 import { MonthlyIncomeExpenseChart } from '../../components/MonthlyIncomeExpenseChart';
 import { Analytics } from '../dashboard/Analytics';
+import {
+  RealtimeTransactionInlineBanner,
+  TransactionRowStatusBadge,
+} from '../../components/ui/RealtimeTransactionStatus';
 import { 
   Wallet, 
   ArrowDownLeft, 
@@ -355,6 +359,9 @@ export const ExpensesView: React.FC = () => {
       {/* Real-time Monthly Budget Health & Warning System */}
       <BudgetTrackerCard />
 
+      {/* Real-time Transaction Process & Status Tracker */}
+      <RealtimeTransactionInlineBanner filterCategory="expense_income" />
+
       {/* Filter and View Bar */}
       <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
         {/* Preset Range Selector & Tabs */}
@@ -554,6 +561,7 @@ export const ExpensesView: React.FC = () => {
                     <th className="py-3 px-3">Loại</th>
                     <th className="py-3 px-4">Danh mục</th>
                     <th className="py-3 px-4">Ghi chú</th>
+                    <th className="py-3 px-3">Trạng thái</th>
                     <th className="py-3 px-4 text-right">Số tiền</th>
                     <th className="py-3 px-3 text-right">Thao tác</th>
                   </tr>
@@ -606,6 +614,9 @@ export const ExpensesView: React.FC = () => {
                         </td>
                         <td className="py-3 px-4 text-slate-600 dark:text-slate-400 max-w-sm truncate">
                           {tx.note || '--'}
+                        </td>
+                        <td className="py-3 px-3 whitespace-nowrap">
+                          <TransactionRowStatusBadge txId={tx.id} />
                         </td>
                         <td
                           className={`py-3 px-4 text-right font-bold font-display text-sm whitespace-nowrap ${
@@ -720,9 +731,12 @@ export const ExpensesView: React.FC = () => {
                           <IconComp className="w-4 h-4" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 truncate">
-                            {tx.category_name || 'Không phân loại'}
-                          </p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 truncate">
+                              {tx.category_name || 'Không phân loại'}
+                            </p>
+                            <TransactionRowStatusBadge txId={tx.id} />
+                          </div>
                           <p className="text-[11px] text-slate-400 truncate">
                             {tx.note || tx.transaction_date}
                           </p>

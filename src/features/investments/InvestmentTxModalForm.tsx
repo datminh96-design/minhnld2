@@ -681,35 +681,30 @@ export const InvestmentTxModalForm: React.FC<InvestmentTxModalFormProps> = ({
 
     setIsSubmitting(true);
     try {
-      const savePromise = onSave({
-        id: editingTransaction ? editingTransaction.id : undefined,
-        asset_id: txAssetId,
-        transaction_type: txType,
-        dividend_type: txType === 'dividend' ? dividendType : undefined,
-        tx_type: txType,
-        quantity: isCashDividend ? 0 : rawQty,
-        units: isCashDividend ? 0 : rawQty,
-        price: isCashDividend ? priceVnd : priceVnd,
-        price_per_unit: isCashDividend ? priceVnd : priceVnd,
-        total_amount: isCashDividend ? totalVnd : totalVnd,
-        fee: feeVnd,
-        transaction_date: txDate,
-        tx_date: txDate,
-        note: txNotes || (txType === 'dividend' ? (dividendType === 'cash' ? 'Nhận cổ tức tiền mặt (tính vào chốt lời)' : 'Nhận cổ tức cổ phiếu/thưởng') : ''),
-        notes: txNotes || (txType === 'dividend' ? (dividendType === 'cash' ? 'Nhận cổ tức tiền mặt (tính vào chốt lời)' : 'Nhận cổ tức cổ phiếu/thưởng') : ''),
-        fee_currency: txFeeCurrency,
-        usdt_rate: usdtRate,
-        exchange_rate: txPriceCurrency === 'USDT' ? usdtRate : 1,
+      void Promise.resolve(
+        onSave({
+          id: editingTransaction ? editingTransaction.id : undefined,
+          asset_id: txAssetId,
+          transaction_type: txType,
+          dividend_type: txType === 'dividend' ? dividendType : undefined,
+          tx_type: txType,
+          quantity: isCashDividend ? 0 : rawQty,
+          units: isCashDividend ? 0 : rawQty,
+          price: isCashDividend ? priceVnd : priceVnd,
+          price_per_unit: isCashDividend ? priceVnd : priceVnd,
+          total_amount: isCashDividend ? totalVnd : totalVnd,
+          fee: feeVnd,
+          transaction_date: txDate,
+          tx_date: txDate,
+          note: txNotes || (txType === 'dividend' ? (dividendType === 'cash' ? 'Nhận cổ tức tiền mặt (tính vào chốt lời)' : 'Nhận cổ tức cổ phiếu/thưởng') : ''),
+          notes: txNotes || (txType === 'dividend' ? (dividendType === 'cash' ? 'Nhận cổ tức tiền mặt (tính vào chốt lời)' : 'Nhận cổ tức cổ phiếu/thưởng') : ''),
+          fee_currency: txFeeCurrency,
+          usdt_rate: usdtRate,
+          exchange_rate: txPriceCurrency === 'USDT' ? usdtRate : 1,
+        })
+      ).catch((err) => {
+        console.warn('Lỗi đồng bộ nền giao dịch đầu tư:', err);
       });
-
-      // Race with a 2-second timeout to guarantee the modal always closes quickly and never hangs
-      await Promise.race([
-        savePromise,
-        new Promise((resolve) => setTimeout(resolve, 2000)),
-      ]);
-      onClose();
-    } catch (err) {
-      console.warn('Lỗi khi lưu giao dịch đầu tư:', err);
       onClose();
     } finally {
       setIsSubmitting(false);

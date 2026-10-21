@@ -56,6 +56,7 @@ export const WorkLogModalForm: React.FC<WorkLogModalFormProps> = ({
         setFormBreakEnd(workSettings.default_break_end || '14:00');
         setFormNotes('');
       }
+      setIsSubmitting(false);
     }
 
     prevIsOpenRef.current = isOpen;
@@ -78,24 +79,26 @@ export const WorkLogModalForm: React.FC<WorkLogModalFormProps> = ({
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      await onSave({
-        id: editingLog ? editingLog.id : undefined,
-        work_date: formDate,
-        check_in: formCheckIn,
-        check_out: formCheckOut,
-        break_start: formBreakStart,
-        break_end: formBreakEnd,
-        work_status: formStatus,
-        notes: formNotes,
-        break_duration_hours: modalCalculated.breakDurationHours,
-        break_duration_minutes: modalCalculated.breakDurationMinutes,
-        total_hours: modalCalculated.totalHours,
-        total_minutes: modalCalculated.totalMinutes,
-        overtime_hours: modalCalculated.overtimeHours,
-        overtime_minutes: modalCalculated.overtimeMinutes,
-        missing_hours: modalCalculated.missingHours,
-        missing_minutes: modalCalculated.missingMinutes,
-      });
+      void Promise.resolve(
+        onSave({
+          id: editingLog ? editingLog.id : undefined,
+          work_date: formDate,
+          check_in: formCheckIn,
+          check_out: formCheckOut,
+          break_start: formBreakStart,
+          break_end: formBreakEnd,
+          work_status: formStatus,
+          notes: formNotes,
+          break_duration_hours: modalCalculated.breakDurationHours,
+          break_duration_minutes: modalCalculated.breakDurationMinutes,
+          total_hours: modalCalculated.totalHours,
+          total_minutes: modalCalculated.totalMinutes,
+          overtime_hours: modalCalculated.overtimeHours,
+          overtime_minutes: modalCalculated.overtimeMinutes,
+          missing_hours: modalCalculated.missingHours,
+          missing_minutes: modalCalculated.missingMinutes,
+        })
+      ).catch((err) => console.warn('Lỗi đồng bộ nền chấm công:', err));
       onClose();
     } finally {
       setIsSubmitting(false);

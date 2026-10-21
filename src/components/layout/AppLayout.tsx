@@ -2,6 +2,7 @@ import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Sidebar, NavTab } from './Sidebar';
 import { Header } from './Header';
 import { ToastContainer } from '../ui/Toast';
+import { RealtimeTransactionFloatingWidget } from '../ui/RealtimeTransactionStatus';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 

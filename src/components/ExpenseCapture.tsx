@@ -502,22 +502,26 @@ export const ExpenseCapture: React.FC<ExpenseCaptureProps> = ({
         : txName.trim();
 
       if (onSave) {
-        await onSave({
-          type: txType,
-          amount: numAmount,
-          category: finalCategory,
-          description: finalNote,
-          transaction_date: txDate,
-          fee: numFee,
-        });
+        void Promise.resolve(
+          onSave({
+            type: txType,
+            amount: numAmount,
+            category: finalCategory,
+            description: finalNote,
+            transaction_date: txDate,
+            fee: numFee,
+          })
+        ).catch((err) => console.warn('Lỗi đồng bộ nền từ hóa đơn:', err));
       } else {
-        await saveTransaction({
-          transaction_type: txType,
-          amount: numAmount,
-          category_name: finalCategory,
-          note: finalNote,
-          transaction_date: txDate,
-        });
+        void Promise.resolve(
+          saveTransaction({
+            transaction_type: txType,
+            amount: numAmount,
+            category_name: finalCategory,
+            note: finalNote,
+            transaction_date: txDate,
+          })
+        ).catch((err) => console.warn('Lỗi đồng bộ nền từ hóa đơn:', err));
       }
 
       addToast(`Đã lưu giao dịch ${txName} (${formatCurrency(numAmount, 'VND')}) thành công!`, 'success');

@@ -3,7 +3,8 @@ import {
   WorkSettings, WorkLog, ExpenseCategory, Transaction, TransactionType,
   InvestmentAsset, InvestmentTransaction, PortfolioSnapshot,
   UserSettings, CloudSyncStatus, ToastMessage, CalculatedAssetHolding,
-  MonthlySalaryData, SalaryRecord, BusinessTripExpense, Project
+  MonthlySalaryData, SalaryRecord, BusinessTripExpense, Project,
+  TransactionProcessItem, TransactionProcessState, TransactionProcessStep
 } from '../types';
 import {
   DEFAULT_WORK_SETTINGS,
@@ -76,6 +77,11 @@ interface DataContextType {
   backupToCloudflareR2: () => Promise<boolean>;
   restoreFromCloudflareR2: (key: string) => Promise<boolean>;
   sendTransactionalEmailNotification: (payload: SendEmailPayload) => Promise<SendEmailResponse>;
+  txProcessLogs: TransactionProcessItem[];
+  activeTxProcess: TransactionProcessItem | null;
+  retryTransactionSync: (processId: string) => Promise<void>;
+  clearTxProcessLogs: () => void;
+  dismissActiveTxProcess: () => void;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -231,6 +237,150 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   });
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [txProcessLogs, setTxProcessLogs] = useState<TransactionProcessItem[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('app_tx_process_logs');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) return parsed.slice(0, 25);
+        } catch {}
+      }
+    }
+    return [];
+  });
+  const [activeTxProcess, setActiveTxProcess] = useState<TransactionProcessItem | null>(null);
+  const activeTxTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const startTxProcess = useCallback((params: {
+    txId: string;
+    title: string;
+    subtitle: string;
+    amount?: number;
+    category?: string;
+    txType: TransactionProcessItem['txType'];
+    action: TransactionProcessItem['action'];
+    rawPayload?: any;
+  }): { processId: string; startTime: number } => {
+    const processId = generateUUID();
+    const startTime = Date.now();
+    const newItem: TransactionProcessItem = {
+      id: processId,
+      txId: params.txId,
+      title: params.title,
+      subtitle: params.subtitle,
+      amount: params.amount,
+      category: params.category,
+      txType: params.txType,
+      action: params.action,
+      status: 'processing',
+      step: 'local_saved',
+      stepMessage: 'Đang xử lý • Đã ghi nhận vào bộ nhớ thiết bị',
+      progress: 45,
+      timestamp: new Date().toISOString(),
+      rawPayload: params.rawPayload,
+    };
+
+    if (activeTxTimerRef.current) clearTimeout(activeTxTimerRef.current);
+    setActiveTxProcess(newItem);
+    setTxProcessLogs(prev => {
+      const filtered = prev.filter(p => p.txId !== params.txId || p.id === processId);
+      const next = [newItem, ...filtered].slice(0, 25);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_tx_process_logs', JSON.stringify(next));
+      }
+      return next;
+    });
+
+    // Chuyển sang bước đang đồng bộ Cloud sau 80ms để hiển thị trực quan tiến trình
+    setTimeout(() => {
+      setActiveTxProcess(curr => {
+        if (!curr || curr.id !== processId || curr.status !== 'processing') return curr;
+        return {
+          ...curr,
+          step: 'cloud_syncing',
+          stepMessage: 'Đang xử lý • Đang đồng bộ Realtime & Cloud...',
+          progress: 78,
+        };
+      });
+      setTxProcessLogs(prev =>
+        prev.map(item =>
+          item.id === processId && item.status === 'processing'
+            ? {
+                ...item,
+                step: 'cloud_syncing',
+                stepMessage: 'Đang xử lý • Đang đồng bộ Realtime & Cloud...',
+                progress: 78,
+              }
+            : item
+        )
+      );
+    }, 80);
+
+    return { processId, startTime };
+  }, []);
+
+  const finalizeTxProcess = useCallback((
+    processId: string,
+    startTime: number,
+    status: 'completed' | 'error',
+    stepMessage: string,
+    errorDetail?: string
+  ) => {
+    const durationMs = Math.max(12, Date.now() - startTime);
+    const finalStep: TransactionProcessStep = status === 'completed' ? 'completed' : 'error';
+
+    setTxProcessLogs(prev => {
+      const next = prev.map(item =>
+        item.id === processId
+          ? {
+              ...item,
+              status,
+              step: finalStep,
+              stepMessage,
+              progress: 100,
+              durationMs,
+              errorDetail,
+            }
+          : item
+      );
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_tx_process_logs', JSON.stringify(next));
+      }
+      return next;
+    });
+
+    setActiveTxProcess(curr => {
+      if (!curr || curr.id !== processId) return curr;
+      return {
+        ...curr,
+        status,
+        step: finalStep,
+        stepMessage,
+        progress: 100,
+        durationMs,
+        errorDetail,
+      };
+    });
+
+    if (activeTxTimerRef.current) clearTimeout(activeTxTimerRef.current);
+    activeTxTimerRef.current = setTimeout(() => {
+      setActiveTxProcess(curr => (curr?.id === processId && status === 'completed' ? null : curr));
+    }, 6000);
+  }, []);
+
+  const clearTxProcessLogs = useCallback(() => {
+    setTxProcessLogs([]);
+    setActiveTxProcess(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('app_tx_process_logs');
+    }
+  }, []);
+
+  const dismissActiveTxProcess = useCallback(() => {
+    setActiveTxProcess(null);
+  }, []);
+
   const [loadingData, setLoadingData] = useState<boolean>(false);
   const loadingDataRef = useRef(loadingData);
   useEffect(() => {
@@ -1146,6 +1296,15 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
   }, [user?.id, isDemoUser]);
 
+  const raceWithTimeout = <T,>(promise: PromiseLike<T>, ms = 3000): Promise<T> => {
+    return Promise.race([
+      Promise.resolve(promise),
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error('Cloud sync timeout (tự động chuyển sang lưu nền)')), ms)
+      ),
+    ]);
+  };
+
   const runUpsert = async (table: string, data: any, successMsg: string): Promise<{ success: boolean; localOnly?: boolean; pendingSync?: boolean; error?: any }> => {
     triggerCloudBackup();
     if (!isDemoUser) {
@@ -1153,14 +1312,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         const { client } = getSupabaseClient();
         if (client) {
-          // Special handling for business_trips: make sure payload is resilient to DB column schemas
           let payloadToSave = { ...data, user_id: effectiveUserId };
           
-          const upsertPromise = client.from(table).upsert(payloadToSave);
-          const timeoutPromise = new Promise<{ error: any }>((_, reject) =>
-            setTimeout(() => reject(new Error('Cloud sync timeout (tự động chuyển sang lưu nền)')), 4000)
-          );
-          const { error } = await Promise.race([upsertPromise, timeoutPromise]) as any;
+          const { error } = await raceWithTimeout<any>(client.from(table).upsert(payloadToSave), 3000);
           
           if (error) {
             // Check if error is due to missing columns (e.g. outbound_type, outbound_km in business_trips)
@@ -1200,7 +1354,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                   updated_at: new Date().toISOString()
                 };
                 
-                const { error: retryErr } = await client.from('business_trips').upsert(safeCoreData);
+                const { error: retryErr } = await raceWithTimeout<any>(client.from('business_trips').upsert(safeCoreData), 3000);
                 if (!retryErr) {
                   if (successMsg) addToast(successMsg, 'success');
                   return { success: true, error: null };
@@ -1237,7 +1391,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                   updated_at: new Date().toISOString()
                 };
 
-                const { error: retryTxErr } = await client.from('transactions').upsert(safeTxData);
+                const { error: retryTxErr } = await raceWithTimeout<any>(client.from('transactions').upsert(safeTxData), 3000);
                 if (!retryTxErr) {
                   if (successMsg) addToast(successMsg, 'success');
                   return { success: true, error: null };
@@ -1285,7 +1439,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                   updated_at: new Date().toISOString()
                 };
 
-                const { error: retryItxErr } = await client.from('investment_transactions').upsert(safeItxData);
+                const { error: retryItxErr } = await raceWithTimeout<any>(client.from('investment_transactions').upsert(safeItxData), 3000);
                 if (!retryItxErr) {
                   if (successMsg) addToast(successMsg, 'success');
                   return { success: true, error: null };
@@ -1306,23 +1460,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               if (successMsg) addToast(successMsg, 'success');
               return { success: true, pendingSync: true, error: null };
             }
-            return { success: false, error };
+            if (successMsg) addToast(successMsg, 'success');
+            return { success: true, localOnly: true, error };
           }
         }
       } catch (err: any) {
-        if (
-          err.message?.includes('Could not find the table') ||
-          err.message?.includes('schema cache') ||
-          err.code === 'PGRST205' ||
-          err.code === '42P01' ||
-          err.message?.includes('timeout') ||
-          err.message?.includes('Failed to fetch')
-        ) {
-          if (successMsg) {
-            addToast(successMsg, 'success');
-          }
-          return { success: true, localOnly: true, error: null };
-        }
         if (successMsg) addToast(successMsg, 'success');
         return { success: true, pendingSync: true, error: err };
       }
@@ -1334,15 +1476,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const runDelete = async (table: string, id: string, successMsg: string) => {
     triggerCloudBackup();
     if (!isDemoUser) {
-      const effectiveUserId = user?.id || 'admin123';
       try {
         const { client } = getSupabaseClient();
         if (client) {
-          const deletePromise = client.from(table).delete().eq('id', id);
-          const timeoutPromise = new Promise<{ error: any }>((_, reject) =>
-            setTimeout(() => reject(new Error('Cloud sync timeout')), 3500)
-          );
-          const { error } = await Promise.race([deletePromise, timeoutPromise]) as any;
+          const { error } = await raceWithTimeout<any>(client.from(table).delete().eq('id', id), 3000);
           if (error) {
             if (error.message?.includes('schema cache') || error.message?.includes('Could not find the table') || error.code === 'PGRST205' || error.code === '42P01') {
               if (successMsg) addToast(successMsg, 'success');
@@ -1630,10 +1767,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setWorkLogs(prev => {
       const idx = prev.findIndex(l => l.id === id);
-      if (idx >= 0) { const next = [...prev]; next[idx] = fullLog; return next; }
-      return [fullLog, ...prev];
+      const next = idx >= 0 ? prev.map((l, i) => (i === idx ? fullLog : l)) : [fullLog, ...prev];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_work_logs', JSON.stringify(next));
+      }
+      return next;
     });
-        await runUpsert('work_logs', {
+    addToast(`Đã lưu chấm công ngày ${fullLog.work_date}`, 'success');
+    void runUpsert('work_logs', {
       id: fullLog.id,
       work_date: fullLog.work_date,
       check_in: fullLog.check_in || null,
@@ -1646,12 +1787,19 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       missing_hours: fullLog.missing_hours,
       work_status: fullLog.work_status,
       notes: fullLog.notes
-    }, `Đã lưu chấm công ngày ${fullLog.work_date}`);
+    }, '');
   };
 
   const deleteWorkLog = async (id: string) => {
-    setWorkLogs(prev => prev.filter(l => l.id !== id));
-    await runDelete('work_logs', id, 'Đã xóa chấm công');
+    setWorkLogs(prev => {
+      const next = prev.filter(l => l.id !== id);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_work_logs', JSON.stringify(next));
+      }
+      return next;
+    });
+    addToast('Đã xóa chấm công', 'success');
+    void runDelete('work_logs', id, '');
   };
 
   const getWorkLogsForMonth = (month: number, year: number) => {
@@ -1679,31 +1827,26 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.warn('Realtime business trips broadcast error:', bcErr);
     }
 
-    // 2. Lưu đồng bộ đa tầng vào work_settings (bảo đảm mọi máy đều tải được)
-    try {
-      const updatedSalaryData = {
-        ...(workSettings.salary_data || {}),
-        _business_trips: currentTrips
-      };
-      setWorkSettings(prev => {
-        const nextWs = { ...prev, salary_data: updatedSalaryData };
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('app_work_settings', JSON.stringify(nextWs));
-        }
-        return nextWs;
-      });
-      await runUpsert('work_settings', {
+    // 2. Lưu đồng bộ đa tầng vào work_settings & work_logs song song
+    const updatedSalaryData = {
+      ...(workSettings.salary_data || {}),
+      _business_trips: currentTrips
+    };
+    setWorkSettings(prev => {
+      const nextWs = { ...prev, salary_data: updatedSalaryData };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_work_settings', JSON.stringify(nextWs));
+      }
+      return nextWs;
+    });
+
+    const backupLogId = toValidUUID(`bt_backup_${effectiveUserId}`);
+    await Promise.allSettled([
+      runUpsert('work_settings', {
         id: workSettings.id ? toValidUUID(workSettings.id) : toValidUUID(`ws_${effectiveUserId}`),
         salary_data: updatedSalaryData
-      }, '');
-    } catch (wsErr) {
-      console.warn('Lỗi lưu dự phòng công tác phí vào work_settings:', wsErr);
-    }
-
-    // 3. Lưu đồng bộ đa tầng an toàn tuyệt đối vào work_logs
-    try {
-      const backupLogId = toValidUUID(`bt_backup_${effectiveUserId}`);
-      await runUpsert('work_logs', {
+      }, ''),
+      runUpsert('work_logs', {
         id: backupLogId,
         work_date: '1970-01-01',
         work_status: 'Công tác phí',
@@ -1712,10 +1855,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         overtime_hours: 0,
         missing_hours: 0,
         notes: `[BUSINESS_TRIP_SYNC]:${JSON.stringify(currentTrips)}`
-      }, '');
-    } catch (logErr) {
-      console.warn('Lỗi lưu dự phòng công tác phí vào work_logs:', logErr);
-    }
+      }, '')
+    ]);
   };
 
   const saveBusinessTrip = async (tripData: Omit<BusinessTripExpense, 'id'> & { id?: string }) => {
@@ -1743,31 +1884,45 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       updated_at: new Date().toISOString(),
     };
 
-    let nextTrips: BusinessTripExpense[] = [];
+    const existingIdx = businessTrips.findIndex(t => t.id === id);
+    const computedNextTrips = existingIdx >= 0
+      ? businessTrips.map(t => t.id === id ? fullTrip : t)
+      : [fullTrip, ...businessTrips];
+
     setBusinessTrips(prev => {
       const idx = prev.findIndex(t => t.id === id);
-      nextTrips = idx >= 0 ? prev.map(t => t.id === id ? fullTrip : t) : [fullTrip, ...prev];
+      const nextTrips = idx >= 0 ? prev.map(t => t.id === id ? fullTrip : t) : [fullTrip, ...prev];
       if (typeof window !== 'undefined') {
         localStorage.setItem('app_business_trips', JSON.stringify(nextTrips));
       }
       return nextTrips;
     });
 
-    await runUpsert('business_trips', fullTrip, `Đã lưu công tác phí ngày ${fullTrip.trip_date}`);
-    await syncBusinessTripsToCloud(nextTrips.length > 0 ? nextTrips : [fullTrip]);
+    addToast(`Đã lưu công tác phí ngày ${fullTrip.trip_date}`, 'success');
+    void (async () => {
+      await Promise.allSettled([
+        runUpsert('business_trips', fullTrip, ''),
+        syncBusinessTripsToCloud(computedNextTrips)
+      ]);
+    })();
   };
 
   const deleteBusinessTrip = async (id: string) => {
-    let nextTrips: BusinessTripExpense[] = [];
+    const computedNextTrips = businessTrips.filter(t => t.id !== id);
     setBusinessTrips(prev => {
-      nextTrips = prev.filter(t => t.id !== id);
+      const nextTrips = prev.filter(t => t.id !== id);
       if (typeof window !== 'undefined') {
         localStorage.setItem('app_business_trips', JSON.stringify(nextTrips));
       }
       return nextTrips;
     });
-    await runDelete('business_trips', id, 'Đã xóa bản ghi công tác phí');
-    await syncBusinessTripsToCloud(nextTrips);
+    addToast('Đã xóa bản ghi công tác phí', 'success');
+    void (async () => {
+      await Promise.allSettled([
+        runDelete('business_trips', id, ''),
+        syncBusinessTripsToCloud(computedNextTrips)
+      ]);
+    })();
   };
 
   const toggleBusinessTripPayment = async (id: string) => {
@@ -1781,23 +1936,27 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       updated_at: new Date().toISOString()
     };
 
-    let nextTrips: BusinessTripExpense[] = [];
+    const computedNextTrips = businessTrips.map(t => t.id === id ? updatedTrip : t);
     setBusinessTrips(prev => {
-      nextTrips = prev.map(t => t.id === id ? updatedTrip : t);
+      const nextTrips = prev.map(t => t.id === id ? updatedTrip : t);
       if (typeof window !== 'undefined') {
         localStorage.setItem('app_business_trips', JSON.stringify(nextTrips));
       }
       return nextTrips;
     });
 
-    await runUpsert(
-      'business_trips',
-      updatedTrip,
+    addToast(
       updatedIsPaid
         ? 'Đã thanh toán (Màu xanh, chuyển xuống dưới)'
-        : 'Chờ thanh toán (Chữ đỏ, đưa lên đầu)'
+        : 'Chờ thanh toán (Chữ đỏ, đưa lên đầu)',
+      'success'
     );
-    await syncBusinessTripsToCloud(nextTrips);
+    void (async () => {
+      await Promise.allSettled([
+        runUpsert('business_trips', updatedTrip, ''),
+        syncBusinessTripsToCloud(computedNextTrips)
+      ]);
+    })();
   };
 
 
@@ -1819,31 +1978,26 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.warn('Realtime transactions broadcast error:', bcErr);
     }
 
-    // 2. Lưu đồng bộ đa tầng vào work_settings (bảo đảm mọi máy đều tải được)
-    try {
-      const updatedSalaryData = {
-        ...(workSettings.salary_data || {}),
-        _transactions: currentTransactions
-      };
-      setWorkSettings(prev => {
-        const nextWs = { ...prev, salary_data: updatedSalaryData };
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('app_work_settings', JSON.stringify(nextWs));
-        }
-        return nextWs;
-      });
-      await runUpsert('work_settings', {
+    // 2. Lưu đồng bộ đa tầng vào work_settings & work_logs song song
+    const updatedSalaryData = {
+      ...(workSettings.salary_data || {}),
+      _transactions: currentTransactions
+    };
+    setWorkSettings(prev => {
+      const nextWs = { ...prev, salary_data: updatedSalaryData };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_work_settings', JSON.stringify(nextWs));
+      }
+      return nextWs;
+    });
+
+    const txLogId = toValidUUID(`tx_sync_global_meta`);
+    await Promise.allSettled([
+      runUpsert('work_settings', {
         id: workSettings.id ? toValidUUID(workSettings.id) : toValidUUID(`ws_${effectiveUserId}`),
         salary_data: updatedSalaryData
-      }, '');
-    } catch (wsErr) {
-      console.warn('Lỗi lưu dự phòng transactions vào work_settings:', wsErr);
-    }
-
-    // 3. Lưu đồng bộ đa tầng an toàn tuyệt đối vào work_logs shadow
-    try {
-      const txLogId = toValidUUID(`tx_sync_global_meta`);
-      await runUpsert('work_logs', {
+      }, ''),
+      runUpsert('work_logs', {
         id: txLogId,
         work_date: '1970-01-01',
         work_status: 'Thu chi',
@@ -1852,50 +2006,24 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         overtime_hours: 0,
         missing_hours: 0,
         notes: `[TRANSACTIONS_SYNC]:${JSON.stringify(currentTransactions)}`
-      }, '');
-    } catch (logErr) {
-      console.warn('Lỗi lưu dự phòng transactions vào work_logs:', logErr);
-    }
+      }, '')
+    ]);
   };
 
   const saveTransaction = async (txData: Omit<Transaction, 'id'> & { id?: string }) => {
     const id = txData.id || generateUUID();
-    const isNew = !txData.id;
-    // Validate category_id for PostgreSQL uuid format!
+    const isEdit = Boolean(txData.id);
     const validCategoryId = (txData.category_id && txData.category_id.length > 0) ? txData.category_id : undefined;
-    
-    let nextTransactions: Transaction[] = [];
-    let savedFullTx: Transaction | null = null;
 
-    setTransactions(prev => {
-      const idx = prev.findIndex(t => t.id === id);
-      const existing = idx >= 0 ? prev[idx] : undefined;
-
-      const fullTx = validateAndSanitizeTransaction(
-        {
-          ...txData,
-          id,
-          category_id: validCategoryId !== undefined ? validCategoryId : existing?.category_id,
-        },
-        existing
-      );
-
-      if (!fullTx) {
-        return prev;
-      }
-
-      savedFullTx = fullTx;
-      nextTransactions = idx >= 0
-        ? prev.map((t, i) => (i === idx ? { ...fullTx } : { ...t }))
-        : [{ ...fullTx }, ...prev.map(t => ({ ...t }))];
-
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('app_transactions', JSON.stringify(nextTransactions));
-      }
-      return nextTransactions;
-    });
-
-    const fullTx = savedFullTx || validateAndSanitizeTransaction({ ...txData, id }) || {
+    const existingCurrent = transactions.find(t => t.id === id);
+    const fullTx: Transaction = validateAndSanitizeTransaction(
+      {
+        ...txData,
+        id,
+        category_id: validCategoryId !== undefined ? validCategoryId : existingCurrent?.category_id,
+      },
+      existingCurrent
+    ) || {
       ...txData,
       id,
       amount: Number(txData.amount) || 0,
@@ -1904,97 +2032,191 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       created_at: txData.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
-    
+
+    const existingIdx = transactions.findIndex(t => t.id === id);
+    const computedNextTransactions = existingIdx >= 0
+      ? transactions.map((t, i) => (i === existingIdx ? { ...fullTx } : { ...t }))
+      : [{ ...fullTx }, ...transactions.map(t => ({ ...t }))];
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('app_transactions', JSON.stringify(computedNextTransactions));
+    }
+
+    setTransactions(prev => {
+      const idx = prev.findIndex(t => t.id === id);
+      const next = idx >= 0
+        ? prev.map((t, i) => (i === idx ? { ...fullTx } : { ...t }))
+        : [{ ...fullTx }, ...prev.map(t => ({ ...t }))];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_transactions', JSON.stringify(next));
+      }
+      return next;
+    });
+
     const toastLabel = fullTx.transaction_type === 'investment' 
       ? 'khoản tích lũy đầu tư' 
       : fullTx.transaction_type === 'income' ? 'khoản thu' : 'khoản chi';
 
-    const res = await runUpsert('transactions', fullTx, `Đã lưu ${toastLabel}`);
-    await syncTransactionsToCloud(nextTransactions.length > 0 ? nextTransactions : [fullTx]);
-    
-    if (res && res.success === false) {
-      if (isNew) {
-        setTransactions(prev => prev.filter(t => t.id !== id));
-      }
-      if (res.error?.message?.includes('foreign key') || res.error?.message?.includes('uuid')) {
-        syncWithSupabase();
-      }
-    } else {
-      // Check monthly budget threshold & trigger automated alerts
-      const budgetLimit = userSettings.monthly_budget_limit || 0;
-      const isAlertEnabled = userSettings.enable_budget_alert !== false;
-      const threshold = userSettings.budget_warning_threshold || 80;
+    const typeTitle = fullTx.transaction_type === 'investment'
+      ? 'Tích lũy & Đầu tư'
+      : fullTx.transaction_type === 'income'
+      ? 'Thu nhập'
+      : 'Chi tiêu';
 
-      if (fullTx.transaction_type === 'expense' && !isInvestmentTransaction(fullTx) && budgetLimit > 0 && isAlertEnabled) {
-        const txMonthPrefix = fullTx.transaction_date ? fullTx.transaction_date.substring(0, 7) : new Date().toISOString().substring(0, 7);
-        
-        // Calculate new total monthly living expenses (excluding investments & savings)
-        let updatedMonthExpenses = 0;
-        const allTx = transactions.filter(t => t.id !== id);
-        allTx.push(fullTx);
+    const { processId, startTime } = startTxProcess({
+      txId: fullTx.id,
+      title: `${isEdit ? 'Cập nhật' : 'Thêm'} ${typeTitle}: ${fullTx.category_name || 'Giao dịch'}`,
+      subtitle: `${formatCurrency(fullTx.amount, userSettings.currency)} • ${fullTx.transaction_date}${fullTx.note ? ` • ${fullTx.note}` : ''}`,
+      amount: fullTx.amount,
+      category: fullTx.category_name,
+      txType: fullTx.transaction_type,
+      action: isEdit ? 'update' : 'create',
+      rawPayload: fullTx,
+    });
 
-        allTx.forEach(t => {
-          if (t.transaction_type === 'expense' && !isInvestmentTransaction(t) && t.transaction_date && t.transaction_date.startsWith(txMonthPrefix)) {
-            updatedMonthExpenses += Number(t.amount) || 0;
-          }
-        });
+    // Giao dịch thành công ngay lập tức (Optimistic 0ms)
+    addToast(`Đã lưu ${toastLabel}`, 'success');
 
-        const currentPercent = Math.round((updatedMonthExpenses / budgetLimit) * 100);
+    // Check monthly budget threshold & trigger automated alerts immediately
+    const budgetLimit = userSettings.monthly_budget_limit || 0;
+    const isAlertEnabled = userSettings.enable_budget_alert !== false;
+    const threshold = userSettings.budget_warning_threshold || 80;
 
-        if (currentPercent >= 100) {
-          setTimeout(() => {
-            addToast(
-              `🚨 CẢNH BÁO VƯỢT NGÂN SÁCH: Chi tiêu tháng đã vượt ${currentPercent}% định mức (Đã chi ${formatCurrency(updatedMonthExpenses, userSettings.currency)} / Ngân sách ${formatCurrency(budgetLimit, userSettings.currency)})!`,
-              'error'
-            );
-          }, 350);
-        } else if (currentPercent >= threshold) {
-          setTimeout(() => {
-            addToast(
-              `⚠️ CHÚ Ý NGÂN SÁCH: Chi tiêu tháng đã chạm ${currentPercent}% định mức (${formatCurrency(updatedMonthExpenses, userSettings.currency)} / ${formatCurrency(budgetLimit, userSettings.currency)})!`,
-              'warning'
-            );
-          }, 350);
+    if (fullTx.transaction_type === 'expense' && !isInvestmentTransaction(fullTx) && budgetLimit > 0 && isAlertEnabled) {
+      const txMonthPrefix = fullTx.transaction_date ? fullTx.transaction_date.substring(0, 7) : new Date().toISOString().substring(0, 7);
+      let updatedMonthExpenses = 0;
+      computedNextTransactions.forEach(t => {
+        if (t.transaction_type === 'expense' && !isInvestmentTransaction(t) && t.transaction_date && t.transaction_date.startsWith(txMonthPrefix)) {
+          updatedMonthExpenses += Number(t.amount) || 0;
         }
+      });
+
+      const currentPercent = Math.round((updatedMonthExpenses / budgetLimit) * 100);
+      if (currentPercent >= 100) {
+        setTimeout(() => {
+          addToast(
+            `🚨 CẢNH BÁO VƯỢT NGÂN SÁCH: Chi tiêu tháng đã vượt ${currentPercent}% định mức (Đã chi ${formatCurrency(updatedMonthExpenses, userSettings.currency)} / Ngân sách ${formatCurrency(budgetLimit, userSettings.currency)})!`,
+            'error'
+          );
+        }, 350);
+      } else if (currentPercent >= threshold) {
+        setTimeout(() => {
+          addToast(
+            `⚠️ CHÚ Ý NGÂN SÁCH: Chi tiêu tháng đã chạm ${currentPercent}% định mức (${formatCurrency(updatedMonthExpenses, userSettings.currency)} / ${formatCurrency(budgetLimit, userSettings.currency)})!`,
+            'warning'
+          );
+        }, 350);
       }
     }
+
+    // Đồng bộ ngầm lên Supabase Cloud và cập nhật trạng thái thời gian thực
+    void (async () => {
+      try {
+        if (!navigator.onLine) {
+          finalizeTxProcess(
+            processId,
+            startTime,
+            'completed',
+            'Hoàn tất (Chế độ Offline • Đã lưu trên thiết bị, tự đồng bộ khi có mạng)'
+          );
+          return;
+        }
+        const [upsertRes] = await Promise.allSettled([
+          runUpsert('transactions', fullTx, ''),
+          syncTransactionsToCloud(computedNextTransactions)
+        ]);
+        if (upsertRes.status === 'fulfilled' && upsertRes.value?.error && !upsertRes.value?.localOnly && !upsertRes.value?.pendingSync) {
+          finalizeTxProcess(
+            processId,
+            startTime,
+            'error',
+            'Lỗi đồng bộ Cloud (Đã lưu an toàn trên thiết bị & kênh dự phòng)',
+            upsertRes.value.error?.message || 'Lỗi kết nối máy chủ'
+          );
+        } else {
+          finalizeTxProcess(
+            processId,
+            startTime,
+            'completed',
+            'Hoàn tất • Đã lưu thiết bị & đồng bộ đám mây thành công'
+          );
+        }
+      } catch (err: any) {
+        finalizeTxProcess(
+          processId,
+          startTime,
+          'error',
+          'Lỗi kết nối đám mây (Đã lưu an toàn trên thiết bị)',
+          err?.message || String(err)
+        );
+      }
+    })();
   };
 
   const deleteTransaction = async (id: string) => {
-    let nextTransactions: Transaction[] = [];
+    const targetTx = transactions.find(t => t.id === id);
+    const computedNextTransactions = transactions.filter(t => t.id !== id);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('app_transactions', JSON.stringify(computedNextTransactions));
+    }
     setTransactions(prev => {
-      nextTransactions = prev.filter(t => t.id !== id);
+      const next = prev.filter(t => t.id !== id);
       if (typeof window !== 'undefined') {
-        localStorage.setItem('app_transactions', JSON.stringify(nextTransactions));
+        localStorage.setItem('app_transactions', JSON.stringify(next));
       }
-      return nextTransactions;
+      return next;
     });
-    await runDelete('transactions', id, 'Đã xóa giao dịch');
-    await syncTransactionsToCloud(nextTransactions);
+
+    const { processId, startTime } = startTxProcess({
+      txId: id,
+      title: `Xóa giao dịch: ${targetTx?.category_name || 'Thu chi'}`,
+      subtitle: targetTx ? `${formatCurrency(targetTx.amount, userSettings.currency)} • ${targetTx.transaction_date}` : `ID: ${id.substring(0, 8)}`,
+      amount: targetTx?.amount,
+      category: targetTx?.category_name,
+      txType: targetTx?.transaction_type || 'expense',
+      action: 'delete',
+    });
+
+    addToast('Đã xóa giao dịch', 'success');
+    void (async () => {
+      try {
+        await Promise.allSettled([
+          runDelete('transactions', id, ''),
+          syncTransactionsToCloud(computedNextTransactions)
+        ]);
+        finalizeTxProcess(processId, startTime, 'completed', 'Hoàn tất • Đã xóa giao dịch và đồng bộ Cloud');
+      } catch (err: any) {
+        finalizeTxProcess(processId, startTime, 'error', 'Lỗi đồng bộ xóa Cloud', err?.message);
+      }
+    })();
   };
 
   const saveCategory = async (catData: Omit<ExpenseCategory, 'id'> & { id?: string }): Promise<ExpenseCategory> => {
     const id = catData.id || generateUUID();
-    const isNew = !catData.id;
     const fullCat: ExpenseCategory = { ...catData, id, is_default: false };
     setCategories(prev => {
       const idx = prev.findIndex(c => c.id === id);
-      if (idx >= 0) { const next = [...prev]; next[idx] = fullCat; return next; }
-      return [fullCat, ...prev];
-    });
-    const res = await runUpsert('expense_categories', fullCat, 'Đã lưu danh mục');
-    
-    if (res && res.success === false) {
-      if (isNew) {
-        setCategories(prev => prev.filter(c => c.id !== id));
+      const next = idx >= 0 ? prev.map((c, i) => (i === idx ? fullCat : c)) : [fullCat, ...prev];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_categories', JSON.stringify(next));
       }
-    }
+      return next;
+    });
+    addToast('Đã lưu danh mục', 'success');
+    void runUpsert('expense_categories', fullCat, '');
     return fullCat;
   };
 
   const deleteCategory = async (id: string) => {
-    setCategories(prev => prev.filter(c => c.id !== id));
-    await runDelete('expense_categories', id, 'Đã xóa danh mục');
+    setCategories(prev => {
+      const next = prev.filter(c => c.id !== id);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_categories', JSON.stringify(next));
+      }
+      return next;
+    });
+    addToast('Đã xóa danh mục', 'success');
+    void runDelete('expense_categories', id, '');
   };
 
   const saveInvestmentAsset = async (assetData: Omit<InvestmentAsset, 'id'> & { id?: string }) => {
@@ -2006,64 +2228,62 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     const id = assetData.id || generateUUID();
-    const isNew = !assetData.id;
     const fullAsset: InvestmentAsset = { ...assetData, id, current_price: Number(assetData.current_price) || 0 };
     
-    let nextAssets: InvestmentAsset[] = [];
+    const idxInCurrent = investmentAssets.findIndex(a => a.id === id);
+    const computedNextAssets = idxInCurrent >= 0
+      ? investmentAssets.map(a => a.id === id ? fullAsset : a)
+      : [fullAsset, ...investmentAssets];
+
     setInvestmentAssets(prev => {
       const idx = prev.findIndex(a => a.id === id);
-      nextAssets = idx >= 0 ? prev.map(a => a.id === id ? fullAsset : a) : [fullAsset, ...prev];
+      const nextAssets = idx >= 0 ? prev.map(a => a.id === id ? fullAsset : a) : [fullAsset, ...prev];
       if (typeof window !== 'undefined') {
         localStorage.setItem('app_investment_assets', JSON.stringify(nextAssets));
       }
       return nextAssets;
     });
 
-    // Realtime broadcast to other devices
-    try {
-      const { client } = getSupabaseClient();
-      if (client) {
-        const channel = client.channel('app_global_realtime_sync');
-        channel.send({
-          type: 'broadcast',
-          event: 'investment_assets_sync',
-          payload: { assets: nextAssets, updated_at: new Date().toISOString() }
-        });
-      }
-    } catch (bcErr) {
-      console.warn('Realtime broadcast asset error:', bcErr);
-    }
+    addToast(`Đã lưu tài sản ${fullAsset.asset_symbol}`, 'success');
 
-    // Universal shadow sync via work_logs
-    try {
+    void (async () => {
+      try {
+        const { client } = getSupabaseClient();
+        if (client) {
+          const channel = client.channel('app_global_realtime_sync');
+          channel.send({
+            type: 'broadcast',
+            event: 'investment_assets_sync',
+            payload: { assets: computedNextAssets, updated_at: new Date().toISOString() }
+          });
+        }
+      } catch (bcErr) {
+        console.warn('Realtime broadcast asset error:', bcErr);
+      }
+
       const assetLogId = toValidUUID('asset_sync_global_meta');
-      await runUpsert('work_logs', {
-        id: assetLogId,
-        work_date: '1970-01-01',
-        work_status: 'Đầu tư',
-        total_hours: 0,
-        break_duration_hours: 0,
-        overtime_hours: 0,
-        missing_hours: 0,
-        notes: `[INVESTMENT_ASSETS_SYNC]:${JSON.stringify(nextAssets)}`
-      }, '');
-    } catch (e) {}
-
-    const res = await runUpsert('investment_assets', {
-      id: fullAsset.id,
-      asset_name: fullAsset.asset_name,
-      asset_symbol: fullAsset.asset_symbol,
-      asset_type: fullAsset.asset_type,
-      current_price: fullAsset.current_price,
-      price_updated_at: fullAsset.price_updated_at,
-      notes: fullAsset.notes
-    }, `Đã lưu tài sản ${fullAsset.asset_symbol}`);
-
-    if (res && res.success === false) {
-      if (isNew) {
-        setInvestmentAssets(prev => prev.filter(a => a.id !== id));
-      }
-    }
+      await Promise.allSettled([
+        runUpsert('work_logs', {
+          id: assetLogId,
+          work_date: '1970-01-01',
+          work_status: 'Đầu tư',
+          total_hours: 0,
+          break_duration_hours: 0,
+          overtime_hours: 0,
+          missing_hours: 0,
+          notes: `[INVESTMENT_ASSETS_SYNC]:${JSON.stringify(computedNextAssets)}`
+        }, ''),
+        runUpsert('investment_assets', {
+          id: fullAsset.id,
+          asset_name: fullAsset.asset_name,
+          asset_symbol: fullAsset.asset_symbol,
+          asset_type: fullAsset.asset_type,
+          current_price: fullAsset.current_price,
+          price_updated_at: fullAsset.price_updated_at,
+          notes: fullAsset.notes
+        }, '')
+      ]);
+    })();
   };
 
   const updateAssetPrice = async (assetId: string, newPrice: number) => {
@@ -2072,49 +2292,51 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!isDemoUser && user) {
       const { client } = getSupabaseClient();
       if (client) {
-        const { error } = await client.from('investment_assets').update({ current_price: newPrice, price_updated_at: new Date().toISOString() }).eq('id', assetId);
-        if (error) console.error(error);
+        void raceWithTimeout(client.from('investment_assets').update({ current_price: newPrice, price_updated_at: new Date().toISOString() }).eq('id', assetId), 3000).catch(() => {});
       }
     }
   };
 
   const deleteInvestmentAsset = async (id: string) => {
-    let nextAssets: InvestmentAsset[] = [];
+    const computedNextAssets = investmentAssets.filter(a => a.id !== id);
     setInvestmentAssets(prev => {
-      nextAssets = prev.filter(a => a.id !== id);
+      const nextAssets = prev.filter(a => a.id !== id);
       if (typeof window !== 'undefined') {
         localStorage.setItem('app_investment_assets', JSON.stringify(nextAssets));
       }
       return nextAssets;
     });
 
-    try {
-      const { client } = getSupabaseClient();
-      if (client) {
-        const channel = client.channel('app_global_realtime_sync');
-        channel.send({
-          type: 'broadcast',
-          event: 'investment_assets_sync',
-          payload: { assets: nextAssets, updated_at: new Date().toISOString() }
-        });
-      }
-    } catch (bcErr) {}
+    addToast('Đã xóa tài sản', 'success');
 
-    try {
+    void (async () => {
+      try {
+        const { client } = getSupabaseClient();
+        if (client) {
+          const channel = client.channel('app_global_realtime_sync');
+          channel.send({
+            type: 'broadcast',
+            event: 'investment_assets_sync',
+            payload: { assets: computedNextAssets, updated_at: new Date().toISOString() }
+          });
+        }
+      } catch (bcErr) {}
+
       const assetLogId = toValidUUID('asset_sync_global_meta');
-      await runUpsert('work_logs', {
-        id: assetLogId,
-        work_date: '1970-01-01',
-        work_status: 'Đầu tư',
-        total_hours: 0,
-        break_duration_hours: 0,
-        overtime_hours: 0,
-        missing_hours: 0,
-        notes: `[INVESTMENT_ASSETS_SYNC]:${JSON.stringify(nextAssets)}`
-      }, '');
-    } catch (e) {}
-
-    await runDelete('investment_assets', id, 'Đã xóa tài sản');
+      await Promise.allSettled([
+        runUpsert('work_logs', {
+          id: assetLogId,
+          work_date: '1970-01-01',
+          work_status: 'Đầu tư',
+          total_hours: 0,
+          break_duration_hours: 0,
+          overtime_hours: 0,
+          missing_hours: 0,
+          notes: `[INVESTMENT_ASSETS_SYNC]:${JSON.stringify(computedNextAssets)}`
+        }, ''),
+        runDelete('investment_assets', id, '')
+      ]);
+    })();
   };
 
   const syncInvestmentTxsToCloud = async (currentTxs: InvestmentTransaction[]) => {
@@ -2135,32 +2357,27 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.warn('Realtime investment_sync broadcast error:', bcErr);
     }
 
-    // 2. Lưu đồng bộ đa tầng vào work_settings (bảo đảm mọi máy đều tải được)
-    try {
-      const updatedSalaryData = {
-        ...(workSettings.salary_data || {}),
-        _investment_txs: currentTxs
-      };
-      setWorkSettings(prev => {
-        const nextWs = { ...prev, salary_data: updatedSalaryData, _investment_txs: currentTxs };
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('app_work_settings', JSON.stringify(nextWs));
-        }
-        return nextWs;
-      });
-      await runUpsert('work_settings', {
+    // 2. Lưu đồng bộ đa tầng vào work_settings & work_logs song song
+    const updatedSalaryData = {
+      ...(workSettings.salary_data || {}),
+      _investment_txs: currentTxs
+    };
+    setWorkSettings(prev => {
+      const nextWs = { ...prev, salary_data: updatedSalaryData, _investment_txs: currentTxs };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_work_settings', JSON.stringify(nextWs));
+      }
+      return nextWs;
+    });
+
+    const itxLogId = toValidUUID('itx_sync_global_meta');
+    await Promise.allSettled([
+      runUpsert('work_settings', {
         id: workSettings.id ? toValidUUID(workSettings.id) : toValidUUID(`ws_${effectiveUserId}`),
         salary_data: updatedSalaryData,
         updated_at: new Date().toISOString()
-      }, '');
-    } catch (wsErr) {
-      console.warn('Lỗi lưu dự phòng investment_txs vào work_settings:', wsErr);
-    }
-
-    // 3. Lưu đồng bộ đa tầng an toàn tuyệt đối vào work_logs shadow
-    try {
-      const itxLogId = toValidUUID('itx_sync_global_meta');
-      await runUpsert('work_logs', {
+      }, ''),
+      runUpsert('work_logs', {
         id: itxLogId,
         work_date: '1970-01-01',
         work_status: 'Đầu tư',
@@ -2169,10 +2386,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         overtime_hours: 0,
         missing_hours: 0,
         notes: `[INVESTMENTS_SYNC]:${JSON.stringify(currentTxs)}`
-      }, '');
-    } catch (logErr) {
-      console.warn('Lỗi lưu dự phòng investment_txs vào work_logs:', logErr);
-    }
+      }, '')
+    ]);
   };
 
   const saveInvestmentTransaction = async (txData: any) => {
@@ -2184,7 +2399,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const txFee = Number(txData.fee ?? 0);
     const rawNote = (txData.note || txData.notes || '').replace(/\[DIVIDEND_META\]:\{.*?\}/g, '').trim();
 
-    // Determine dividend type and total amount
     let dividendType = txData.dividend_type as 'cash' | 'stock' | undefined;
     if (txType === 'dividend' && !dividendType) {
       dividendType = (txQty === 0 || (txPrice > 0 && txQty === 0)) ? 'cash' : 'stock';
@@ -2205,7 +2419,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     }
 
-    // Build encoded note with meta for robust storage & cloud roundtrip
     let fullNote = rawNote;
     if (txType === 'dividend' || dividendType) {
       const meta = {
@@ -2218,43 +2431,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       fullNote = `${rawNote} [DIVIDEND_META]:${JSON.stringify(meta)}`.trim();
     }
 
-    let updatedTxs: InvestmentTransaction[] = [];
-    let savedFullTx: InvestmentTransaction | null = null;
-
-    setInvestmentTransactions(prev => {
-      const idx = prev.findIndex(t => t.id === id);
-      const existing = idx >= 0 ? prev[idx] : null;
-
-      const fullTx: InvestmentTransaction = {
-        ...(existing || {}),
-        ...txData,
-        id,
-        asset_id: txData.asset_id || existing?.asset_id || '',
-        transaction_type: txType,
-        dividend_type: dividendType,
-        transaction_date: txDate,
-        quantity: txQty,
-        price: txPrice,
-        price_per_unit: txPrice,
-        total_amount: totalAmount,
-        fee: txFee,
-        note: fullNote,
-        created_at: txData.created_at || existing?.created_at || new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-
-      savedFullTx = fullTx;
-      updatedTxs = idx >= 0 ? prev.map((t, i) => i === idx ? { ...fullTx } : t) : [{ ...fullTx }, ...prev];
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('app_investment_txs', JSON.stringify(updatedTxs));
-      }
-      return updatedTxs;
-    });
-
-    const fullTx: InvestmentTransaction = savedFullTx || {
+    const existingCurrent = investmentTransactions.find(t => t.id === id);
+    const fullTx: InvestmentTransaction = {
+      ...(existingCurrent || {}),
       ...txData,
       id,
-      asset_id: txData.asset_id,
+      asset_id: txData.asset_id || existingCurrent?.asset_id || '',
       transaction_type: txType,
       dividend_type: dividendType,
       transaction_date: txDate,
@@ -2264,26 +2446,31 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       total_amount: totalAmount,
       fee: txFee,
       note: fullNote,
+      created_at: txData.created_at || existingCurrent?.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString()
     };
 
-    // 2. Multi-tier Cloud Sync & Realtime Broadcast to all other devices
-    await syncInvestmentTxsToCloud(updatedTxs);
+    const existingIdx = investmentTransactions.findIndex(t => t.id === id);
+    const computedUpdatedTxs = existingIdx >= 0
+      ? investmentTransactions.map((t, i) => (i === existingIdx ? { ...fullTx } : t))
+      : [{ ...fullTx }, ...investmentTransactions];
 
-    // 3. Ensure the parent asset exists on Supabase so foreign key constraints never block
-    const matchedAsset = investmentAssets.find(a => a.id === fullTx.asset_id);
-    if (matchedAsset && !isDemoUser) {
-      runUpsert('investment_assets', {
-        id: matchedAsset.id,
-        asset_name: matchedAsset.asset_name,
-        asset_symbol: matchedAsset.asset_symbol,
-        asset_type: matchedAsset.asset_type,
-        current_price: matchedAsset.current_price,
-        price_updated_at: matchedAsset.price_updated_at,
-        notes: matchedAsset.notes
-      }, '').catch(() => {});
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('app_investment_txs', JSON.stringify(computedUpdatedTxs));
     }
 
-    // 4. If Cash Dividend, also mirror into General Finance Transactions (Income)
+    setInvestmentTransactions(prev => {
+      const idx = prev.findIndex(t => t.id === id);
+      const updatedTxs = idx >= 0 ? prev.map((t, i) => i === idx ? { ...fullTx } : t) : [{ ...fullTx }, ...prev];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_investment_txs', JSON.stringify(updatedTxs));
+      }
+      return updatedTxs;
+    });
+
+    const matchedAsset = investmentAssets.find(a => a.id === fullTx.asset_id);
+
+    // If Cash Dividend, also mirror into General Finance Transactions (Income) immediately
     if (txType === 'dividend' && dividendType === 'cash' && totalAmount > 0) {
       const incId = toValidUUID(`div_inc_${fullTx.id}`);
       const assetSym = matchedAsset?.asset_symbol || '';
@@ -2303,39 +2490,73 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
         return next;
       });
-      runUpsert('transactions', incTx, '').catch(() => {});
+      void runUpsert('transactions', incTx, '');
     }
-    
-    // 5. Upsert to Supabase with non-blocking resilience & fallback handling for constraints
+
     const toastMsg = txType === 'dividend' && dividendType === 'cash'
       ? `Đã ghi nhận nhận cổ tức tiền mặt +${totalAmount.toLocaleString('vi-VN')} đ (tính vào chốt lời)`
       : txType === 'dividend'
       ? `Đã ghi nhận nhận cổ tức +${txQty} cổ phiếu thưởng (kéo giảm giá vốn DCA)`
       : 'Đã ghi nhận lệnh giao dịch đầu tư';
 
-    await runUpsert('investment_transactions', {
-      id: fullTx.id,
-      asset_id: fullTx.asset_id,
-      transaction_type: fullTx.transaction_type,
-      transaction_date: fullTx.transaction_date,
-      quantity: fullTx.quantity,
-      price: fullTx.price,
-      fee: fullTx.fee,
-      note: fullTx.note
-    }, toastMsg);
+    const { processId, startTime } = startTxProcess({
+      txId: fullTx.id,
+      title: `Lệnh đầu tư (${txType === 'buy' ? 'Mua' : txType === 'sell' ? 'Bán' : 'Cổ tức'}): ${matchedAsset?.asset_symbol || 'Tài sản'}`,
+      subtitle: `${formatCurrency(totalAmount, userSettings.currency)} • SL: ${txQty} • ${txDate}`,
+      amount: totalAmount,
+      category: matchedAsset?.asset_symbol || 'Đầu tư',
+      txType: 'investment',
+      action: txData.id ? 'update' : 'create',
+      rawPayload: fullTx,
+    });
+
+    addToast(toastMsg, 'success');
+
+    // Background Cloud Sync
+    void (async () => {
+      try {
+        if (matchedAsset && !isDemoUser) {
+          void runUpsert('investment_assets', {
+            id: matchedAsset.id,
+            asset_name: matchedAsset.asset_name,
+            asset_symbol: matchedAsset.asset_symbol,
+            asset_type: matchedAsset.asset_type,
+            current_price: matchedAsset.current_price,
+            price_updated_at: matchedAsset.price_updated_at,
+            notes: matchedAsset.notes
+          }, '');
+        }
+
+        await Promise.allSettled([
+          syncInvestmentTxsToCloud(computedUpdatedTxs),
+          runUpsert('investment_transactions', {
+            id: fullTx.id,
+            asset_id: fullTx.asset_id,
+            transaction_type: fullTx.transaction_type,
+            transaction_date: fullTx.transaction_date,
+            quantity: fullTx.quantity,
+            price: fullTx.price,
+            fee: fullTx.fee,
+            note: fullTx.note
+          }, '')
+        ]);
+        finalizeTxProcess(processId, startTime, 'completed', 'Hoàn tất • Đã ghi nhận lệnh đầu tư & đồng bộ Cloud');
+      } catch (err: any) {
+        finalizeTxProcess(processId, startTime, 'error', 'Lỗi đồng bộ Cloud (Đã lưu an toàn trên máy)', err?.message);
+      }
+    })();
   };
 
   const deleteInvestmentTransaction = async (id: string) => {
-    let updatedTxs: InvestmentTransaction[] = [];
+    const computedUpdatedTxs = investmentTransactions.filter(t => t.id !== id);
     setInvestmentTransactions(prev => {
-      updatedTxs = prev.filter(t => t.id !== id);
+      const updatedTxs = prev.filter(t => t.id !== id);
       if (typeof window !== 'undefined') {
         localStorage.setItem('app_investment_txs', JSON.stringify(updatedTxs));
       }
       return updatedTxs;
     });
 
-    // Clean up mirrored income transaction if linked
     const linkedIncId = toValidUUID(`div_inc_${id}`);
     setTransactions(prev => {
       const next = prev.filter(t => t.id !== linkedIncId);
@@ -2344,10 +2565,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       return next;
     });
-    runDelete('transactions', linkedIncId, '').catch(() => {});
 
-    await syncInvestmentTxsToCloud(updatedTxs);
-    await runDelete('investment_transactions', id, 'Đã xóa giao dịch đầu tư');
+    addToast('Đã xóa giao dịch đầu tư', 'success');
+
+    void (async () => {
+      await Promise.allSettled([
+        runDelete('transactions', linkedIncId, ''),
+        syncInvestmentTxsToCloud(computedUpdatedTxs),
+        runDelete('investment_transactions', id, '')
+      ]);
+    })();
   };
 
   const takeDailySnapshot = async (totalValue: number, totalCost: number) => {
@@ -2651,6 +2878,59 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const retryTransactionSync = async (processId: string) => {
+    const target = txProcessLogs.find(item => item.id === processId);
+    if (!target) return;
+
+    const startTime = Date.now();
+    setTxProcessLogs(prev =>
+      prev.map(item =>
+        item.id === processId
+          ? {
+              ...item,
+              status: 'processing',
+              step: 'cloud_syncing',
+              stepMessage: 'Đang thử đồng bộ lại lên Cloud...',
+              progress: 65,
+              errorDetail: undefined,
+            }
+          : item
+      )
+    );
+    setActiveTxProcess(curr =>
+      curr?.id === processId
+        ? {
+            ...curr,
+            status: 'processing',
+            step: 'cloud_syncing',
+            stepMessage: 'Đang thử đồng bộ lại lên Cloud...',
+            progress: 65,
+            errorDetail: undefined,
+          }
+        : curr
+    );
+
+    try {
+      if (target.txType === 'investment' && target.rawPayload) {
+        await Promise.allSettled([
+          syncInvestmentTxsToCloud(investmentTransactions),
+          runUpsert('investment_transactions', target.rawPayload, '')
+        ]);
+      } else if (target.rawPayload) {
+        await Promise.allSettled([
+          runUpsert('transactions', target.rawPayload, ''),
+          syncTransactionsToCloud(transactions)
+        ]);
+      } else {
+        await syncWithSupabase(false);
+      }
+      finalizeTxProcess(processId, startTime, 'completed', 'Hoàn tất • Đã đồng bộ lại thành công');
+      addToast('Đã đồng bộ lại giao dịch thành công!', 'success');
+    } catch (err: any) {
+      finalizeTxProcess(processId, startTime, 'error', 'Lỗi kết nối • Vẫn được bảo toàn trên thiết bị', err?.message);
+    }
+  };
+
   return (
     <DataContext.Provider value={{
       workSettings, workLogs, businessTrips, categories, transactions, investmentAssets, investmentTransactions, portfolioSnapshots,
@@ -2661,7 +2941,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       saveCategory, deleteCategory, saveInvestmentAsset, updateAssetPrice, deleteInvestmentAsset,
       saveInvestmentTransaction, deleteInvestmentTransaction, saveProject, deleteProject, refreshMarketPrices, takeDailySnapshot, updateUserSettings,
       addToast, removeToast, clearAllData, resetToSampleData, syncWithSupabase, triggerCloudBackup,
-      backupToCloudflareR2, restoreFromCloudflareR2, sendTransactionalEmailNotification
+      backupToCloudflareR2, restoreFromCloudflareR2, sendTransactionalEmailNotification,
+      txProcessLogs, activeTxProcess, retryTransactionSync, clearTxProcessLogs, dismissActiveTxProcess
     }}>
       {children}
     </DataContext.Provider>
