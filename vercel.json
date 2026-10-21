@@ -58,6 +58,18 @@
       "destination": "/api/gemini"
     },
     {
+      "source": "/api/market/(.*)",
+      "destination": "/api/news?subpath=market-$1"
+    },
+    {
+      "source": "/api/vps-stock/(.*)",
+      "destination": "/api/news?subpath=vps-stock-$1"
+    },
+    {
+      "source": "/api/fmarket/(.*)",
+      "destination": "/api/news?subpath=fmarket-$1"
+    },
+    {
       "source": "/api/news/(.*)",
       "destination": "/api/news?subpath=$1"
     },

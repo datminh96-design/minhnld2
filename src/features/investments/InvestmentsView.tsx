@@ -209,8 +209,9 @@ export const InvestmentsView: React.FC = () => {
         price_updated_at: new Date().toISOString(),
       });
       setIsAssetModalOpen(false);
-      await refreshMarketPrices();
-      addToast(`Đã lưu mã ${cleanSym} với giá thị trường cập nhật tự động!`, 'success');
+      if (numPrice === 0) {
+        await refreshMarketPrices(true, false);
+      }
     } catch (err) {
       console.warn('Cannot save asset:', err);
     }

@@ -140,8 +140,112 @@ export const validateAndSanitizeTransaction = (raw: any, existing?: Transaction)
   };
 };
 
+interface AssetPriceCacheEntry {
+  current_price: number;
+  price_updated_at: string;
+}
+
+const ASSET_PRICE_CACHE_KEY = 'app_investment_asset_prices';
+
+const isUuidString = (val?: string | null): boolean =>
+  Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim()));
+
+const parseSafeTime = (iso?: string | null): number => {
+  if (!iso) return 0;
+  const t = new Date(iso).getTime();
+  return isNaN(t) ? 0 : t;
+};
+
+const readAssetPriceCache = (): Record<string, AssetPriceCacheEntry> => {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(ASSET_PRICE_CACHE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const forceUpdateAssetPriceCache = (
+  entries: { id?: string; symbol?: string; current_price: number; price_updated_at?: string }[]
+) => {
+  if (typeof window === 'undefined' || !entries.length) return;
+  try {
+    const cache = readAssetPriceCache();
+    const nowIso = new Date().toISOString();
+    entries.forEach((e) => {
+      const price = Number(e.current_price);
+      if (isNaN(price) || price <= 0) return;
+      const updatedAt = e.price_updated_at || nowIso;
+      const item: AssetPriceCacheEntry = { current_price: price, price_updated_at: updatedAt };
+      if (e.id) cache[`id:${e.id}`] = item;
+      if (e.symbol) cache[`sym:${e.symbol.trim().toUpperCase()}`] = item;
+    });
+    localStorage.setItem(ASSET_PRICE_CACHE_KEY, JSON.stringify(cache));
+  } catch {}
+};
+
+const pickNewestPriceCandidate = (
+  candidates: { price?: number | null; updatedAt?: string | null; priority?: number }[]
+): { current_price: number; price_updated_at: string } => {
+  let bestPrice = 0;
+  let bestTime = -1;
+  let bestIso = '';
+  let bestPriority = -1;
+
+  for (const c of candidates) {
+    const p = Number(c.price) || 0;
+    if (p <= 0) continue;
+    const t = parseSafeTime(c.updatedAt);
+    const prio = c.priority ?? 0;
+    if (t > bestTime || (t === bestTime && prio > bestPriority)) {
+      bestPrice = p;
+      bestTime = t;
+      bestIso = c.updatedAt || '';
+      bestPriority = prio;
+    }
+  }
+
+  return {
+    current_price: bestPrice,
+    price_updated_at: bestIso || new Date().toISOString(),
+  };
+};
+
+const applyCachedPricesToAssets = (assets: InvestmentAsset[]): InvestmentAsset[] => {
+  if (!Array.isArray(assets) || assets.length === 0) return assets;
+  const cache = readAssetPriceCache();
+  return assets.map((asset) => {
+    const symKey = `sym:${(asset.asset_symbol || '').trim().toUpperCase()}`;
+    const idKey = `id:${asset.id}`;
+    const byId = cache[idKey];
+    const bySym = cache[symKey];
+    const best = pickNewestPriceCandidate([
+      { price: asset.current_price, updatedAt: asset.price_updated_at, priority: 1 },
+      { price: byId?.current_price, updatedAt: byId?.price_updated_at, priority: 3 },
+      { price: bySym?.current_price, updatedAt: bySym?.price_updated_at, priority: 2 },
+    ]);
+    if (best.current_price > 0) {
+      return {
+        ...asset,
+        current_price: best.current_price,
+        price_updated_at: best.price_updated_at,
+      };
+    }
+    return asset;
+  });
+};
+
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user, isDemoUser } = useAuth();
+  const userRef = useRef(user);
+  const isDemoUserRef = useRef(isDemoUser);
+  useEffect(() => {
+    userRef.current = user;
+    isDemoUserRef.current = isDemoUser;
+  }, [user, isDemoUser]);
   
   const [workSettings, setWorkSettings] = useState<WorkSettings>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('app_work_settings') : null;
@@ -195,7 +299,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   });
   const [investmentAssets, setInvestmentAssets] = useState<InvestmentAsset[]>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('app_investment_assets') : null;
-    return saved ? JSON.parse(saved) : getInitialInvestmentAssets();
+    const initial: InvestmentAsset[] = saved ? JSON.parse(saved) : getInitialInvestmentAssets();
+    return applyCachedPricesToAssets(initial);
   });
   const [investmentTransactions, setInvestmentTransactions] = useState<InvestmentTransaction[]>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('app_investment_txs') : null;
@@ -416,26 +521,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     investmentAssetsRef.current = investmentAssets;
   }, [investmentAssets]);
 
+  const workSettingsRef = useRef(workSettings);
   useEffect(() => {
-    // Initial fetch on mount
-    const timer = setTimeout(() => {
-      if (investmentAssetsRef.current.length > 0) {
-        refreshMarketPrices(true, false);
-      }
-    }, 1000);
-
-    // Auto-refresh every 15 seconds
-    const interval = setInterval(() => {
-      if (investmentAssetsRef.current.length > 0) {
-        refreshMarketPrices(true, false);
-      }
-    }, 15000);
-
-    return () => {
-      clearTimeout(timer);
-      clearInterval(interval);
-    };
-  }, []);
+    workSettingsRef.current = workSettings;
+  }, [workSettings]);
 
   const calculatedHoldings = useMemo(() => {
     return calculateInvestmentHoldings(investmentAssets, investmentTransactions, userSettings.cost_calculation_method);
@@ -494,16 +583,24 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // 1. Tải work_settings (chứa cấu hình giờ công và salary_data)
       let wsBusinessTripsFallback: BusinessTripExpense[] | null = null;
       let wsInvestmentTxsFallback: InvestmentTransaction[] | null = null;
+      let wsInvestmentAssetsFallback: InvestmentAsset[] | null = null;
       let wsTransactionsFallback: Transaction[] | null = null;
       const foundItxsFromLogs: InvestmentTransaction[] = [];
       const foundAssetsFromLogs: InvestmentAsset[] = [];
       const foundTransactionsFromLogs: Transaction[] = [];
       try {
         let queryWs = client.from('work_settings').select('*');
-        if (user?.id) {
-          queryWs = queryWs.or(`user_id.eq.${user.id},user_id.eq.admin123`);
+        if (user?.id && isUuidString(user.id)) {
+          queryWs = queryWs.or(`user_id.eq.${user.id},user_id.is.null`);
         }
-        const { data: wsData, error: wsError } = await queryWs.order('updated_at', { ascending: false }).limit(1).maybeSingle();
+        let { data: wsData, error: wsError } = await queryWs.order('updated_at', { ascending: false }).limit(1).maybeSingle();
+        if ((wsError || !wsData) && user?.id) {
+          const fallbackWs = await client.from('work_settings').select('*').order('updated_at', { ascending: false }).limit(1).maybeSingle();
+          if (!fallbackWs.error && fallbackWs.data) {
+            wsData = fallbackWs.data;
+            wsError = null;
+          }
+        }
         if (!wsError && wsData) {
           const empFallback = wsData.salary_data?._employee_info;
           const mergedWs: WorkSettings = {
@@ -519,12 +616,18 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (Array.isArray((wsData as any)._investment_txs)) {
             wsInvestmentTxsFallback = (wsData as any)._investment_txs;
           }
+          if (Array.isArray((wsData as any)._investment_assets)) {
+            wsInvestmentAssetsFallback = (wsData as any)._investment_assets;
+          }
           if (wsData.salary_data && typeof wsData.salary_data === 'object') {
             if (Array.isArray(wsData.salary_data._business_trips)) {
               wsBusinessTripsFallback = wsData.salary_data._business_trips;
             }
             if (Array.isArray(wsData.salary_data._investment_txs)) {
               wsInvestmentTxsFallback = wsData.salary_data._investment_txs;
+            }
+            if (Array.isArray(wsData.salary_data._investment_assets)) {
+              wsInvestmentAssetsFallback = wsData.salary_data._investment_assets;
             }
             if (Array.isArray(wsData.salary_data._transactions)) {
               wsTransactionsFallback = wsData.salary_data._transactions;
@@ -534,7 +637,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               if (typeof window !== 'undefined') {
                 localStorage.setItem('app_salary_records', JSON.stringify(merged));
                 Object.entries(wsData.salary_data).forEach(([k, v]) => {
-                  if (k !== '_employee_info' && k !== '_business_trips' && k !== '_investment_txs' && k !== '_transactions') {
+                  if (k !== '_employee_info' && k !== '_business_trips' && k !== '_investment_txs' && k !== '_investment_assets' && k !== '_transactions') {
                     localStorage.setItem(`app_salary_${k}`, JSON.stringify(v));
                   }
                 });
@@ -550,8 +653,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // 2. Tải bảng salary_records chuyên dụng (nếu có trên Supabase)
       try {
         let querySal = client.from('salary_records').select('*');
-        if (user?.id) {
-          querySal = querySal.or(`user_id.eq.${user.id},user_id.eq.admin123`);
+        if (user?.id && isUuidString(user.id)) {
+          querySal = querySal.or(`user_id.eq.${user.id},user_id.is.null`);
         }
         const { data: salData, error: salError } = await querySal;
         if (!salError && salData && Array.isArray(salData)) {
@@ -589,7 +692,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // 3. Tải user_settings
       try {
         let queryUs = client.from('user_settings').select('*');
-        if (user?.id) queryUs = queryUs.or(`user_id.eq.${user.id},user_id.eq.admin123`);
+        if (user?.id && isUuidString(user.id)) queryUs = queryUs.or(`user_id.eq.${user.id},user_id.is.null`);
         const { data: usData } = await queryUs.order('updated_at', { ascending: false }).limit(1).maybeSingle();
         if (usData) {
           setUserSettings(prev => ({ ...DEFAULT_USER_SETTINGS, ...prev, ...usData }));
@@ -601,8 +704,15 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // 4. Tải work_logs (bao gồm quét các bản ghi đồng bộ lương an toàn)
       try {
         let queryWl = client.from('work_logs').select('*');
-        if (user?.id) queryWl = queryWl.or(`user_id.eq.${user.id},user_id.eq.admin123`);
-        const { data: wlData, error: wlError } = await queryWl.order('work_date', { ascending: false });
+        if (user?.id && isUuidString(user.id)) queryWl = queryWl.or(`user_id.eq.${user.id},user_id.is.null`);
+        let { data: wlData, error: wlError } = await queryWl.order('work_date', { ascending: false });
+        if ((wlError || !wlData || wlData.length === 0) && user?.id) {
+          const fbWl = await client.from('work_logs').select('*').order('work_date', { ascending: false });
+          if (!fbWl.error && fbWl.data) {
+            wlData = fbWl.data;
+            wlError = null;
+          }
+        }
         if (!wlError && wlData && wlData.length > 0) {
           const actualLogs: any[] = [];
           const foundSalaryFromLogs: Record<string, MonthlySalaryData> = {};
@@ -768,7 +878,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // 5a. Thử tải trực tiếp từ bảng business_trips trên Supabase
         try {
           let queryBt = client.from('business_trips').select('*');
-          if (user?.id) queryBt = queryBt.or(`user_id.eq.${user.id},user_id.eq.admin123`);
+          if (user?.id && isUuidString(user.id)) queryBt = queryBt.or(`user_id.eq.${user.id},user_id.is.null`);
           const { data: btData, error: btError } = await queryBt.order('trip_date', { ascending: false });
           if (!btError && btData && Array.isArray(btData)) {
             loadedTrips = btData.map((t: any) => {
@@ -853,9 +963,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         let loadedTxs: Transaction[] | null = null;
         let queryTx = client.from('transactions').select('*');
-        if (user?.id) queryTx = queryTx.or(`user_id.eq.${user.id},user_id.eq.admin123,user_id.is.null`);
-        const { data: txData, error: txError } = await queryTx.order('transaction_date', { ascending: false });
-        if (!txError && txData && Array.isArray(txData)) {
+        if (user?.id && isUuidString(user.id)) queryTx = queryTx.or(`user_id.eq.${user.id},user_id.is.null`);
+        let { data: txData, error: txError } = await queryTx.order('transaction_date', { ascending: false });
+        if ((txError || !txData || txData.length === 0) && user?.id) {
+          const fbTx = await client.from('transactions').select('*').order('transaction_date', { ascending: false });
+          if (!fbTx.error && fbTx.data) {
+            txData = fbTx.data;
+            txError = null;
+          }
+        }
+        if (!txError && txData && Array.isArray(txData) && txData.length > 0) {
           loadedTxs = txData
             .map((t: any) => validateAndSanitizeTransaction(t))
             .filter((t): t is Transaction => t !== null);
@@ -887,7 +1004,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             .filter((t): t is Transaction => t !== null);
         }
 
-        if (loadedTxs) {
+        if (loadedTxs && loadedTxs.length > 0) {
           const finalTxs = loadedTxs;
           setTransactions(prev => {
             const remoteMap = new Map(finalTxs.map(r => [r.id, r]));
@@ -903,60 +1020,116 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         console.warn('Tải transactions:', txErr);
       }
 
-      // 8. Tải investment_assets
+      // 8. Tải investment_assets (Bảo toàn giá mới nhất từ Local Cache, Shadow Logs, Work Settings & Cloud)
       try {
         let queryAssets = client.from('investment_assets').select('*');
-        if (user?.id) queryAssets = queryAssets.or(`user_id.eq.${user.id},user_id.eq.admin123,user_id.is.null`);
-        const { data: assetData, error: assetError } = await queryAssets;
-        if (!assetError && assetData) {
-          setInvestmentAssets(prev => {
-            const prevMap = new Map<string, InvestmentAsset>(prev.map(p => [p.id, p]));
-            return assetData.map((serverAsset: InvestmentAsset) => {
-              const existing = prevMap.get(serverAsset.id);
-              const serverPrice = Number(serverAsset.current_price) || 0;
-              const existingPrice = Number(existing?.current_price) || 0;
-              
-              let finalPrice = serverPrice;
-              let finalUpdatedAt = serverAsset.price_updated_at;
+        if (user?.id && isUuidString(user.id)) queryAssets = queryAssets.or(`user_id.eq.${user.id},user_id.is.null`);
+        let { data: assetData, error: assetError } = await queryAssets;
+        if ((assetError || !assetData || assetData.length === 0) && user?.id) {
+          const fbAssets = await client.from('investment_assets').select('*');
+          if (!fbAssets.error && fbAssets.data) {
+            assetData = fbAssets.data;
+            assetError = null;
+          }
+        }
 
-              if (existingPrice > 0) {
-                if (!serverPrice) {
-                  finalPrice = existingPrice;
-                  finalUpdatedAt = existing?.price_updated_at;
-                } else if (existing?.price_updated_at && serverAsset.price_updated_at) {
-                  const localTime = new Date(existing.price_updated_at).getTime();
-                  const serverTime = new Date(serverAsset.price_updated_at).getTime();
-                  if (localTime >= serverTime) {
-                    finalPrice = existingPrice;
-                    finalUpdatedAt = existing.price_updated_at;
-                  }
-                } else {
-                  finalPrice = existingPrice;
-                }
+        const serverAssets: InvestmentAsset[] = !assetError && Array.isArray(assetData) ? assetData : [];
+        const logAssets: InvestmentAsset[] = Array.isArray(foundAssetsFromLogs) ? foundAssetsFromLogs : [];
+        const wsAssets: InvestmentAsset[] = Array.isArray(wsInvestmentAssetsFallback) ? wsInvestmentAssetsFallback : [];
+
+        if (serverAssets.length > 0 || logAssets.length > 0 || wsAssets.length > 0) {
+          let needsCloudHeal = false;
+          let healedAssetsSnapshot: InvestmentAsset[] = [];
+
+          setInvestmentAssets(prev => {
+            const priceCache = readAssetPriceCache();
+            const prevById = new Map<string, InvestmentAsset>(prev.map(p => [p.id, p]));
+            const prevBySym = new Map<string, InvestmentAsset>(
+              prev.map(p => [(p.asset_symbol || '').trim().toUpperCase(), p])
+            );
+            const logById = new Map<string, InvestmentAsset>(logAssets.map(a => [a.id, a]));
+            const logBySym = new Map<string, InvestmentAsset>(
+              logAssets.map(a => [(a.asset_symbol || '').trim().toUpperCase(), a])
+            );
+            const wsById = new Map<string, InvestmentAsset>(wsAssets.map(a => [a.id, a]));
+            const wsBySym = new Map<string, InvestmentAsset>(
+              wsAssets.map(a => [(a.asset_symbol || '').trim().toUpperCase(), a])
+            );
+
+            // Kết hợp danh sách tài sản gốc từ serverAssets -> logAssets -> wsAssets -> prev
+            const baseListMap = new Map<string, InvestmentAsset>();
+            serverAssets.forEach(a => baseListMap.set(a.id, a));
+            logAssets.forEach(a => {
+              if (!baseListMap.has(a.id)) baseListMap.set(a.id, a);
+            });
+            wsAssets.forEach(a => {
+              if (!baseListMap.has(a.id)) baseListMap.set(a.id, a);
+            });
+            prev.forEach(a => {
+              if (!baseListMap.has(a.id)) baseListMap.set(a.id, a);
+            });
+
+            if (baseListMap.size === 0) return prev;
+
+            const mergedAssets = Array.from(baseListMap.values()).map((baseAsset) => {
+              const sym = (baseAsset.asset_symbol || '').trim().toUpperCase();
+              const localAsset = prevById.get(baseAsset.id) || prevBySym.get(sym);
+              const logAsset = logById.get(baseAsset.id) || logBySym.get(sym);
+              const wsAsset = wsById.get(baseAsset.id) || wsBySym.get(sym);
+              const serverAsset = serverAssets.find(
+                s => s.id === baseAsset.id || (s.asset_symbol || '').trim().toUpperCase() === sym
+              );
+              const cachedById = priceCache[`id:${baseAsset.id}`];
+              const cachedBySym = priceCache[`sym:${sym}`];
+
+              const best = pickNewestPriceCandidate([
+                { price: serverAsset?.current_price, updatedAt: serverAsset?.price_updated_at, priority: 1 },
+                { price: logAsset?.current_price, updatedAt: logAsset?.price_updated_at, priority: 2 },
+                { price: wsAsset?.current_price, updatedAt: wsAsset?.price_updated_at, priority: 3 },
+                { price: localAsset?.current_price, updatedAt: localAsset?.price_updated_at, priority: 4 },
+                { price: cachedBySym?.current_price, updatedAt: cachedBySym?.price_updated_at, priority: 5 },
+                { price: cachedById?.current_price, updatedAt: cachedById?.price_updated_at, priority: 6 },
+              ]);
+
+              const finalPrice = best.current_price || Number(baseAsset.current_price) || 0;
+              const finalUpdatedAt = best.price_updated_at || baseAsset.price_updated_at || new Date().toISOString();
+
+              if (
+                serverAsset &&
+                finalPrice > 0 &&
+                (Number(serverAsset.current_price) !== finalPrice ||
+                  parseSafeTime(finalUpdatedAt) > parseSafeTime(serverAsset.price_updated_at))
+              ) {
+                needsCloudHeal = true;
               }
 
               return {
-                ...serverAsset,
+                ...(serverAsset || baseAsset),
+                ...(localAsset ? { currency: localAsset.currency || (serverAsset as any)?.currency } : {}),
                 current_price: finalPrice,
-                price_updated_at: finalUpdatedAt
+                price_updated_at: finalUpdatedAt,
               };
             });
-          });
-        }
-        if (foundAssetsFromLogs.length > 0) {
-          setInvestmentAssets(prev => {
-            const map = new Map(prev.map(a => [a.id, a]));
-            foundAssetsFromLogs.forEach(a => {
-              if (!map.has(a.id)) {
-                prev.push(a);
-                map.set(a.id, a);
-              }
-            });
+
+            healedAssetsSnapshot = mergedAssets;
+            investmentAssetsRef.current = mergedAssets;
             if (typeof window !== 'undefined') {
-              localStorage.setItem('app_investment_assets', JSON.stringify(prev));
+              localStorage.setItem('app_investment_assets', JSON.stringify(mergedAssets));
+              forceUpdateAssetPriceCache(
+                mergedAssets.map(a => ({
+                  id: a.id,
+                  symbol: a.asset_symbol,
+                  current_price: a.current_price,
+                  price_updated_at: a.price_updated_at,
+                }))
+              );
             }
-            return [...prev];
+            return mergedAssets;
           });
+
+          if (needsCloudHeal && healedAssetsSnapshot.length > 0 && !isDemoUserRef.current) {
+            void syncInvestmentAssetsToCloud(healedAssetsSnapshot);
+          }
         }
       } catch (assetErr) {
         console.warn('Lỗi tải investment_assets:', assetErr);
@@ -966,8 +1139,15 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         let loadedItxs: InvestmentTransaction[] | null = null;
         let queryItx = client.from('investment_transactions').select('*');
-        if (user?.id) queryItx = queryItx.or(`user_id.eq.${user.id},user_id.eq.admin123,user_id.is.null`);
-        const { data: itxData, error: itxError } = await queryItx.order('transaction_date', { ascending: false });
+        if (user?.id && isUuidString(user.id)) queryItx = queryItx.or(`user_id.eq.${user.id},user_id.is.null`);
+        let { data: itxData, error: itxError } = await queryItx.order('transaction_date', { ascending: false });
+        if ((itxError || !itxData || itxData.length === 0) && user?.id) {
+          const fbItx = await client.from('investment_transactions').select('*').order('transaction_date', { ascending: false });
+          if (!fbItx.error && fbItx.data) {
+            itxData = fbItx.data;
+            itxError = null;
+          }
+        }
         if (!itxError && itxData && Array.isArray(itxData)) {
           loadedItxs = itxData.map((t: any) => {
             let divType = t.dividend_type as 'cash' | 'stock' | undefined;
@@ -1064,9 +1244,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // 10. Tải portfolio_snapshots
       try {
         let querySnap = client.from('portfolio_snapshots').select('*');
-        if (user?.id) querySnap = querySnap.or(`user_id.eq.${user.id},user_id.eq.admin123`);
+        if (user?.id && isUuidString(user.id)) querySnap = querySnap.or(`user_id.eq.${user.id},user_id.is.null`);
         const { data: snapData, error: snapError } = await querySnap.order('snapshot_date', { ascending: true });
-        if (!snapError && snapData) {
+        if (!snapError && snapData && snapData.length > 0) {
           setPortfolioSnapshots(snapData.map(s => ({
             ...s,
             total_value: Number(s.total_value) || 0,
@@ -1082,7 +1262,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // 11. Tải projects từ Supabase
       try {
         let queryProj = client.from('projects').select('*');
-        if (user?.id) queryProj = queryProj.or(`user_id.eq.${user.id},user_id.eq.admin123,user_id.is.null`);
+        if (user?.id && isUuidString(user.id)) queryProj = queryProj.or(`user_id.eq.${user.id},user_id.is.null`);
         const { data: projData, error: projError } = await queryProj.order('created_at', { ascending: false });
         if (!projError && projData && Array.isArray(projData) && projData.length > 0) {
           const formatted: Project[] = projData.map((p: any) => ({
@@ -1235,11 +1415,39 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         { event: 'investment_assets_sync' },
         (payload: any) => {
           const item = payload?.payload;
-          if (item?.assets && Array.isArray(item.assets)) {
-            setInvestmentAssets(item.assets);
-            if (typeof window !== 'undefined') {
-              localStorage.setItem('app_investment_assets', JSON.stringify(item.assets));
-            }
+          if (item?.assets && Array.isArray(item.assets) && item.assets.length > 0) {
+            setInvestmentAssets(prev => {
+              const prevById = new Map(prev.map(p => [p.id, p]));
+              const priceCache = readAssetPriceCache();
+              const merged = item.assets.map((inc: InvestmentAsset) => {
+                const loc = prevById.get(inc.id);
+                const sym = (inc.asset_symbol || '').trim().toUpperCase();
+                const best = pickNewestPriceCandidate([
+                  { price: inc.current_price, updatedAt: inc.price_updated_at, priority: 3 },
+                  { price: loc?.current_price, updatedAt: loc?.price_updated_at, priority: 2 },
+                  { price: priceCache[`id:${inc.id}`]?.current_price, updatedAt: priceCache[`id:${inc.id}`]?.price_updated_at, priority: 1 },
+                  { price: priceCache[`sym:${sym}`]?.current_price, updatedAt: priceCache[`sym:${sym}`]?.price_updated_at, priority: 1 },
+                ]);
+                return {
+                  ...inc,
+                  current_price: best.current_price || Number(inc.current_price) || 0,
+                  price_updated_at: best.price_updated_at || inc.price_updated_at,
+                };
+              });
+              investmentAssetsRef.current = merged;
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('app_investment_assets', JSON.stringify(merged));
+                forceUpdateAssetPriceCache(
+                  merged.map((a: InvestmentAsset) => ({
+                    id: a.id,
+                    symbol: a.asset_symbol,
+                    current_price: a.current_price,
+                    price_updated_at: a.price_updated_at,
+                  }))
+                );
+              }
+              return merged;
+            });
           }
         }
       )
@@ -1307,15 +1515,34 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const runUpsert = async (table: string, data: any, successMsg: string): Promise<{ success: boolean; localOnly?: boolean; pendingSync?: boolean; error?: any }> => {
     triggerCloudBackup();
-    if (!isDemoUser) {
-      const effectiveUserId = user?.id || 'admin123';
+    if (!isDemoUserRef.current) {
+      const currentUserId = userRef.current?.id;
+      const validUuidUserId = currentUserId && isUuidString(currentUserId) ? currentUserId : null;
+      const effectiveUserId = validUuidUserId || 'admin123';
       try {
         const { client } = getSupabaseClient();
         if (client) {
-          let payloadToSave = { ...data, user_id: effectiveUserId };
-          
-          const { error } = await raceWithTimeout<any>(client.from(table).upsert(payloadToSave), 3000);
-          
+          let payloadToSave: any = { ...data };
+          if (validUuidUserId) {
+            payloadToSave.user_id = validUuidUserId;
+          } else if (payloadToSave.user_id && !isUuidString(payloadToSave.user_id)) {
+            delete payloadToSave.user_id;
+          }
+
+          let { error } = await raceWithTimeout<any>(client.from(table).upsert(payloadToSave), 3000);
+
+          // Nếu lỗi do user_id foreign key hoặc kiểu UUID, thử lại khi lược bỏ user_id hoặc cập nhật theo id
+          if (error && (error.code === '22P02' || error.code === '23503' || error.code === '23502' || error.message?.includes('user_id'))) {
+            const retryPayload = { ...payloadToSave };
+            if (error.code === '23502') {
+              retryPayload.user_id = toValidUUID(effectiveUserId);
+            } else {
+              delete retryPayload.user_id;
+            }
+            const retryRes = await raceWithTimeout<any>(client.from(table).upsert(retryPayload), 3000);
+            error = retryRes.error;
+          }
+
           if (error) {
             // Check if error is due to missing columns (e.g. outbound_type, outbound_km in business_trips)
             if (table === 'business_trips' && (
@@ -2219,51 +2446,58 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     void runDelete('expense_categories', id, '');
   };
 
-  const saveInvestmentAsset = async (assetData: Omit<InvestmentAsset, 'id'> & { id?: string }) => {
-    const cleanSym = assetData.asset_symbol.trim().toUpperCase();
-    const existingIdx = investmentAssets.findIndex(a => a.asset_symbol.toUpperCase() === cleanSym && a.id !== assetData.id);
-    if (existingIdx >= 0) {
-      addToast(`Mã tài sản ${cleanSym} đã tồn tại trong danh mục!`, 'error');
-      throw new Error('Duplicate asset symbol');
+  const syncInvestmentAssetsToCloud = async (assetsToSync: InvestmentAsset[]) => {
+    const { client, isConfigured } = getSupabaseClient();
+    if (!isConfigured || !client || isDemoUserRef.current) return;
+
+    const effectiveUserId = userRef.current?.id || 'admin123';
+
+    // 1. Broadcast Realtime message tới các tab/thiết bị đang mở
+    try {
+      const channel = client.channel('app_global_realtime_sync');
+      channel.send({
+        type: 'broadcast',
+        event: 'investment_assets_sync',
+        payload: { assets: assetsToSync, updated_at: new Date().toISOString() },
+      });
+    } catch (bcErr) {
+      console.warn('Realtime broadcast asset error:', bcErr);
     }
 
-    const id = assetData.id || generateUUID();
-    const fullAsset: InvestmentAsset = { ...assetData, id, current_price: Number(assetData.current_price) || 0 };
-    
-    const idxInCurrent = investmentAssets.findIndex(a => a.id === id);
-    const computedNextAssets = idxInCurrent >= 0
-      ? investmentAssets.map(a => a.id === id ? fullAsset : a)
-      : [fullAsset, ...investmentAssets];
-
-    setInvestmentAssets(prev => {
-      const idx = prev.findIndex(a => a.id === id);
-      const nextAssets = idx >= 0 ? prev.map(a => a.id === id ? fullAsset : a) : [fullAsset, ...prev];
+    // 2. Đồng bộ đa tầng vào work_settings._investment_assets & work_logs ([INVESTMENT_ASSETS_SYNC]) & bảng investment_assets
+    const currentWs = workSettingsRef.current;
+    const updatedSalaryData = {
+      ...(currentWs.salary_data || {}),
+      _investment_assets: assetsToSync,
+    };
+    setWorkSettings((prev) => {
+      const nextWs = {
+        ...prev,
+        salary_data: { ...(prev.salary_data || {}), _investment_assets: assetsToSync },
+        _investment_assets: assetsToSync,
+      } as WorkSettings;
       if (typeof window !== 'undefined') {
-        localStorage.setItem('app_investment_assets', JSON.stringify(nextAssets));
+        localStorage.setItem('app_work_settings', JSON.stringify(nextWs));
       }
-      return nextAssets;
+      return nextWs;
     });
 
-    addToast(`Đã lưu tài sản ${fullAsset.asset_symbol}`, 'success');
+    const assetLogId = toValidUUID('asset_sync_global_meta');
+    const wsId = currentWs.id ? toValidUUID(currentWs.id) : toValidUUID(`ws_${effectiveUserId}`);
 
-    void (async () => {
-      try {
-        const { client } = getSupabaseClient();
-        if (client) {
-          const channel = client.channel('app_global_realtime_sync');
-          channel.send({
-            type: 'broadcast',
-            event: 'investment_assets_sync',
-            payload: { assets: computedNextAssets, updated_at: new Date().toISOString() }
-          });
-        }
-      } catch (bcErr) {
-        console.warn('Realtime broadcast asset error:', bcErr);
-      }
-
-      const assetLogId = toValidUUID('asset_sync_global_meta');
-      await Promise.allSettled([
-        runUpsert('work_logs', {
+    await Promise.allSettled([
+      runUpsert(
+        'work_settings',
+        {
+          id: wsId,
+          salary_data: updatedSalaryData,
+          updated_at: new Date().toISOString(),
+        },
+        ''
+      ),
+      runUpsert(
+        'work_logs',
+        {
           id: assetLogId,
           work_date: '1970-01-01',
           work_status: 'Đầu tư',
@@ -2271,36 +2505,138 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           break_duration_hours: 0,
           overtime_hours: 0,
           missing_hours: 0,
-          notes: `[INVESTMENT_ASSETS_SYNC]:${JSON.stringify(computedNextAssets)}`
-        }, ''),
-        runUpsert('investment_assets', {
+          notes: `[INVESTMENT_ASSETS_SYNC]:${JSON.stringify(assetsToSync)}`,
+        },
+        ''
+      ),
+      ...assetsToSync.map(async (asset) => {
+        const res = await runUpsert(
+          'investment_assets',
+          {
+            id: asset.id,
+            asset_name: asset.asset_name,
+            asset_symbol: asset.asset_symbol,
+            asset_type: asset.asset_type,
+            current_price: Number(asset.current_price) || 0,
+            price_updated_at: asset.price_updated_at || new Date().toISOString(),
+            notes: asset.notes || null,
+          },
+          ''
+        );
+        // Đảm bảo lệnh UPDATE trực tiếp theo id cũng chạy trong trường hợp hàng đã tồn tại với user_id khác
+        if (res.error) {
+          await raceWithTimeout(
+            client
+              .from('investment_assets')
+              .update({
+                asset_name: asset.asset_name,
+                asset_symbol: asset.asset_symbol,
+                asset_type: asset.asset_type,
+                current_price: Number(asset.current_price) || 0,
+                price_updated_at: asset.price_updated_at || new Date().toISOString(),
+                notes: asset.notes || null,
+              })
+              .eq('id', asset.id),
+            3000
+          ).catch(() => {});
+        }
+      }),
+    ]);
+  };
+
+  const saveInvestmentAsset = async (assetData: Omit<InvestmentAsset, 'id'> & { id?: string }) => {
+    const cleanSym = assetData.asset_symbol.trim().toUpperCase();
+    const currentAssets = investmentAssetsRef.current;
+    const existingIdx = currentAssets.findIndex(
+      (a) => a.asset_symbol.toUpperCase() === cleanSym && a.id !== assetData.id
+    );
+    if (existingIdx >= 0) {
+      addToast(`Mã tài sản ${cleanSym} đã tồn tại trong danh mục!`, 'error');
+      throw new Error('Duplicate asset symbol');
+    }
+
+    const id = assetData.id || generateUUID();
+    const nowIso = assetData.price_updated_at || new Date().toISOString();
+    const fullAsset: InvestmentAsset = {
+      ...assetData,
+      id,
+      asset_symbol: cleanSym,
+      current_price: Number(assetData.current_price) || 0,
+      price_updated_at: nowIso,
+    };
+
+    const idxInCurrent = currentAssets.findIndex((a) => a.id === id);
+    const computedNextAssets =
+      idxInCurrent >= 0
+        ? currentAssets.map((a) => (a.id === id ? fullAsset : a))
+        : [fullAsset, ...currentAssets];
+
+    investmentAssetsRef.current = computedNextAssets;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('app_investment_assets', JSON.stringify(computedNextAssets));
+      forceUpdateAssetPriceCache([
+        {
           id: fullAsset.id,
-          asset_name: fullAsset.asset_name,
-          asset_symbol: fullAsset.asset_symbol,
-          asset_type: fullAsset.asset_type,
+          symbol: fullAsset.asset_symbol,
           current_price: fullAsset.current_price,
           price_updated_at: fullAsset.price_updated_at,
-          notes: fullAsset.notes
-        }, '')
+        },
       ]);
-    })();
+    }
+
+    setInvestmentAssets((prev) => {
+      const idx = prev.findIndex((a) => a.id === id);
+      const nextAssets = idx >= 0 ? prev.map((a) => (a.id === id ? fullAsset : a)) : [fullAsset, ...prev];
+      investmentAssetsRef.current = nextAssets;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_investment_assets', JSON.stringify(nextAssets));
+      }
+      return nextAssets;
+    });
+
+    addToast(`Đã lưu tài sản ${fullAsset.asset_symbol}`, 'success');
+    void syncInvestmentAssetsToCloud(computedNextAssets);
   };
 
   const updateAssetPrice = async (assetId: string, newPrice: number) => {
-    setInvestmentAssets(prev => prev.map(a => a.id === assetId ? { ...a, current_price: newPrice, price_updated_at: new Date().toISOString() } : a));
-    triggerCloudBackup();
-    if (!isDemoUser && user) {
-      const { client } = getSupabaseClient();
-      if (client) {
-        void raceWithTimeout(client.from('investment_assets').update({ current_price: newPrice, price_updated_at: new Date().toISOString() }).eq('id', assetId), 3000).catch(() => {});
+    const nowIso = new Date().toISOString();
+    const numericPrice = Number(newPrice) || 0;
+    let updatedSnapshot: InvestmentAsset[] = [];
+
+    setInvestmentAssets((prev) => {
+      const next = prev.map((a) =>
+        a.id === assetId ? { ...a, current_price: numericPrice, price_updated_at: nowIso } : a
+      );
+      updatedSnapshot = next;
+      investmentAssetsRef.current = next;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('app_investment_assets', JSON.stringify(next));
+        const target = next.find((a) => a.id === assetId);
+        if (target) {
+          forceUpdateAssetPriceCache([
+            {
+              id: target.id,
+              symbol: target.asset_symbol,
+              current_price: numericPrice,
+              price_updated_at: nowIso,
+            },
+          ]);
+        }
       }
+      return next;
+    });
+
+    triggerCloudBackup();
+    if (updatedSnapshot.length > 0) {
+      void syncInvestmentAssetsToCloud(updatedSnapshot);
     }
   };
 
   const deleteInvestmentAsset = async (id: string) => {
-    const computedNextAssets = investmentAssets.filter(a => a.id !== id);
-    setInvestmentAssets(prev => {
-      const nextAssets = prev.filter(a => a.id !== id);
+    const computedNextAssets = investmentAssetsRef.current.filter((a) => a.id !== id);
+    investmentAssetsRef.current = computedNextAssets;
+    setInvestmentAssets((prev) => {
+      const nextAssets = prev.filter((a) => a.id !== id);
       if (typeof window !== 'undefined') {
         localStorage.setItem('app_investment_assets', JSON.stringify(nextAssets));
       }
@@ -2310,31 +2646,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     addToast('Đã xóa tài sản', 'success');
 
     void (async () => {
-      try {
-        const { client } = getSupabaseClient();
-        if (client) {
-          const channel = client.channel('app_global_realtime_sync');
-          channel.send({
-            type: 'broadcast',
-            event: 'investment_assets_sync',
-            payload: { assets: computedNextAssets, updated_at: new Date().toISOString() }
-          });
-        }
-      } catch (bcErr) {}
-
-      const assetLogId = toValidUUID('asset_sync_global_meta');
       await Promise.allSettled([
-        runUpsert('work_logs', {
-          id: assetLogId,
-          work_date: '1970-01-01',
-          work_status: 'Đầu tư',
-          total_hours: 0,
-          break_duration_hours: 0,
-          overtime_hours: 0,
-          missing_hours: 0,
-          notes: `[INVESTMENT_ASSETS_SYNC]:${JSON.stringify(computedNextAssets)}`
-        }, ''),
-        runDelete('investment_assets', id, '')
+        syncInvestmentAssetsToCloud(computedNextAssets),
+        runDelete('investment_assets', id, ''),
       ]);
     })();
   };
@@ -2618,44 +2932,82 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const refreshMarketPrices = async (silent = false, skipCloudSave = false) => {
+  const refreshMarketPrices = useCallback(async (silent = false, skipCloudSave = false) => {
     if (isRefreshingPrices) return;
     setIsRefreshingPrices(true);
     try {
-      const priceUpdates = await priceService.fetchBatchPrices(investmentAssetsRef.current);
-      setInvestmentAssets(prev => {
+      const currentList = investmentAssetsRef.current;
+      if (!currentList || currentList.length === 0) return;
+
+      const priceUpdates = await priceService.fetchBatchPrices(currentList);
+      const nowIso = new Date().toISOString();
+      let updatedSnapshot: InvestmentAsset[] | null = null;
+
+      setInvestmentAssets((prev) => {
         let hasChanges = false;
-        const updatedAssets = prev.map(a => {
+        const cacheEntries: { id: string; symbol: string; current_price: number; price_updated_at: string }[] = [];
+
+        const updatedAssets = prev.map((a) => {
           const update = priceUpdates[a.id];
-          if (update && update.price && update.price !== a.current_price) {
-            hasChanges = true;
-            return { ...a, current_price: update.price, price_updated_at: new Date().toISOString() };
+          if (update && update.price && update.price > 0) {
+            cacheEntries.push({
+              id: a.id,
+              symbol: a.asset_symbol,
+              current_price: update.price,
+              price_updated_at: nowIso,
+            });
+            if (update.price !== a.current_price) {
+              hasChanges = true;
+              return { ...a, current_price: update.price, price_updated_at: nowIso };
+            }
           }
           return a;
         });
-        
-        if (!hasChanges) return prev; // Avoid unnecessary re-renders
 
-        if (!isDemoUser && user && !skipCloudSave) {
-          const { client } = getSupabaseClient();
-          if (client) {
-            Promise.all(updatedAssets.map(async a => {
-              if (priceUpdates[a.id] && priceUpdates[a.id].price !== prev.find(p => p.id === a.id)?.current_price) {
-                const { error } = await client.from('investment_assets').update({ current_price: a.current_price, price_updated_at: a.price_updated_at }).eq('id', a.id);
-                if (error) console.error('Lỗi lưu giá tài sản:', error);
-              }
-            })).catch(() => {});
-          }
+        if (cacheEntries.length > 0) {
+          forceUpdateAssetPriceCache(cacheEntries);
+        }
+
+        if (!hasChanges) return prev;
+
+        updatedSnapshot = updatedAssets;
+        investmentAssetsRef.current = updatedAssets;
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('app_investment_assets', JSON.stringify(updatedAssets));
         }
         return updatedAssets;
       });
+
+      if (updatedSnapshot && !isDemoUserRef.current && !skipCloudSave) {
+        void syncInvestmentAssetsToCloud(updatedSnapshot);
+      }
+
       if (!silent) addToast('Đã cập nhật giá thị trường', 'success');
     } catch (err) {
       if (!silent) addToast('Lỗi cập nhật giá thị trường', 'error');
     } finally {
       setIsRefreshingPrices(false);
     }
-  };
+  }, [isRefreshingPrices, addToast]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (investmentAssetsRef.current.length > 0) {
+        void refreshMarketPrices(true, false);
+      }
+    }, 1000);
+
+    const interval = setInterval(() => {
+      if (investmentAssetsRef.current.length > 0) {
+        void refreshMarketPrices(true, false);
+      }
+    }, 15000);
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
+  }, [refreshMarketPrices]);
 
   useEffect(() => {
     if (typeof document !== 'undefined') {
