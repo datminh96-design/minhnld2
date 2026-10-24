@@ -33,34 +33,105 @@ function getSubpath(req: any): string {
 
 let geminiClientInstance: GoogleGenAI | null = null;
 
-function getClient(req?: any, body?: any): GoogleGenAI | null {
-  const customKey =
+function isValidGeminiApiKey(key?: any): key is string {
+  if (!key || typeof key !== 'string') return false;
+  const trimmed = key.trim();
+  // Valid Google Gemini API keys always start with "AIza" and are ~39 chars
+  return /^AIza[0-9A-Za-z_-]{25,}$/.test(trimmed);
+}
+
+function getEnvApiKey(): string {
+  const candidates = [
+    process.env.GEMINI_API_KEY,
+    process.env.API_KEY,
+    process.env.VITE_GEMINI_API_KEY,
+    process.env.NEXT_PUBLIC_GEMINI_API_KEY,
+    process.env.GOOGLE_API_KEY,
+    process.env.GOOGLE_GEMINI_API_KEY,
+  ];
+  for (const c of candidates) {
+    if (c && typeof c === 'string' && c.trim().length >= 20) {
+      return c.trim();
+    }
+  }
+  return '';
+}
+
+function extractCustomKey(req?: any, body?: any): string {
+  const raw =
     body?.apiKey ||
     req?.headers?.['x-gemini-api-key'] ||
     req?.headers?.['x-api-key'] ||
     (typeof req?.headers?.authorization === 'string' && req.headers.authorization.startsWith('Bearer ')
       ? req.headers.authorization.replace(/^Bearer\s+/i, '').trim()
       : '');
+  return typeof raw === 'string' ? raw.trim() : '';
+}
 
-  const apiKey =
-    customKey ||
-    process.env.GEMINI_API_KEY ||
-    process.env.API_KEY ||
-    process.env.VITE_GEMINI_API_KEY ||
-    process.env.NEXT_PUBLIC_GEMINI_API_KEY ||
-    process.env.GOOGLE_API_KEY ||
-    process.env.GOOGLE_GEMINI_API_KEY;
+/**
+ * Returns an ordered list of GoogleGenAI clients to try:
+ * 1. Valid custom key (if starts with AIza...)
+ * 2. Server environment key (process.env.GEMINI_API_KEY) as primary or automatic fallback
+ * Non-AIza tokens (e.g. "AQ.Ab8...") are automatically ignored so they never poison requests.
+ */
+function getClientsList(req?: any, body?: any): Array<{ ai: GoogleGenAI; source: string }> {
+  const clients: Array<{ ai: GoogleGenAI; source: string }> = [];
+  const rawCustomKey = extractCustomKey(req, body);
+  const envKey = getEnvApiKey();
 
-  if (!apiKey) return null;
-  if (customKey) {
-    return new GoogleGenAI({ apiKey: customKey });
+  if (rawCustomKey && isValidGeminiApiKey(rawCustomKey)) {
+    clients.push({ ai: new GoogleGenAI({ apiKey: rawCustomKey }), source: 'custom' });
+  } else if (rawCustomKey) {
+    console.warn(
+      `[Vercel Gemini] Ignoring invalid custom API key format (does not start with AIza): ${rawCustomKey.slice(0, 6)}...`
+    );
   }
-  if (!geminiClientInstance) {
-    geminiClientInstance = new GoogleGenAI({
-      apiKey,
-    });
+
+  if (envKey && envKey !== rawCustomKey) {
+    if (!geminiClientInstance) {
+      geminiClientInstance = new GoogleGenAI({ apiKey: envKey });
+    }
+    clients.push({ ai: geminiClientInstance, source: 'env' });
   }
-  return geminiClientInstance;
+
+  return clients;
+}
+
+function getClient(req?: any, body?: any): GoogleGenAI | null {
+  const list = getClientsList(req, body);
+  return list.length > 0 ? list[0].ai : null;
+}
+
+async function generateContentWithTimeout(
+  ai: GoogleGenAI,
+  params: any,
+  timeoutMs = 14000
+): Promise<any> {
+  return Promise.race([
+    ai.models.generateContent(params),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Model ${params?.model || ''} timed out after ${timeoutMs}ms`)), timeoutMs)
+    ),
+  ]);
+}
+
+function parseJsonFromAiText(rawText: string): any | null {
+  if (!rawText || typeof rawText !== 'string') return null;
+  const cleaned = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+  if (!cleaned) return null;
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const objMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (objMatch) {
+      try {
+        return JSON.parse(objMatch[0]);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
 }
 
 function parseFlexibleNumber(val: any): number | null {
@@ -554,7 +625,7 @@ function generateDynamicAiRadarFromArticles(rawArticles: any[], allLiveArticles:
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-gemini-api-key, x-api-key');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -562,6 +633,7 @@ export default async function handler(req: any, res: any) {
 
   const subpath = getSubpath(req);
   const body = parseBody(req);
+  const isVercelRuntime = Boolean(process.env.VERCEL || req?.headers?.['x-vercel-id']);
 
   // 1. Specialized Handler: Investment Bill OCR Vision Scanner
   if (
@@ -580,12 +652,12 @@ export default async function handler(req: any, res: any) {
 
       console.log(`[Vercel Serverless OCR: Investment] Subpath: ${subpath}, Payload size: ${cleanBase64.length} chars, Model: ${requestedModel || 'default'}`);
 
-      const ai = getClient(req, body);
-      if (!ai) {
+      const clientsList = getClientsList(req, body);
+      if (clientsList.length === 0) {
         return res.status(200).json({
           success: false,
           error:
-            'Chưa cấu hình GEMINI_API_KEY trên môi trường Vercel. Bạn có thể thêm biến môi trường GEMINI_API_KEY trên Vercel Dashboard hoặc nhập API key cá nhân.',
+            'Chưa cấu hình GEMINI_API_KEY hợp lệ (bắt đầu bằng AIza...) trên môi trường Vercel. Vui lòng kiểm tra biến môi trường GEMINI_API_KEY trên Vercel Dashboard.',
         });
       }
 
@@ -642,47 +714,60 @@ ${JSON.stringify(currentAssets.map((a: any) => ({ symbol: a.asset_symbol || a.sy
 
 Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
 
-      const candidateModels = [
-        requestedModel,
-        'gemini-3.8-flash',
-        'gemini-3.1-flash-lite',
-        'gemini-flash-latest',
-        'gemini-3.7-flash',
-      ].filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
+      const candidateModels = (
+        isVercelRuntime
+          ? ['gemini-flash-latest', 'gemini-3.1-flash-lite', requestedModel, 'gemini-3.8-flash']
+          : [requestedModel, 'gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite']
+      ).filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
 
       let parsedData: any = null;
-      let usedModel = 'gemini-3.8-flash';
+      let usedModel = candidateModels[0] || 'gemini-flash-latest';
+      let lastErrorMsg = '';
 
-      for (const mName of candidateModels) {
-        try {
-          const response = await ai.models.generateContent({
-            model: mName,
-            contents: [
-              { inlineData: { mimeType: detectedMimeType, data: cleanBase64 } },
-              { text: prompt },
-            ],
-            config: { responseMimeType: 'application/json' },
-          });
+      outerClientLoop: for (const clientEntry of clientsList) {
+        for (const mName of candidateModels) {
+          try {
+            const response = await generateContentWithTimeout(
+              clientEntry.ai,
+              {
+                model: mName,
+                contents: [
+                  { inlineData: { mimeType: detectedMimeType, data: cleanBase64 } },
+                  { text: prompt },
+                ],
+                config: { responseMimeType: 'application/json' },
+              },
+              14000
+            );
 
-          const resText = response?.text || '';
-          if (resText.trim()) {
-            const cleanJson = resText.replace(/```json/g, '').replace(/```/g, '').trim();
-            parsedData = JSON.parse(cleanJson);
-            if (parsedData && (parsedData.asset_symbol || parsedData.quantity || parsedData.price_per_unit)) {
-              usedModel = mName;
-              parsedData._raw_ai_text = resText;
+            const resText = response?.text || '';
+            if (resText.trim()) {
+              const candidate = parseJsonFromAiText(resText);
+              if (candidate && (candidate.asset_symbol || candidate.quantity || candidate.price_per_unit)) {
+                parsedData = candidate;
+                usedModel = mName;
+                parsedData._raw_ai_text = resText;
+                break outerClientLoop;
+              }
+            }
+          } catch (e: any) {
+            const errMsg = e?.message || String(e);
+            lastErrorMsg = errMsg;
+            console.warn(`[Vercel Serverless Investment Scan] Error with model ${mName} (${clientEntry.source}):`, errMsg);
+            // If key is invalid or unauthorized, immediately switch to fallback client
+            if (/API_KEY_INVALID|API key not valid|PERMISSION_DENIED|UNAUTHENTICATED|401|403/i.test(errMsg)) {
               break;
             }
           }
-        } catch (e: any) {
-          console.warn(`[Vercel Serverless Investment Scan] Error with model ${mName}:`, e?.message);
         }
       }
 
       if (!parsedData) {
         return res.status(200).json({
           success: false,
-          error: 'AI không bóc tách được dữ liệu từ ảnh trên Serverless Vercel.',
+          error: lastErrorMsg
+            ? `Không bóc tách được dữ liệu (${lastErrorMsg.slice(0, 120)})`
+            : 'AI không bóc tách được dữ liệu từ ảnh trên Serverless Vercel.',
         });
       }
 
@@ -728,12 +813,12 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
 
       console.log(`[Vercel Serverless OCR: Expense] Subpath: ${subpath}, Payload size: ${cleanBase64.length} chars, Model: ${requestedModel || 'default'}`);
 
-      const ai = getClient(req, body);
-      if (!ai) {
+      const clientsList = getClientsList(req, body);
+      if (clientsList.length === 0) {
         return res.status(200).json({
           success: false,
           error:
-            'Chưa cấu hình GEMINI_API_KEY trên môi trường Vercel. Bạn có thể thêm biến môi trường GEMINI_API_KEY trên Vercel Dashboard hoặc nhập API key cá nhân.',
+            'Chưa cấu hình GEMINI_API_KEY hợp lệ (bắt đầu bằng AIza...) trên môi trường Vercel. Vui lòng kiểm tra biến môi trường GEMINI_API_KEY trên Vercel Dashboard.',
         });
       }
 
@@ -819,45 +904,60 @@ CẤU TRÚC JSON MẪU BẮT BUỘC TRẢ VỀ:
 Danh mục có sẵn: [${categoriesListStr}].
 Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
 
-      const candidateModels = [
-        requestedModel,
-        'gemini-3.8-flash',
-        'gemini-3.1-flash-lite',
-        'gemini-flash-latest',
-        'gemini-3.7-flash',
-      ].filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
+      const candidateModels = (
+        isVercelRuntime
+          ? ['gemini-flash-latest', 'gemini-3.1-flash-lite', requestedModel, 'gemini-3.8-flash']
+          : [requestedModel, 'gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite']
+      ).filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
 
       let parsedData: any = null;
-      let usedModel = 'gemini-3.8-flash';
+      let usedModel = candidateModels[0] || 'gemini-flash-latest';
+      let lastErrorMsg = '';
 
-      for (const mName of candidateModels) {
-        try {
-          const response = await ai.models.generateContent({
-            model: mName,
-            contents: [
-              { inlineData: { mimeType: detectedMimeType, data: cleanBase64 } },
-              { text: prompt },
-            ],
-            config: { responseMimeType: 'application/json' },
-          });
+      outerExpenseClientLoop: for (const clientEntry of clientsList) {
+        for (const mName of candidateModels) {
+          try {
+            const response = await generateContentWithTimeout(
+              clientEntry.ai,
+              {
+                model: mName,
+                contents: [
+                  { inlineData: { mimeType: detectedMimeType, data: cleanBase64 } },
+                  { text: prompt },
+                ],
+                config: { responseMimeType: 'application/json' },
+              },
+              14000
+            );
 
-          const resText = response?.text || '';
-          if (resText.trim()) {
-            const cleanJson = resText.replace(/```json/g, '').replace(/```/g, '').trim();
-            parsedData = JSON.parse(cleanJson);
-            if (parsedData && (parsedData.name || parsedData.amount)) {
-              usedModel = mName;
-              parsedData._raw_ai_text = resText;
+            const resText = response?.text || '';
+            if (resText.trim()) {
+              const candidate = parseJsonFromAiText(resText);
+              if (candidate && (candidate.name || candidate.amount)) {
+                parsedData = candidate;
+                usedModel = mName;
+                parsedData._raw_ai_text = resText;
+                break outerExpenseClientLoop;
+              }
+            }
+          } catch (e: any) {
+            const errMsg = e?.message || String(e);
+            lastErrorMsg = errMsg;
+            console.warn(`[Vercel Serverless Expense Scan] Error with model ${mName} (${clientEntry.source}):`, errMsg);
+            if (/API_KEY_INVALID|API key not valid|PERMISSION_DENIED|UNAUTHENTICATED|401|403/i.test(errMsg)) {
               break;
             }
           }
-        } catch (e: any) {
-          console.warn(`[Vercel Serverless Expense Scan] Error with model ${mName}:`, e?.message);
         }
       }
 
       if (!parsedData) {
-        return res.status(200).json({ success: false, error: 'Không bóc tách được dữ liệu' });
+        return res.status(200).json({
+          success: false,
+          error: lastErrorMsg
+            ? `Không bóc tách được dữ liệu (${lastErrorMsg.slice(0, 120)})`
+            : 'Không bóc tách được dữ liệu',
+        });
       }
 
       parsedData.amount = parseFlexibleNumber(parsedData.amount);

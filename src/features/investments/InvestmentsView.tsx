@@ -84,6 +84,11 @@ export const InvestmentsView: React.FC = () => {
     await refreshMarketPrices(false);
   };
 
+  // Immediately refresh live market prices (especially SJC Gold & XAUT) on view mount
+  useEffect(() => {
+    void refreshMarketPrices(true, false);
+  }, [refreshMarketPrices]);
+
   // Holdings Sorting state (Default: Total Invested Descending)
   const [sortField, setSortField] = useState<'totalInvested' | 'currentValue' | 'totalProfit' | 'symbol' | 'currentQuantity' | 'averageCost' | 'currentPrice'>('totalInvested');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -691,7 +696,7 @@ export const InvestmentsView: React.FC = () => {
                                       type === 'fund' ? 'VinaCapital' :
                                       type === 'gold' ? 'SJC 9999' : 'Thị trường'
                                     );
-                                    const isCrypto = type === 'crypto' || exchangeLabel === 'Binance';
+                                    const isCrypto = type === 'crypto' || exchangeLabel === 'Binance' || exchangeLabel.includes('OKX');
                                     const isStock = type === 'stock' || exchangeLabel === 'HOSE' || exchangeLabel === 'HNX';
                                     const isFund = type === 'fund' || exchangeLabel.includes('VinaCapital') || exchangeLabel === 'Fmarket';
 

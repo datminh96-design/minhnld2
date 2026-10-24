@@ -1130,6 +1130,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (needsCloudHeal && healedAssetsSnapshot.length > 0 && !isDemoUserRef.current) {
             void syncInvestmentAssetsToCloud(healedAssetsSnapshot);
           }
+
+          // Immediately refresh live market prices (especially SJC Gold & XAUT) after loading cloud assets
+          setTimeout(() => {
+            void refreshMarketPrices(true, false);
+          }, 50);
         }
       } catch (assetErr) {
         console.warn('Lỗi tải investment_assets:', assetErr);
@@ -2932,14 +2937,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const refreshMarketPrices = useCallback(async (silent = false, skipCloudSave = false) => {
-    if (isRefreshingPrices) return;
-    setIsRefreshingPrices(true);
-    try {
-      const currentList = investmentAssetsRef.current;
-      if (!currentList || currentList.length === 0) return;
+  const isRefreshingPricesRef = useRef(false);
 
-      const priceUpdates = await priceService.fetchBatchPrices(currentList);
+  const applyPriceUpdatesMap = useCallback(
+    (priceUpdates: Record<string, { price?: number; updatedAt?: string }>, syncCloud = false) => {
+      if (!priceUpdates || Object.keys(priceUpdates).length === 0) return;
       const nowIso = new Date().toISOString();
       let updatedSnapshot: InvestmentAsset[] | null = null;
 
@@ -2950,15 +2952,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const updatedAssets = prev.map((a) => {
           const update = priceUpdates[a.id];
           if (update && update.price && update.price > 0) {
+            const effectiveTime = update.updatedAt || nowIso;
             cacheEntries.push({
               id: a.id,
               symbol: a.asset_symbol,
               current_price: update.price,
-              price_updated_at: nowIso,
+              price_updated_at: effectiveTime,
             });
             if (update.price !== a.current_price) {
               hasChanges = true;
-              return { ...a, current_price: update.price, price_updated_at: nowIso };
+              return { ...a, current_price: update.price, price_updated_at: effectiveTime };
             }
           }
           return a;
@@ -2978,36 +2981,90 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return updatedAssets;
       });
 
-      if (updatedSnapshot && !isDemoUserRef.current && !skipCloudSave) {
+      if (updatedSnapshot && !isDemoUserRef.current && syncCloud) {
         void syncInvestmentAssetsToCloud(updatedSnapshot);
       }
+    },
+    []
+  );
 
-      if (!silent) addToast('Đã cập nhật giá thị trường', 'success');
-    } catch (err) {
-      if (!silent) addToast('Lỗi cập nhật giá thị trường', 'error');
-    } finally {
-      setIsRefreshingPrices(false);
-    }
-  }, [isRefreshingPrices, addToast]);
+  const refreshMarketPrices = useCallback(
+    async (silent = false, skipCloudSave = false) => {
+      if (isRefreshingPricesRef.current) return;
+      isRefreshingPricesRef.current = true;
+      setIsRefreshingPrices(true);
+      try {
+        const currentList = investmentAssetsRef.current;
+        if (!currentList || currentList.length === 0) return;
+
+        // Fast partial callback updates Gold (SJC, XAUT) & Crypto (BTC) in ~250ms immediately
+        const priceUpdates = await priceService.fetchBatchPrices(currentList, (fastPartial) => {
+          applyPriceUpdatesMap(fastPartial, false);
+        });
+
+        applyPriceUpdatesMap(priceUpdates, !skipCloudSave);
+
+        if (!silent) addToast('Đã cập nhật giá thị trường trực tiếp', 'success');
+      } catch (err) {
+        if (!silent) addToast('Lỗi cập nhật giá thị trường', 'error');
+      } finally {
+        isRefreshingPricesRef.current = false;
+        setIsRefreshingPrices(false);
+      }
+    },
+    [addToast, applyPriceUpdatesMap]
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => {
       if (investmentAssetsRef.current.length > 0) {
         void refreshMarketPrices(true, false);
       }
-    }, 1000);
+    }, 150);
 
     const interval = setInterval(() => {
       if (investmentAssetsRef.current.length > 0) {
         void refreshMarketPrices(true, false);
       }
-    }, 15000);
+    }, 8000);
+
+    const handleVisibilityOrFocus = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible' && investmentAssetsRef.current.length > 0) {
+        void refreshMarketPrices(true, true);
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', handleVisibilityOrFocus);
+      document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    }
 
     return () => {
       clearTimeout(timer);
       clearInterval(interval);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', handleVisibilityOrFocus);
+        document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      }
     };
   }, [refreshMarketPrices]);
+
+  // Subscribe to real-time WebSocket streams (OKX XAUT-USDT, Binance BTC/PAXG, 5s SJC Live)
+  const assetStreamKey = useMemo(
+    () => investmentAssets.map((a) => `${a.id}:${a.asset_symbol}:${a.asset_type}`).join('|'),
+    [investmentAssets]
+  );
+
+  useEffect(() => {
+    const currentList = investmentAssetsRef.current;
+    if (!currentList || currentList.length === 0) return;
+    const unsubscribe = priceService.subscribeRealtimePrices(currentList, (liveTicks) => {
+      applyPriceUpdatesMap(liveTicks, false);
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [assetStreamKey, applyPriceUpdatesMap]);
 
   useEffect(() => {
     if (typeof document !== 'undefined') {

@@ -132,6 +132,59 @@ function parseFlexibleDateToISO(raw: string | null | undefined): string | null {
 }
 
 /**
+ * Validate Google Gemini API Key format (must start with AIza...)
+ */
+function isValidGeminiKey(key?: string | null): boolean {
+  if (!key || typeof key !== 'string') return false;
+  return /^AIza[0-9A-Za-z_-]{25,}$/.test(key.trim());
+}
+
+/**
+ * Retrieve a valid Gemini API key from localStorage if present, and automatically
+ * purge corrupted/non-Gemini tokens (such as "AQ.Ab8...") so they never poison requests.
+ */
+function getSanitizedUserGeminiApiKey(): string {
+  if (typeof window === 'undefined') return '';
+  const storageKeys = ['gemini_api_key', 'user_gemini_api_key', 'VITE_GEMINI_API_KEY'];
+  for (const k of storageKeys) {
+    try {
+      const val = localStorage.getItem(k);
+      if (val) {
+        if (isValidGeminiKey(val)) {
+          return val.trim();
+        } else {
+          console.warn(`[billScannerService] Removing invalid non-AIza token from localStorage["${k}"]`);
+          localStorage.removeItem(k);
+        }
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }
+  return '';
+}
+
+function getClientSideGeminiKey(): string {
+  const userKey = getSanitizedUserGeminiApiKey();
+  if (userKey) return userKey;
+
+  const envCandidates = [
+    typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_GEMINI_API_KEY : '',
+    typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.GEMINI_API_KEY : '',
+    typeof process !== 'undefined' && process.env ? process.env.VITE_GEMINI_API_KEY : '',
+    typeof process !== 'undefined' && process.env ? process.env.GEMINI_API_KEY : '',
+    typeof window !== 'undefined' ? (window as any).VITE_GEMINI_API_KEY : '',
+    typeof window !== 'undefined' ? (window as any).GEMINI_API_KEY : '',
+  ];
+  for (const c of envCandidates) {
+    if (typeof c === 'string' && isValidGeminiKey(c)) {
+      return c.trim();
+    }
+  }
+  return '';
+}
+
+/**
  * Exponential Backoff Retry Options
  */
 export interface RetryOptions {
@@ -139,12 +192,13 @@ export interface RetryOptions {
   initialDelayMs?: number;
   backoffFactor?: number;
   maxDelayMs?: number;
+  timeoutMs?: number;
   retryOnStatus?: number[];
   onRetry?: (attempt: number, maxRetries: number, delayMs: number, reason: string) => void;
 }
 
 /**
- * Executes a network fetch call with Exponential Backoff & Jitter
+ * Executes a network fetch call with per-attempt AbortController timeout, Exponential Backoff & Jitter
  */
 export async function fetchWithExponentialBackoff(
   url: string,
@@ -152,10 +206,11 @@ export async function fetchWithExponentialBackoff(
   retryOpts: RetryOptions = {}
 ): Promise<Response> {
   const {
-    maxRetries = 3,
-    initialDelayMs = 900,
-    backoffFactor = 2,
-    maxDelayMs = 5000,
+    maxRetries = 2,
+    initialDelayMs = 600,
+    backoffFactor = 1.8,
+    maxDelayMs = 2500,
+    timeoutMs = 25000,
     retryOnStatus = [408, 429, 500, 502, 503, 504],
     onRetry,
   } = retryOpts;
@@ -165,8 +220,19 @@ export async function fetchWithExponentialBackoff(
 
   while (true) {
     attempt++;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = controller
+      ? setTimeout(() => {
+          controller.abort();
+        }, timeoutMs)
+      : null;
+
     try {
-      const response = await fetch(url, options);
+      const response = await fetch(url, {
+        ...options,
+        signal: controller ? controller.signal : options.signal,
+      });
+      if (timer) clearTimeout(timer);
 
       // Check if response is a transient HTTP error that warrants retry
       if (retryOnStatus.includes(response.status) && attempt <= maxRetries) {
@@ -182,10 +248,14 @@ export async function fetchWithExponentialBackoff(
 
       return response;
     } catch (err: any) {
+      if (timer) clearTimeout(timer);
       if (attempt <= maxRetries) {
         const jitter = 0.5 + Math.random() * 0.5;
         const actualDelay = Math.min(maxDelayMs, Math.round(delay * jitter));
-        const reason = err?.name === 'AbortError' ? 'Hết thời gian chờ (Timeout)' : 'Lỗi kết nối mạng (Transient Network Error)';
+        const reason =
+          err?.name === 'AbortError'
+            ? 'Hết thời gian chờ kết nối (Timeout)'
+            : 'Lỗi kết nối mạng (Transient Network Error)';
         onRetry?.(attempt, maxRetries, actualDelay, reason);
 
         await new Promise((resolve) => setTimeout(resolve, actualDelay));
@@ -202,8 +272,8 @@ export async function fetchWithExponentialBackoff(
  */
 export async function executeWithExponentialBackoff<T>(
   operation: () => Promise<T>,
-  maxRetries = 3,
-  initialDelayMs = 800,
+  maxRetries = 2,
+  initialDelayMs = 600,
   onRetry?: (attempt: number, delayMs: number) => void
 ): Promise<T> {
   let attempt = 0;
@@ -241,9 +311,9 @@ export const billScannerService = {
   },
 
   /**
-   * Compress image on client side if too large, while maintaining high crispness for OCR
+   * Compress image on client side for fast mobile upload while maintaining high crispness for OCR
    */
-  async compressImage(dataUrl: string, maxWidth = 1800, maxHeight = 1800, quality = 0.88): Promise<string> {
+  async compressImage(dataUrl: string, maxWidth = 1280, maxHeight = 1280, quality = 0.80): Promise<string> {
     if (typeof window === 'undefined') return dataUrl;
 
     return new Promise((resolve) => {
@@ -288,10 +358,7 @@ export const billScannerService = {
     existingCategories: any[] = [],
     preferredModel?: string
   ): Promise<ScanExpenseResponse | null> {
-    const apiKey =
-      (typeof import.meta !== 'undefined' && import.meta.env && (import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY)) ||
-      (typeof process !== 'undefined' && process.env ? process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY : '') ||
-      (typeof window !== 'undefined' && ((window as any).VITE_GEMINI_API_KEY || (window as any).GEMINI_API_KEY));
+    const apiKey = getClientSideGeminiKey();
 
     if (!apiKey) return null;
 
@@ -382,13 +449,13 @@ CẤU TRÚC JSON MẪU BẮT BUỘC TRẢ VỀ:
 Danh mục có sẵn: [${categoriesListStr}].
 Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
 
-      const candidateModels = [
-        preferredModel,
-        'gemini-3.8-flash',
-        'gemini-3.1-flash-lite',
-        'gemini-flash-latest',
-        'gemini-3.7-flash',
-      ].filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
+      const isVercelClient =
+        typeof window !== 'undefined' && window.location.hostname.toLowerCase().includes('vercel.app');
+      const candidateModels = (
+        isVercelClient
+          ? ['gemini-flash-latest', 'gemini-3.1-flash-lite', preferredModel, 'gemini-3.8-flash']
+          : [preferredModel, 'gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite']
+      ).filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
 
       for (const modelName of candidateModels) {
         try {
@@ -403,8 +470,9 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
 
           const resText = response?.text || '';
           if (resText.trim()) {
-            const cleanJson = resText.replace(/```json/g, '').replace(/```/g, '').trim();
-            const parsedData = JSON.parse(cleanJson);
+            const cleanJson = resText.replace(/```json/gi, '').replace(/```/g, '').trim();
+            const objMatch = cleanJson.match(/\{[\s\S]*\}/);
+            const parsedData = JSON.parse(objMatch ? objMatch[0] : cleanJson);
             if (parsedData && (parsedData.name || parsedData.amount)) {
               parsedData.amount = parseFlexibleNumber(parsedData.amount);
               parsedData.fee = parseFlexibleNumber(parsedData.fee) ?? 0;
@@ -457,10 +525,7 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
     currentAssets: InvestmentAsset[] = [],
     preferredModel?: string
   ): Promise<ScanBillResponse | null> {
-    const apiKey =
-      (typeof import.meta !== 'undefined' && import.meta.env && (import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY)) ||
-      (typeof process !== 'undefined' && process.env ? process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY : '') ||
-      (typeof window !== 'undefined' && ((window as any).VITE_GEMINI_API_KEY || (window as any).GEMINI_API_KEY));
+    const apiKey = getClientSideGeminiKey();
 
     if (!apiKey) return null;
 
@@ -522,13 +587,13 @@ ${JSON.stringify(currentAssets.map((a: any) => ({ symbol: a.asset_symbol || a.sy
 
 Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
 
-      const candidateModels = [
-        preferredModel,
-        'gemini-3.8-flash',
-        'gemini-3.1-flash-lite',
-        'gemini-flash-latest',
-        'gemini-3.7-flash',
-      ].filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
+      const isVercelClient =
+        typeof window !== 'undefined' && window.location.hostname.toLowerCase().includes('vercel.app');
+      const candidateModels = (
+        isVercelClient
+          ? ['gemini-flash-latest', 'gemini-3.1-flash-lite', preferredModel, 'gemini-3.8-flash']
+          : [preferredModel, 'gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite']
+      ).filter((m, i, arr): m is string => !!m && arr.indexOf(m) === i);
 
       for (const modelName of candidateModels) {
         try {
@@ -543,8 +608,9 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
 
           const resText = response?.text || '';
           if (resText.trim()) {
-            const cleanJson = resText.replace(/```json/g, '').replace(/```/g, '').trim();
-            const parsedData = JSON.parse(cleanJson);
+            const cleanJson = resText.replace(/```json/gi, '').replace(/```/g, '').trim();
+            const objMatch = cleanJson.match(/\{[\s\S]*\}/);
+            const parsedData = JSON.parse(objMatch ? objMatch[0] : cleanJson);
             if (parsedData && (parsedData.asset_symbol || parsedData.quantity || parsedData.price_per_unit)) {
               parsedData.quantity = parseFlexibleNumber(parsedData.quantity);
               parsedData.price_per_unit = parseFlexibleNumber(parsedData.price_per_unit);
@@ -614,12 +680,7 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
         }
       }, 350);
 
-      const userApiKey =
-        (typeof window !== 'undefined' &&
-          (localStorage.getItem('gemini_api_key') ||
-            localStorage.getItem('user_gemini_api_key') ||
-            localStorage.getItem('VITE_GEMINI_API_KEY'))) ||
-        '';
+      const userApiKey = getSanitizedUserGeminiApiKey();
 
       const payload = {
         imageBase64: compressedBase64,
@@ -650,16 +711,17 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
             body: JSON.stringify(payload),
           },
           {
-            maxRetries: 3,
-            initialDelayMs: 900,
-            backoffFactor: 2,
-            maxDelayMs: 4500,
+            maxRetries: 2,
+            initialDelayMs: 600,
+            backoffFactor: 1.8,
+            maxDelayMs: 2500,
+            timeoutMs: 25000,
             retryOnStatus: [408, 429, 500, 502, 503, 504],
             onRetry: (attempt, maxRetries, delayMs, reason) => {
               receiptDiagnosticLogger.recordRetry(diagSessionId, attempt, delayMs, reason);
               onProgress?.(
                 Math.min(90, 50 + attempt * 12),
-                `Mạng tạm bận (${reason}). Tự động thử lại (${attempt}/${maxRetries}) sau ${(delayMs / 1000).toFixed(1)}s (Exponential Backoff)...`
+                `Mạng tạm bận (${reason}). Tự động thử lại (${attempt}/${maxRetries}) sau ${(delayMs / 1000).toFixed(1)}s...`
               );
             },
           }
@@ -798,12 +860,7 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
         }
       }, 350);
 
-      const userApiKey =
-        (typeof window !== 'undefined' &&
-          (localStorage.getItem('gemini_api_key') ||
-            localStorage.getItem('user_gemini_api_key') ||
-            localStorage.getItem('VITE_GEMINI_API_KEY'))) ||
-        '';
+      const userApiKey = getSanitizedUserGeminiApiKey();
 
       const payload = {
         imageBase64: compressedBase64,
@@ -838,16 +895,17 @@ Chỉ trả về JSON thuần túy theo đúng cấu trúc trên.`;
             body: JSON.stringify(payload),
           },
           {
-            maxRetries: 3,
-            initialDelayMs: 900,
-            backoffFactor: 2,
-            maxDelayMs: 4500,
+            maxRetries: 2,
+            initialDelayMs: 600,
+            backoffFactor: 1.8,
+            maxDelayMs: 2500,
+            timeoutMs: 25000,
             retryOnStatus: [408, 429, 500, 502, 503, 504],
             onRetry: (attempt, maxRetries, delayMs, reason) => {
               receiptDiagnosticLogger.recordRetry(diagSessionId, attempt, delayMs, reason);
               onProgress?.(
                 Math.min(90, 50 + attempt * 12),
-                `Mạng tạm bận (${reason}). Tự động thử lại (${attempt}/${maxRetries}) sau ${(delayMs / 1000).toFixed(1)}s (Exponential Backoff)...`
+                `Mạng tạm bận (${reason}). Tự động thử lại (${attempt}/${maxRetries}) sau ${(delayMs / 1000).toFixed(1)}s...`
               );
             },
           }

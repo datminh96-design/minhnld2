@@ -87,104 +87,78 @@ export default async function handler(req: any, res: any) {
   if (subpath.startsWith('market-') || reqUrl.includes('/api/market/')) {
     try {
       const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
-      const { assets = [], usdtRate = 25450 } = body;
+      const { assets = [], usdtRate = 25400 } = body;
       const results: Record<string, any> = {};
-      const currentUsdtRate = Number(usdtRate) > 0 ? Number(usdtRate) : 25450;
+      const currentUsdtRate = Number(usdtRate) > 0 ? Number(usdtRate) : 25400;
 
-      const cryptoSymbols = assets
-        .filter((a: any) => {
-          const sym = (a.symbol || a.asset_symbol || '').toUpperCase().trim();
-          const type = (a.type || a.asset_type || '').toLowerCase();
-          return (
-            type === 'crypto' ||
-            ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'DOGE', 'ADA', 'DOT', 'AVAX', 'NEAR', 'XAUT', 'PAXG', 'SUI', 'PEPE', 'SHIB', 'TON', 'LINK'].includes(sym)
-          );
-        })
-        .map((a: any) => (a.symbol || a.asset_symbol || '').toUpperCase().trim());
-
-      const binancePriceMap: Record<string, { usdt: number; change24h?: number }> = {};
-      if (cryptoSymbols.length > 0) {
-        await Promise.allSettled(
-          cryptoSymbols.map(async (rawSym: string) => {
-            const pair = rawSym === 'XAUT' ? 'PAXGUSDT' : rawSym.endsWith('USDT') ? rawSym : `${rawSym}USDT`;
-            try {
-              const priceRes = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${pair}`);
-              if (priceRes.ok) {
-                const data: any = await priceRes.json();
-                const usdt = parseFloat(data.price);
-                if (!isNaN(usdt) && usdt > 0) {
-                  binancePriceMap[rawSym] = { usdt };
-                  return;
-                }
-              }
-            } catch {}
-            try {
-              const altRes = await fetch(`https://data-api.binance.vision/api/v3/ticker/price?symbol=${pair}`);
-              if (altRes.ok) {
-                const data: any = await altRes.json();
-                const usdt = parseFloat(data.price);
-                if (!isNaN(usdt) && usdt > 0) {
-                  binancePriceMap[rawSym] = { usdt };
-                }
-              }
-            } catch {}
-          })
-        );
-      }
-
-      const stockSymbols = assets
-        .filter((a: any) => {
-          const sym = (a.symbol || a.asset_symbol || '').toUpperCase().trim();
-          const type = (a.type || a.asset_type || '').toLowerCase();
-          return (
-            type === 'stock' ||
-            ['TPB', 'VCB', 'HPG', 'FPT', 'MWG', 'SSI', 'TCB', 'MBB', 'VHM', 'VIC', 'STB', 'DGC', 'CTG', 'ACB', 'VPB', 'HDB', 'VND', 'GEX', 'VRE', 'GAS', 'MSN', 'PLX', 'PNJ', 'VNM', 'KDH', 'PDR', 'NVL', 'DIG'].includes(sym)
-          );
-        })
-        .map((a: any) => (a.symbol || a.asset_symbol || '').toUpperCase().trim());
-
-      const stockPriceMap: Record<string, { price: number; changePercent?: number }> = {};
-      if (stockSymbols.length > 0) {
-        await Promise.allSettled(
-          stockSymbols.map(async (rawSym: string) => {
-            try {
-              const vpsRes = await fetch(`https://bgapidatafeed.vps.com.vn/getliststockdata/${rawSym}`);
-              if (vpsRes.ok) {
-                const data: any = await vpsRes.json();
-                if (Array.isArray(data) && data.length > 0) {
-                  const item = data[0];
-                  const rawPrice = item.lastPrice || item.r || item.closePrice;
-                  if (rawPrice && !isNaN(Number(rawPrice))) {
-                    stockPriceMap[rawSym] = {
-                      price: Math.round(Number(rawPrice) * 1000),
-                      changePercent: item.changePc ? parseFloat(item.changePc) : 0,
-                    };
-                    return;
-                  }
-                }
-              }
-            } catch {}
-            try {
-              const now = Math.floor(Date.now() / 1000);
-              const from = now - 7 * 86400;
-              const entRes = await fetch(
-                `https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?symbol=${rawSym}&from=${from}&to=${now}&resolution=1D`
+      const cryptoSymbols = Array.from(
+        new Set<string>(
+          assets
+            .filter((a: any) => {
+              const sym = (a.symbol || a.asset_symbol || '').toUpperCase().trim();
+              const type = (a.type || a.asset_type || '').toLowerCase();
+              return (
+                type === 'crypto' ||
+                ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'DOGE', 'ADA', 'DOT', 'AVAX', 'NEAR', 'XAUT', 'PAXG', 'SUI', 'PEPE', 'SHIB', 'TON', 'LINK'].includes(sym)
               );
-              if (entRes.ok) {
-                const data: any = await entRes.json();
-                if (data?.c && Array.isArray(data.c) && data.c.length > 0) {
-                  const latestClose = data.c[data.c.length - 1];
-                  const prevClose = data.c.length > 1 ? data.c[data.c.length - 2] : latestClose;
-                  stockPriceMap[rawSym] = {
-                    price: Math.round(latestClose * 1000),
-                    changePercent: prevClose > 0 ? ((latestClose - prevClose) / prevClose) * 100 : 0,
-                  };
-                }
-              }
-            } catch {}
-          })
+            })
+            .map((a: any) => (a.symbol || a.asset_symbol || '').toUpperCase().trim())
+        )
+      );
+
+      const hasGoldAssets = assets.some((a: any) => {
+        const sym = (a.symbol || a.asset_symbol || '').toUpperCase().trim();
+        const type = (a.type || a.asset_type || '').toLowerCase();
+        return (
+          type === 'gold' ||
+          type === 'vàng' ||
+          sym.includes('SJC') ||
+          sym.includes('GOLD') ||
+          sym.includes('VÀNG') ||
+          sym === 'N24K' ||
+          sym === 'PNJ' ||
+          sym === 'DOJI' ||
+          sym === 'XAUT' ||
+          sym === 'PAXG'
         );
+      });
+
+      if (hasGoldAssets) {
+        if (!cryptoSymbols.includes('XAUT')) cryptoSymbols.push('XAUT');
+        if (!cryptoSymbols.includes('PAXG')) cryptoSymbols.push('PAXG');
       }
+
+      const stockSymbols = Array.from(
+        new Set<string>(
+          assets
+            .filter((a: any) => {
+              const sym = (a.symbol || a.asset_symbol || '').toUpperCase().trim();
+              const type = (a.type || a.asset_type || '').toLowerCase();
+              return (
+                type === 'stock' ||
+                ['TPB', 'VCB', 'HPG', 'FPT', 'MWG', 'SSI', 'TCB', 'MBB', 'VHM', 'VIC', 'STB', 'DGC', 'CTG', 'ACB', 'VPB', 'HDB', 'VND', 'GEX', 'VRE', 'GAS', 'MSN', 'PLX', 'PNJ', 'VNM', 'KDH', 'PDR', 'NVL', 'DIG'].includes(sym)
+              );
+            })
+            .map((a: any) => (a.symbol || a.asset_symbol || '').toUpperCase().trim())
+        )
+      );
+
+      const hasFundAssets = assets.some((a: any) => {
+        const sym = (a.symbol || a.asset_symbol || '').toUpperCase().trim();
+        const type = (a.type || a.asset_type || '').toLowerCase();
+        return (
+          type === 'fund' ||
+          type === 'quỹ' ||
+          ['VEOF', 'VESAF', 'VIBF', 'DCDS', 'DCBC', 'VCBF', 'SSISCA', 'BVFED', 'DCIP', 'DCDE'].some((f) =>
+            sym.includes(f)
+          )
+        );
+      });
+
+      const binancePriceMap: Record<string, { usdt: number; change24h?: number; sourceName?: string }> = {};
+      const stockPriceMap: Record<string, { price: number; changePercent?: number }> = {};
+      const vnGoldMap: Record<string, { price: number; buyPrice: number; sellPrice: number; sourceName: string }> = {};
+      let worldGoldSpotUsd = 0;
 
       const fundMap: Record<string, number> = {
         VEOF: 32600.18,
@@ -201,62 +175,269 @@ export default async function handler(req: any, res: any) {
         BVFED: 30506.0,
       };
 
-      const hasFundAssets = assets.some((a: any) => {
-        const sym = (a.symbol || a.asset_symbol || '').toUpperCase().trim();
-        const type = (a.type || a.asset_type || '').toLowerCase();
-        return (
-          type === 'fund' ||
-          type === 'quỹ' ||
-          ['VEOF', 'VESAF', 'VIBF', 'DCDS', 'DCBC', 'VCBF', 'SSISCA', 'BVFED', 'DCIP', 'DCDE'].some((f) =>
-            sym.includes(f)
-          )
-        );
-      });
-
-      if (hasFundAssets) {
-        try {
-          const fRes = await fetch('https://api.fmarket.vn/res/products/filter', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Accept: 'application/json, text/plain, */*',
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-              Referer: 'https://fmarket.vn/',
-              Origin: 'https://fmarket.vn',
-            },
-            body: JSON.stringify({
-              types: ['NEW_FUND', 'TRADING_FUND'],
-              page: 1,
-              pageSize: 100,
-            }),
-          });
-          if (fRes.ok) {
-            const fData: any = await fRes.json();
-            if (fData?.data?.rows && Array.isArray(fData.data.rows)) {
-              fData.data.rows.forEach((row: any) => {
-                const sName = (row.shortName || '').toUpperCase().trim();
-                const code = (row.code || '').toUpperCase().trim();
-                const nav =
-                  typeof row.nav === 'number' && row.nav > 0
-                    ? row.nav
-                    : typeof row.extra?.currentNAV === 'number'
-                    ? row.extra.currentNAV
-                    : null;
-                if (nav && nav > 0) {
-                  if (sName) {
-                    fundMap[sName] = nav;
-                    fundMap[sName.replace(/[^A-Z0-9]/g, '')] = nav;
+      // Run all 4 market category fetchers in parallel for sub-400ms speed
+      await Promise.allSettled([
+        // Task 1: Crypto & XAUT / PAXG
+        (async () => {
+          if (cryptoSymbols.length === 0) return;
+          await Promise.allSettled(
+            cryptoSymbols.map(async (rawSym: string) => {
+              if (rawSym === 'XAUT') {
+                // Fetch real Tether Gold (XAUT/USDT) from OKX, Bybit, Gate.io first
+                try {
+                  const okxRes = await fetch('https://www.okx.com/api/v5/market/ticker?instId=XAUT-USDT', {
+                    signal: AbortSignal.timeout(2500),
+                  });
+                  if (okxRes.ok) {
+                    const okxData: any = await okxRes.json();
+                    const item = okxData?.data?.[0];
+                    const last = parseFloat(item?.last);
+                    const open24h = parseFloat(item?.open24h);
+                    if (!isNaN(last) && last > 0) {
+                      const change24h = !isNaN(open24h) && open24h > 0 ? ((last - open24h) / open24h) * 100 : undefined;
+                      binancePriceMap['XAUT'] = { usdt: last, change24h, sourceName: 'OKX XAUT/USDT Live' };
+                      return;
+                    }
                   }
-                  if (code) {
-                    fundMap[code] = nav;
-                    fundMap[code.replace(/[^A-Z0-9]/g, '')] = nav;
+                } catch {}
+
+                try {
+                  const bybitRes = await fetch('https://api.bybit.com/v5/market/tickers?category=spot&symbol=XAUTUSDT', {
+                    signal: AbortSignal.timeout(2500),
+                  });
+                  if (bybitRes.ok) {
+                    const bybitData: any = await bybitRes.json();
+                    const item = bybitData?.result?.list?.[0];
+                    const last = parseFloat(item?.lastPrice);
+                    const pcnt = parseFloat(item?.price24hPcnt);
+                    if (!isNaN(last) && last > 0) {
+                      binancePriceMap['XAUT'] = {
+                        usdt: last,
+                        change24h: !isNaN(pcnt) ? pcnt * 100 : undefined,
+                        sourceName: 'Bybit XAUT/USDT Live',
+                      };
+                      return;
+                    }
+                  }
+                } catch {}
+
+                try {
+                  const gateRes = await fetch('https://api.gateio.ws/api/v4/spot/tickers?currency_pair=XAUT_USDT', {
+                    signal: AbortSignal.timeout(2500),
+                  });
+                  if (gateRes.ok) {
+                    const gateData: any = await gateRes.json();
+                    const item = Array.isArray(gateData) ? gateData[0] : null;
+                    const last = parseFloat(item?.last);
+                    if (!isNaN(last) && last > 0) {
+                      binancePriceMap['XAUT'] = {
+                        usdt: last,
+                        change24h: item?.change_percentage ? parseFloat(item.change_percentage) : undefined,
+                        sourceName: 'Gate.io XAUT/USDT Live',
+                      };
+                      return;
+                    }
+                  }
+                } catch {}
+              }
+
+              const pair = rawSym === 'XAUT' ? 'PAXGUSDT' : rawSym.endsWith('USDT') ? rawSym : `${rawSym}USDT`;
+              try {
+                const priceRes = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${pair}`, {
+                  signal: AbortSignal.timeout(2500),
+                });
+                if (priceRes.ok) {
+                  const data: any = await priceRes.json();
+                  const usdt = parseFloat(data.price);
+                  if (!isNaN(usdt) && usdt > 0) {
+                    binancePriceMap[rawSym] = { usdt, sourceName: 'Binance Live Ticker' };
+                    return;
                   }
                 }
-              });
+              } catch {}
+              try {
+                const altRes = await fetch(`https://data-api.binance.vision/api/v3/ticker/price?symbol=${pair}`, {
+                  signal: AbortSignal.timeout(2500),
+                });
+                if (altRes.ok) {
+                  const data: any = await altRes.json();
+                  const usdt = parseFloat(data.price);
+                  if (!isNaN(usdt) && usdt > 0) {
+                    binancePriceMap[rawSym] = { usdt, sourceName: 'Binance Live Ticker' };
+                  }
+                }
+              } catch {}
+            })
+          );
+        })(),
+
+        // Task 2: Vietnam SJC 9999 & 24K Gold (PNJ Live API + CafeF Gold Live API)
+        (async () => {
+          if (!hasGoldAssets) return;
+          await Promise.allSettled([
+            (async () => {
+              try {
+                const pnjRes = await fetch('https://edge-api.pnj.io/ecom-frontend/v1/get-gold-price?zone=00', {
+                  headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' },
+                  signal: AbortSignal.timeout(2800),
+                });
+                if (pnjRes.ok) {
+                  const pnjData: any = await pnjRes.json();
+                  if (Array.isArray(pnjData?.data)) {
+                    for (const row of pnjData.data) {
+                      const code = String(row.masp || '').toUpperCase().trim();
+                      // PNJ returns price in thousand VND per chi (1 luong = 10 chi => * 10,000)
+                      const sellVnd = Number(row.giaban) * 10000;
+                      const buyVnd = Number(row.giamua) * 10000;
+                      if (sellVnd > 50_000_000) {
+                        if (code === 'SJC') {
+                          vnGoldMap['SJC'] = {
+                            price: sellVnd,
+                            buyPrice: buyVnd > 0 ? buyVnd : sellVnd - 2_000_000,
+                            sellPrice: sellVnd,
+                            sourceName: 'Giá Vàng SJC 9999 Trực Tiếp',
+                          };
+                        } else if (code === 'N24K') {
+                          vnGoldMap['N24K'] = {
+                            price: sellVnd,
+                            buyPrice: buyVnd > 0 ? buyVnd : sellVnd - 2_000_000,
+                            sellPrice: sellVnd,
+                            sourceName: 'Vàng Nhẫn 9999 Trực Tiếp',
+                          };
+                        }
+                      }
+                    }
+                  }
+                }
+              } catch {}
+            })(),
+            (async () => {
+              try {
+                const cafefRes = await fetch('https://cafef.vn/du-lieu/Ajax/ajaxgoldpricehistory.ashx?index=1', {
+                  headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' },
+                  signal: AbortSignal.timeout(2800),
+                });
+                if (cafefRes.ok) {
+                  const cData: any = await cafefRes.json();
+                  const worldPrice = Number(cData?.Data?.goldPriceWorlds?.price);
+                  if (worldPrice > 1000) {
+                    worldGoldSpotUsd = worldPrice;
+                  }
+                  const histories = cData?.Data?.goldPriceWorldHistories;
+                  if (Array.isArray(histories) && histories.length > 0 && !vnGoldMap['SJC']) {
+                    const latest = histories[0];
+                    const sellVnd = Math.round(Number(latest.sellPrice) * 1_000_000);
+                    const buyVnd = Math.round(Number(latest.buyPrice) * 1_000_000);
+                    if (sellVnd > 50_000_000) {
+                      vnGoldMap['SJC'] = {
+                        price: sellVnd,
+                        buyPrice: buyVnd > 0 ? buyVnd : sellVnd - 2_000_000,
+                        sellPrice: sellVnd,
+                        sourceName: 'Giá Vàng SJC 9999 (CafeF)',
+                      };
+                    }
+                  }
+                }
+              } catch {}
+            })(),
+          ]);
+        })(),
+
+        // Task 3: Vietnam Stocks (VPS + Entrade)
+        (async () => {
+          if (stockSymbols.length === 0) return;
+          await Promise.allSettled(
+            stockSymbols.map(async (rawSym: string) => {
+              try {
+                const vpsRes = await fetch(`https://bgapidatafeed.vps.com.vn/getliststockdata/${rawSym}`, {
+                  signal: AbortSignal.timeout(2500),
+                });
+                if (vpsRes.ok) {
+                  const data: any = await vpsRes.json();
+                  if (Array.isArray(data) && data.length > 0) {
+                    const item = data[0];
+                    const rawPrice = item.lastPrice || item.r || item.closePrice;
+                    if (rawPrice && !isNaN(Number(rawPrice))) {
+                      stockPriceMap[rawSym] = {
+                        price: Math.round(Number(rawPrice) * 1000),
+                        changePercent: item.changePc ? parseFloat(item.changePc) : 0,
+                      };
+                      return;
+                    }
+                  }
+                }
+              } catch {}
+              try {
+                const now = Math.floor(Date.now() / 1000);
+                const from = now - 7 * 86400;
+                const entRes = await fetch(
+                  `https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?symbol=${rawSym}&from=${from}&to=${now}&resolution=1D`,
+                  { signal: AbortSignal.timeout(2500) }
+                );
+                if (entRes.ok) {
+                  const data: any = await entRes.json();
+                  if (data?.c && Array.isArray(data.c) && data.c.length > 0) {
+                    const latestClose = data.c[data.c.length - 1];
+                    const prevClose = data.c.length > 1 ? data.c[data.c.length - 2] : latestClose;
+                    stockPriceMap[rawSym] = {
+                      price: Math.round(latestClose * 1000),
+                      changePercent: prevClose > 0 ? ((latestClose - prevClose) / prevClose) * 100 : 0,
+                    };
+                  }
+                }
+              } catch {}
+            })
+          );
+        })(),
+
+        // Task 4: Mutual Funds (Fmarket)
+        (async () => {
+          if (!hasFundAssets) return;
+          try {
+            const fRes = await fetch('https://api.fmarket.vn/res/products/filter', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json, text/plain, */*',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                Referer: 'https://fmarket.vn/',
+                Origin: 'https://fmarket.vn',
+              },
+              body: JSON.stringify({
+                types: ['NEW_FUND', 'TRADING_FUND'],
+                page: 1,
+                pageSize: 100,
+              }),
+              signal: AbortSignal.timeout(3500),
+            });
+            if (fRes.ok) {
+              const fData: any = await fRes.json();
+              if (fData?.data?.rows && Array.isArray(fData.data.rows)) {
+                fData.data.rows.forEach((row: any) => {
+                  const sName = (row.shortName || '').toUpperCase().trim();
+                  const code = (row.code || '').toUpperCase().trim();
+                  const nav =
+                    typeof row.nav === 'number' && row.nav > 0
+                      ? row.nav
+                      : typeof row.extra?.currentNAV === 'number'
+                      ? row.extra.currentNAV
+                      : null;
+                  if (nav && nav > 0) {
+                    if (sName) {
+                      fundMap[sName] = nav;
+                      fundMap[sName.replace(/[^A-Z0-9]/g, '')] = nav;
+                    }
+                    if (code) {
+                      fundMap[code] = nav;
+                      fundMap[code.replace(/[^A-Z0-9]/g, '')] = nav;
+                    }
+                  }
+                });
+              }
             }
-          }
-        } catch {}
-      }
+          } catch {}
+        })(),
+      ]);
 
       for (const item of assets) {
         const id = item.id || item.symbol || item.asset_symbol;
@@ -264,6 +445,7 @@ export default async function handler(req: any, res: any) {
         const cleanSym = sym.replace(/[^A-Z0-9]/g, '');
         const type = (item.type || item.asset_type || '').toLowerCase();
 
+        // 1. Mutual Fund
         const matchedFundKey = Object.keys(fundMap).find(
           (k) => k === sym || k === cleanSym || sym.includes(k) || cleanSym.includes(k)
         );
@@ -284,6 +466,38 @@ export default async function handler(req: any, res: any) {
           }
         }
 
+        // 2. Domestic Gold (SJC, Vàng 9999, N24K) - check BEFORE stock/crypto if symbol is SJC or type is gold
+        if (sym === 'SJC' || sym.includes('SJC') || sym === 'N24K' || type === 'gold' || type === 'vàng') {
+          const goldQuote = sym === 'N24K' || sym.includes('NHẪN') ? (vnGoldMap['N24K'] || vnGoldMap['SJC']) : vnGoldMap['SJC'];
+          if (goldQuote && goldQuote.price > 0) {
+            results[id] = {
+              symbol: sym,
+              price: goldQuote.price,
+              buyPrice: goldQuote.buyPrice,
+              sellPrice: goldQuote.sellPrice,
+              usdtPrice: Math.round(goldQuote.price / currentUsdtRate),
+              updatedAt: new Date().toISOString(),
+              source: 'gold_api',
+              sourceName: goldQuote.sourceName,
+            };
+            continue;
+          }
+
+          // Fallback if both PNJ and CafeF SJC endpoints failed
+          const goldUsdt = worldGoldSpotUsd || binancePriceMap['XAUT']?.usdt || binancePriceMap['PAXG']?.usdt || 3995;
+          const sjcVnd = Math.round((goldUsdt * 1.205653 * currentUsdtRate * 1.12) / 100000) * 100000;
+          results[id] = {
+            symbol: sym,
+            price: sjcVnd,
+            usdtPrice: Math.round(sjcVnd / currentUsdtRate),
+            updatedAt: new Date().toISOString(),
+            source: 'gold_api',
+            sourceName: 'Giá Vàng SJC Quy Đổi',
+          };
+          continue;
+        }
+
+        // 3. Crypto & Gold Tokens (XAUT, PAXG, BTC, ETH...)
         if (binancePriceMap[sym]) {
           const usdt = binancePriceMap[sym].usdt;
           const vnd = Math.round(usdt * currentUsdtRate);
@@ -294,11 +508,12 @@ export default async function handler(req: any, res: any) {
             changePercent: binancePriceMap[sym].change24h,
             updatedAt: new Date().toISOString(),
             source: 'binance',
-            sourceName: 'Binance Live Ticker',
+            sourceName: binancePriceMap[sym].sourceName || 'Binance Live Ticker',
           };
           continue;
         }
 
+        // 4. Stock (HOSE/HNX)
         if (stockPriceMap[sym]) {
           results[id] = {
             symbol: sym,
@@ -308,20 +523,6 @@ export default async function handler(req: any, res: any) {
             updatedAt: new Date().toISOString(),
             source: 'hose_api',
             sourceName: 'Sàn HOSE/HNX Trực Tiếp',
-          };
-          continue;
-        }
-
-        if (sym === 'SJC' || type === 'gold') {
-          const goldUsdt = binancePriceMap['PAXG']?.usdt || binancePriceMap['XAUT']?.usdt || 2850;
-          const sjcVnd = Math.round(goldUsdt * 1.20565 * currentUsdtRate * 1.05);
-          results[id] = {
-            symbol: sym,
-            price: sjcVnd,
-            usdtPrice: Math.round(sjcVnd / currentUsdtRate),
-            updatedAt: new Date().toISOString(),
-            source: 'gold_api',
-            sourceName: 'Giá Vàng SJC / PAXG Spot',
           };
           continue;
         }
