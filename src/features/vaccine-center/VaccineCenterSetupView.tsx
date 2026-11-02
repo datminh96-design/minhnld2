@@ -9,12 +9,19 @@ import {
   Camera,
   Printer,
   CheckCircle2,
-  AlertTriangle,
   Thermometer,
   ShieldCheck,
-  Upload,
   FileSpreadsheet,
-  RefreshCw,
+  ArrowLeft,
+  Eye,
+  Clock,
+  Building2,
+  UserCheck,
+  MapPin,
+  RotateCcw,
+  ChevronRight,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import { useData } from '../../context/DataContext';
 import {
@@ -27,13 +34,9 @@ import {
   TaskforceJobItem,
   FridgeValidationLog,
   ReportPhotoItem,
-  DEFAULT_CENTER_INFO,
-  DEFAULT_HANDOVER_PARTY,
-  generateDefaultEquipmentList,
   DEFAULT_CHECKLIST_ITEMS,
   DEFAULT_TASKFORCE_JOBS,
   DEFAULT_FRIDGE_LOGS,
-  DEFAULT_REPORT_PHOTOS,
 } from './vaccineCenterData';
 
 type SetupMainTab =
@@ -47,9 +50,11 @@ type SetupMainTab =
 
 type EquipmentStatusFilter = 'all' | 'unentered' | 'enough' | 'shortage' | 'surplus';
 
-const STORAGE_KEY = 'tttc_setup_state_v3';
-
-interface PersistedSetupState {
+export interface VaccineCenterRecord {
+  id: string;
+  status: 'in_progress' | 'completed';
+  createdAt: string;
+  completedAt?: string;
   centerInfo: CenterInfo;
   handoverParty: HandoverPartyInfo;
   equipmentList: EquipmentItem[];
@@ -60,6 +65,9 @@ interface PersistedSetupState {
   excelFileName: string;
   lastSavedTime: string;
 }
+
+const CENTERS_LIST_STORAGE_KEY = 'tttc_centers_list_v1';
+const LEGACY_SINGLE_STORAGE_KEY = 'tttc_setup_state_v3';
 
 const EMPTY_CENTER_INFO: CenterInfo = {
   code: '',
@@ -99,52 +107,230 @@ function getItemStatus(item: EquipmentItem): 'unentered' | 'enough' | 'shortage'
   return 'surplus';
 }
 
+function createBlankCenterRecord(initialInfo?: Partial<CenterInfo>): VaccineCenterRecord {
+  const mergedInfo: CenterInfo = {
+    ...EMPTY_CENTER_INFO,
+    ...initialInfo,
+  };
+  return {
+    id: `tttc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    status: 'in_progress',
+    createdAt: formatNowVi(),
+    centerInfo: mergedInfo,
+    handoverParty: {
+      ...EMPTY_HANDOVER_PARTY,
+      delivererName: mergedInfo.leader || '',
+    },
+    equipmentList: [],
+    checklistItems: DEFAULT_CHECKLIST_ITEMS.map((i) => ({ ...i })),
+    taskforceJobs: DEFAULT_TASKFORCE_JOBS.map((j) => ({ ...j })),
+    fridgeLogs: DEFAULT_FRIDGE_LOGS.map((l) => ({ ...l })),
+    reportPhotos: [],
+    excelFileName: '',
+    lastSavedTime: '',
+  };
+}
+
 export const VaccineCenterSetupView: React.FC = () => {
   const { addToast } = useData();
 
-  // Load initial state from localStorage; starts completely empty until user fills form or uploads Excel
-  const initialState = useMemo<PersistedSetupState>(() => {
+  // Load list of centers (migrating any existing single-center data from tttc_setup_state_v3)
+  const [centers, setCenters] = useState<VaccineCenterRecord[]>(() => {
     if (typeof window !== 'undefined') {
       try {
-        localStorage.removeItem('tttc_setup_state_v1');
-        localStorage.removeItem('tttc_setup_state_v2');
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (parsed && parsed.centerInfo && Array.isArray(parsed.equipmentList)) {
-            return parsed;
+        const rawList = localStorage.getItem(CENTERS_LIST_STORAGE_KEY);
+        if (rawList) {
+          const parsedList = JSON.parse(rawList);
+          if (Array.isArray(parsedList)) {
+            return parsedList;
+          }
+        }
+
+        // Check legacy single-center state so user doesn't lose what they already typed
+        const rawLegacy = localStorage.getItem(LEGACY_SINGLE_STORAGE_KEY);
+        if (rawLegacy) {
+          const parsedLegacy = JSON.parse(rawLegacy);
+          if (
+            parsedLegacy &&
+            parsedLegacy.centerInfo &&
+            (parsedLegacy.centerInfo.code ||
+              parsedLegacy.centerInfo.address ||
+              parsedLegacy.centerInfo.leader ||
+              (Array.isArray(parsedLegacy.equipmentList) &&
+                parsedLegacy.equipmentList.length > 0))
+          ) {
+            const migratedRecord: VaccineCenterRecord = {
+              id: `tttc_migrated_${Date.now()}`,
+              status: 'in_progress',
+              createdAt: parsedLegacy.lastSavedTime || formatNowVi(),
+              centerInfo: parsedLegacy.centerInfo || EMPTY_CENTER_INFO,
+              handoverParty: parsedLegacy.handoverParty || EMPTY_HANDOVER_PARTY,
+              equipmentList: Array.isArray(parsedLegacy.equipmentList)
+                ? parsedLegacy.equipmentList
+                : [],
+              checklistItems: Array.isArray(parsedLegacy.checklistItems)
+                ? parsedLegacy.checklistItems
+                : DEFAULT_CHECKLIST_ITEMS,
+              taskforceJobs: Array.isArray(parsedLegacy.taskforceJobs)
+                ? parsedLegacy.taskforceJobs
+                : DEFAULT_TASKFORCE_JOBS,
+              fridgeLogs: Array.isArray(parsedLegacy.fridgeLogs)
+                ? parsedLegacy.fridgeLogs
+                : DEFAULT_FRIDGE_LOGS,
+              reportPhotos: Array.isArray(parsedLegacy.reportPhotos)
+                ? parsedLegacy.reportPhotos
+                : [],
+              excelFileName: parsedLegacy.excelFileName || '',
+              lastSavedTime: parsedLegacy.lastSavedTime || formatNowVi(),
+            };
+            return [migratedRecord];
           }
         }
       } catch {
-        // ignore corrupted storage
+        // ignore storage errors
       }
     }
-    return {
-      centerInfo: EMPTY_CENTER_INFO,
-      handoverParty: EMPTY_HANDOVER_PARTY,
-      equipmentList: [],
-      checklistItems: DEFAULT_CHECKLIST_ITEMS,
-      taskforceJobs: DEFAULT_TASKFORCE_JOBS,
-      fridgeLogs: DEFAULT_FRIDGE_LOGS,
-      reportPhotos: [],
-      excelFileName: '',
-      lastSavedTime: '',
-    };
-  }, []);
+    return [];
+  });
 
+  // selectedCenterId === null means we are on the Directory List view (Đang khai trương / Đã hoàn thành)
+  const [selectedCenterId, setSelectedCenterId] = useState<string | null>(null);
+  const [listSearchQuery, setListSearchQuery] = useState<string>('');
+  const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
+  const [newCenterForm, setNewCenterForm] = useState<CenterInfo>(EMPTY_CENTER_INFO);
+
+  // Active 7-tab inside a selected center
   const [activeMainTab, setActiveMainTab] = useState<SetupMainTab>('center_info');
 
-  // State slices
-  const [centerInfo, setCenterInfo] = useState<CenterInfo>(initialState.centerInfo);
-  const [draftCenterInfo, setDraftCenterInfo] = useState<CenterInfo>(initialState.centerInfo);
-  const [handoverParty, setHandoverParty] = useState<HandoverPartyInfo>(initialState.handoverParty);
-  const [equipmentList, setEquipmentList] = useState<EquipmentItem[]>(initialState.equipmentList);
-  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>(initialState.checklistItems);
-  const [taskforceJobs, setTaskforceJobs] = useState<TaskforceJobItem[]>(initialState.taskforceJobs);
-  const [fridgeLogs, setFridgeLogs] = useState<FridgeValidationLog[]>(initialState.fridgeLogs);
-  const [reportPhotos, setReportPhotos] = useState<ReportPhotoItem[]>(initialState.reportPhotos);
-  const [excelFileName, setExcelFileName] = useState<string>(initialState.excelFileName);
-  const [lastSavedTime, setLastSavedTime] = useState<string>(initialState.lastSavedTime);
+  // Persist centers list to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(CENTERS_LIST_STORAGE_KEY, JSON.stringify(centers));
+    } catch {
+      // ignore quota error
+    }
+  }, [centers]);
+
+  const selectedCenter = useMemo(
+    () => centers.find((c) => c.id === selectedCenterId) || null,
+    [centers, selectedCenterId]
+  );
+
+  const isReadOnlyReview = selectedCenter?.status === 'completed';
+
+  // Helper to update currently selected center record
+  const updateSelectedCenter = (
+    updater: (prev: VaccineCenterRecord) => VaccineCenterRecord
+  ) => {
+    if (!selectedCenterId) return;
+    setCenters((prev) =>
+      prev.map((c) => (c.id === selectedCenterId ? updater(c) : c))
+    );
+  };
+
+  // Directory filtered lists
+  const filteredCenters = useMemo(() => {
+    if (!listSearchQuery.trim()) return centers;
+    const q = listSearchQuery.toLowerCase().trim();
+    return centers.filter(
+      (c) =>
+        c.centerInfo.code.toLowerCase().includes(q) ||
+        c.centerInfo.address.toLowerCase().includes(q) ||
+        c.centerInfo.leader.toLowerCase().includes(q) ||
+        c.centerInfo.asm.toLowerCase().includes(q)
+    );
+  }, [centers, listSearchQuery]);
+
+  const inProgressCenters = useMemo(
+    () => filteredCenters.filter((c) => c.status === 'in_progress'),
+    [filteredCenters]
+  );
+
+  const completedCenters = useMemo(
+    () => filteredCenters.filter((c) => c.status === 'completed'),
+    [filteredCenters]
+  );
+
+  // Directory actions
+  const handleCreateNewCenter = (e: React.FormEvent) => {
+    e.preventDefault();
+    const record = createBlankCenterRecord(newCenterForm);
+    setCenters((prev) => [record, ...prev]);
+    setNewCenterForm(EMPTY_CENTER_INFO);
+    setShowCreateModal(false);
+    setSelectedCenterId(record.id);
+    setActiveMainTab('center_info');
+    addToast(
+      `Đã tạo hồ sơ khai trương TTTC ${record.centerInfo.code || 'mới'}!`,
+      'success'
+    );
+  };
+
+  const handleQuickStartEmptyCenter = () => {
+    const record = createBlankCenterRecord();
+    setCenters((prev) => [record, ...prev]);
+    setSelectedCenterId(record.id);
+    setActiveMainTab('center_info');
+  };
+
+  const handleMarkCenterCompleted = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const nowStr = formatNowVi();
+    setCenters((prev) =>
+      prev.map((c) =>
+        c.id === id
+          ? {
+              ...c,
+              status: 'completed',
+              completedAt: nowStr,
+              lastSavedTime: nowStr,
+            }
+          : c
+      )
+    );
+    addToast(
+      'Đã chuyển TTTC sang danh sách Đã hoàn thành khai trương!',
+      'success'
+    );
+  };
+
+  const handleReopenCenter = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setCenters((prev) =>
+      prev.map((c) =>
+        c.id === id
+          ? {
+              ...c,
+              status: 'in_progress',
+              completedAt: undefined,
+            }
+          : c
+      )
+    );
+    addToast('Đã chuyển TTTC về danh sách Đang khai trương để chỉnh sửa.', 'info');
+  };
+
+  const handleDeleteCenter = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setCenters((prev) => prev.filter((c) => c.id !== id));
+    if (selectedCenterId === id) {
+      setSelectedCenterId(null);
+    }
+    addToast('Đã xóa hồ sơ TTTC khỏi danh sách.', 'info');
+  };
+
+  // ============================================================================
+  // Detail View State & Handlers (for selectedCenter)
+  // ============================================================================
+  const centerInfo = selectedCenter?.centerInfo || EMPTY_CENTER_INFO;
+  const handoverParty = selectedCenter?.handoverParty || EMPTY_HANDOVER_PARTY;
+  const equipmentList = selectedCenter?.equipmentList || [];
+  const checklistItems = selectedCenter?.checklistItems || [];
+  const taskforceJobs = selectedCenter?.taskforceJobs || [];
+  const fridgeLogs = selectedCenter?.fridgeLogs || [];
+  const reportPhotos = selectedCenter?.reportPhotos || [];
+  const excelFileName = selectedCenter?.excelFileName || '';
+  const lastSavedTime = selectedCenter?.lastSavedTime || '';
 
   // Tab 2 (Equipment) filters & sub-tabs
   const [equipmentSubTab, setEquipmentSubTab] = useState<EquipmentCategoryTab>('admin');
@@ -153,15 +339,15 @@ export const VaccineCenterSetupView: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<EquipmentStatusFilter>('all');
 
   // Tab 3 (Checklist) filter & new item state
-  const [checklistAreaFilter, setChecklistAreaFilter] = useState<string>('ALL');
+  const [checklistAreaFilter] = useState<string>('ALL');
   const [newChecklistTitle, setNewChecklistTitle] = useState<string>('');
   const [newChecklistArea, setNewChecklistArea] = useState<string>('1. Mặt tiền & Biển bảng POSM');
 
   // Tab 4 (Tasks) new job state
   const [newJobTitle, setNewJobTitle] = useState<string>('');
   const [newJobPhase, setNewJobPhase] = useState<string>('Giai đoạn 5: Bàn giao & Khai trương (T-0)');
-  const [newJobAssignee, setNewJobAssignee] = useState<string>('Nguyễn Lê Đạt Minh');
-  const [newJobDueDate, setNewJobDueDate] = useState<string>('30/10/2026');
+  const [newJobAssignee, setNewJobAssignee] = useState<string>('');
+  const [newJobDueDate, setNewJobDueDate] = useState<string>('');
 
   // Tab 6 (Photo report) upload state
   const [photoCategory, setPhotoCategory] = useState<string>('Mặt tiền & Biển hiệu');
@@ -175,36 +361,6 @@ export const VaccineCenterSetupView: React.FC = () => {
   const excelInputRef = useRef<HTMLInputElement | null>(null);
   const progressJsonInputRef = useRef<HTMLInputElement | null>(null);
   const photoUploadInputRef = useRef<HTMLInputElement | null>(null);
-
-  // Auto-persist to localStorage whenever state changes
-  useEffect(() => {
-    try {
-      const payload: PersistedSetupState = {
-        centerInfo,
-        handoverParty,
-        equipmentList,
-        checklistItems,
-        taskforceJobs,
-        fridgeLogs,
-        reportPhotos,
-        excelFileName,
-        lastSavedTime,
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    } catch {
-      // ignore quota errors
-    }
-  }, [
-    centerInfo,
-    handoverParty,
-    equipmentList,
-    checklistItems,
-    taskforceJobs,
-    fridgeLogs,
-    reportPhotos,
-    excelFileName,
-    lastSavedTime,
-  ]);
 
   // Calculate progress badges for Tab 3 and Tab 4
   const checklistProgress = useMemo(() => {
@@ -287,82 +443,106 @@ export const VaccineCenterSetupView: React.FC = () => {
 
   // Handlers for Tab 1: Thông tin trung tâm
   const updateCenterField = (field: keyof CenterInfo, value: string) => {
-    const updated = { ...draftCenterInfo, [field]: value };
-    setDraftCenterInfo(updated);
-    setCenterInfo(updated);
-    if (field === 'leader') {
-      setHandoverParty((prev) => ({
+    if (isReadOnlyReview) return;
+    updateSelectedCenter((prev) => {
+      const updatedInfo = { ...prev.centerInfo, [field]: value };
+      return {
         ...prev,
-        delivererName: value,
-      }));
-    }
+        centerInfo: updatedInfo,
+        handoverParty:
+          field === 'leader'
+            ? { ...prev.handoverParty, delivererName: value }
+            : prev.handoverParty,
+      };
+    });
   };
 
   const handleSaveCenterInfo = (e: React.FormEvent) => {
     e.preventDefault();
-    setCenterInfo(draftCenterInfo);
-    setHandoverParty((prev) => ({
+    if (isReadOnlyReview) return;
+    const nowStr = formatNowVi();
+    updateSelectedCenter((prev) => ({
       ...prev,
-      delivererName: draftCenterInfo.leader || prev.delivererName,
+      lastSavedTime: nowStr,
+      handoverParty: {
+        ...prev.handoverParty,
+        delivererName: prev.centerInfo.leader || prev.handoverParty.delivererName,
+      },
     }));
-    setLastSavedTime(formatNowVi());
     addToast('Đã lưu thông tin Trung Tâm Tiêm Chủng thành công!', 'success');
   };
 
   const handleClearCenterInfo = () => {
-    setDraftCenterInfo(EMPTY_CENTER_INFO);
-    setCenterInfo(EMPTY_CENTER_INFO);
-    setHandoverParty((prev) => ({
+    if (isReadOnlyReview) return;
+    updateSelectedCenter((prev) => ({
       ...prev,
-      delivererName: '',
+      centerInfo: EMPTY_CENTER_INFO,
+      handoverParty: {
+        ...prev.handoverParty,
+        delivererName: '',
+      },
     }));
     addToast('Đã xóa trống dữ liệu thông tin trung tâm.', 'info');
   };
 
   // Handlers for Tab 2: Trang thiết bị
   const handleToggleItemEnough = (id: string, checked: boolean) => {
-    setEquipmentList((prev) =>
-      prev.map((item) =>
+    if (isReadOnlyReview) return;
+    const nowStr = formatNowVi();
+    updateSelectedCenter((prev) => ({
+      ...prev,
+      lastSavedTime: nowStr,
+      equipmentList: prev.equipmentList.map((item) =>
         item.id === id
           ? {
               ...item,
               actualQty: checked ? item.requiredQty : null,
             }
           : item
-      )
-    );
-    setLastSavedTime(formatNowVi());
+      ),
+    }));
   };
 
   const handleActualQtyChange = (id: string, valueStr: string) => {
+    if (isReadOnlyReview) return;
     const parsed = valueStr.trim() === '' ? null : Math.max(0, Number(valueStr));
-    setEquipmentList((prev) =>
-      prev.map((item) =>
+    const nowStr = formatNowVi();
+    updateSelectedCenter((prev) => ({
+      ...prev,
+      lastSavedTime: nowStr,
+      equipmentList: prev.equipmentList.map((item) =>
         item.id === id
           ? {
               ...item,
               actualQty: Number.isNaN(parsed as number) ? null : parsed,
             }
           : item
-      )
-    );
-    setLastSavedTime(formatNowVi());
+      ),
+    }));
   };
 
   const handleItemNoteChange = (id: string, note: string) => {
-    setEquipmentList((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, note } : item))
-    );
-    setLastSavedTime(formatNowVi());
+    if (isReadOnlyReview) return;
+    const nowStr = formatNowVi();
+    updateSelectedCenter((prev) => ({
+      ...prev,
+      lastSavedTime: nowStr,
+      equipmentList: prev.equipmentList.map((item) =>
+        item.id === id ? { ...item, note } : item
+      ),
+    }));
   };
 
   const handleClearEnteredQuantities = () => {
-    setEquipmentList((prev) =>
-      prev.map((item) =>
+    if (isReadOnlyReview) return;
+    const nowStr = formatNowVi();
+    updateSelectedCenter((prev) => ({
+      ...prev,
+      lastSavedTime: nowStr,
+      equipmentList: prev.equipmentList.map((item) =>
         item.tab === equipmentSubTab ? { ...item, actualQty: null } : item
-      )
-    );
-    setLastSavedTime(formatNowVi());
+      ),
+    }));
     addToast(
       `Đã xoá số lượng đã nhập của ${
         equipmentSubTab === 'admin' ? 'Danh mục hành chính' : 'Danh mục thuốc'
@@ -372,9 +552,13 @@ export const VaccineCenterSetupView: React.FC = () => {
   };
 
   const handleResetAndUploadNew = () => {
-    setEquipmentList([]);
-    setExcelFileName('');
-    setLastSavedTime('');
+    if (isReadOnlyReview) return;
+    updateSelectedCenter((prev) => ({
+      ...prev,
+      equipmentList: [],
+      excelFileName: '',
+      lastSavedTime: '',
+    }));
     addToast('Đã xoá toàn bộ dữ liệu trang thiết bị. Vui lòng chọn file Excel mới.', 'info');
     if (excelInputRef.current) {
       excelInputRef.current.value = '';
@@ -384,7 +568,7 @@ export const VaccineCenterSetupView: React.FC = () => {
 
   const handleExcelFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || isReadOnlyReview) return;
 
     const reader = new FileReader();
     reader.onload = (evt) => {
@@ -410,9 +594,8 @@ export const VaccineCenterSetupView: React.FC = () => {
             sheetLower.includes('vacxin') ||
             (workbook.SheetNames.length > 1 && sheetIdx === 1);
 
-          // Find header row within first 20 rows
           let headerRowIdx = -1;
-          let colMap = {
+          const colMap = {
             stt: -1,
             handler: -1,
             type: -1,
@@ -541,7 +724,6 @@ export const VaccineCenterSetupView: React.FC = () => {
             if (colMap.name >= 0) {
               nameVal = String(row[colMap.name] ?? '').trim();
             } else {
-              // Fallback: find the longest text cell in the row as product name
               const candidates = row
                 .map((c, idx) => ({ text: String(c ?? '').trim(), idx }))
                 .filter((x) => x.text.length > 2 && Number.isNaN(Number(x.text)));
@@ -551,7 +733,6 @@ export const VaccineCenterSetupView: React.FC = () => {
             }
 
             if (!nameVal) continue;
-            // Skip repeated header rows
             const lowerName = nameVal.toLowerCase();
             if (
               lowerName === 'tên sản phẩm' ||
@@ -651,9 +832,13 @@ export const VaccineCenterSetupView: React.FC = () => {
         });
 
         if (importedItems.length > 0) {
-          setEquipmentList(importedItems);
-          setExcelFileName(file.name);
-          setLastSavedTime(formatNowVi());
+          const nowStr = formatNowVi();
+          updateSelectedCenter((prev) => ({
+            ...prev,
+            equipmentList: importedItems,
+            excelFileName: file.name,
+            lastSavedTime: nowStr,
+          }));
           const hasAdmin = importedItems.some((i) => i.tab === 'admin');
           const hasMed = importedItems.some((i) => i.tab === 'medicine');
           if (!hasAdmin && hasMed) {
@@ -714,26 +899,20 @@ export const VaccineCenterSetupView: React.FC = () => {
   };
 
   const handleSaveProgressJson = () => {
+    if (!selectedCenter) return;
     const nowStr = formatNowVi();
-    setLastSavedTime(nowStr);
-    const payload: PersistedSetupState = {
-      centerInfo,
-      handoverParty,
-      equipmentList,
-      checklistItems,
-      taskforceJobs,
-      fridgeLogs,
-      reportPhotos,
-      excelFileName,
+    const updatedRecord: VaccineCenterRecord = {
+      ...selectedCenter,
       lastSavedTime: nowStr,
     };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    updateSelectedCenter(() => updatedRecord);
+    const blob = new Blob([JSON.stringify(updatedRecord, null, 2)], {
       type: 'application/json',
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Tien_Do_Khai_Truong_TT_${centerInfo.code || '58267'}.json`;
+    a.download = `Tien_Do_Khai_Truong_TT_${centerInfo.code || 'Moi'}.json`;
     a.click();
     URL.revokeObjectURL(url);
     addToast('Đã lưu tiến độ vào hệ thống & tải file sao lưu tiến độ!', 'success');
@@ -741,22 +920,34 @@ export const VaccineCenterSetupView: React.FC = () => {
 
   const handleLoadProgressJson = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || isReadOnlyReview) return;
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
         const parsed = JSON.parse(String(evt.target?.result || '{}'));
-        if (parsed.centerInfo) {
-          setCenterInfo(parsed.centerInfo);
-          setDraftCenterInfo(parsed.centerInfo);
-        }
-        if (parsed.handoverParty) setHandoverParty(parsed.handoverParty);
-        if (Array.isArray(parsed.equipmentList)) setEquipmentList(parsed.equipmentList);
-        if (Array.isArray(parsed.checklistItems)) setChecklistItems(parsed.checklistItems);
-        if (Array.isArray(parsed.taskforceJobs)) setTaskforceJobs(parsed.taskforceJobs);
-        if (Array.isArray(parsed.fridgeLogs)) setFridgeLogs(parsed.fridgeLogs);
-        if (Array.isArray(parsed.reportPhotos)) setReportPhotos(parsed.reportPhotos);
-        setLastSavedTime(formatNowVi());
+        const nowStr = formatNowVi();
+        updateSelectedCenter((prev) => ({
+          ...prev,
+          centerInfo: parsed.centerInfo || prev.centerInfo,
+          handoverParty: parsed.handoverParty || prev.handoverParty,
+          equipmentList: Array.isArray(parsed.equipmentList)
+            ? parsed.equipmentList
+            : prev.equipmentList,
+          checklistItems: Array.isArray(parsed.checklistItems)
+            ? parsed.checklistItems
+            : prev.checklistItems,
+          taskforceJobs: Array.isArray(parsed.taskforceJobs)
+            ? parsed.taskforceJobs
+            : prev.taskforceJobs,
+          fridgeLogs: Array.isArray(parsed.fridgeLogs)
+            ? parsed.fridgeLogs
+            : prev.fridgeLogs,
+          reportPhotos: Array.isArray(parsed.reportPhotos)
+            ? parsed.reportPhotos
+            : prev.reportPhotos,
+          excelFileName: parsed.excelFileName || prev.excelFileName,
+          lastSavedTime: nowStr,
+        }));
         addToast('Đã tải tiến độ khai trương lên thành công!', 'success');
       } catch {
         addToast('File tiến độ không hợp lệ.', 'error');
@@ -766,10 +957,9 @@ export const VaccineCenterSetupView: React.FC = () => {
     e.target.value = '';
   };
 
-  // Photo upload handler (Tab 6)
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || isReadOnlyReview) return;
     const reader = new FileReader();
     reader.onload = (evt) => {
       const dataUrl = String(evt.target?.result || '');
@@ -777,13 +967,17 @@ export const VaccineCenterSetupView: React.FC = () => {
       const newPhoto: ReportPhotoItem = {
         id: `pho_${Date.now()}`,
         category: photoCategory,
-        title: photoTitle.trim() || `${photoCategory} — TT ${centerInfo.code}`,
+        title: photoTitle.trim() || `${photoCategory} — TT ${centerInfo.code || ''}`,
         imageUrl: dataUrl,
         capturedAt: formatNowVi(),
-        uploader: centerInfo.leader || 'Nguyễn Lê Đạt Minh',
+        uploader: centerInfo.leader || 'Taskforce',
         note: photoNote.trim() || 'Đã nghiệm thu thực tế tại trung tâm',
       };
-      setReportPhotos((prev) => [newPhoto, ...prev]);
+      updateSelectedCenter((prev) => ({
+        ...prev,
+        reportPhotos: [newPhoto, ...prev.reportPhotos],
+        lastSavedTime: formatNowVi(),
+      }));
       setPhotoTitle('');
       setPhotoNote('');
       addToast('Đã thêm hình ảnh báo cáo khai trương!', 'success');
@@ -792,7 +986,6 @@ export const VaccineCenterSetupView: React.FC = () => {
     e.target.value = '';
   };
 
-  // Print A4 PDF Handover Document (Tab 7)
   const handlePrintHandoverA4 = () => {
     window.print();
   };
@@ -810,6 +1003,489 @@ export const VaccineCenterSetupView: React.FC = () => {
     }
   };
 
+  // ============================================================================
+  // VIEW 1: DANH SÁCH TTTC ĐANG KHAI TRƯƠNG & ĐÃ HOÀN THÀNH KHAI TRƯƠNG
+  // ============================================================================
+  if (!selectedCenter) {
+    return (
+      <div className="space-y-6 pb-12">
+        {/* Top Directory Banner */}
+        <div className="rounded-2xl bg-gradient-to-r from-[#0d9488] via-[#0ea599] to-[#10b2a5] text-white p-5 sm:p-6 shadow-md">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
+                Quản Lý Khai Trương Trung Tâm Tiêm Chủng (TTTC)
+              </h1>
+              <p className="text-xs sm:text-sm text-white/90 mt-1 font-medium">
+                Danh sách TTTC đang khai trương & lưu trữ hồ sơ các TTTC đã hoàn thành khai trương
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowCreateModal(true)}
+              className="px-4 py-2.5 rounded-xl bg-[#0f1e36] hover:bg-slate-900 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition-colors shrink-0 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Thêm TTTC Đang Khai Trương
+            </button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3 mt-5 pt-4 border-t border-white/25">
+            <div className="bg-white/15 backdrop-blur-xs rounded-xl px-3.5 py-2.5">
+              <p className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-white/80">
+                Tổng Số TTTC
+              </p>
+              <p className="text-lg sm:text-2xl font-extrabold text-white tabular-nums mt-0.5">
+                {centers.length}
+              </p>
+            </div>
+
+            <div className="bg-white text-slate-900 rounded-xl px-3.5 py-2.5 shadow-xs">
+              <p className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-[#0d9488]">
+                Đang Khai Trương
+              </p>
+              <p className="text-lg sm:text-2xl font-extrabold text-slate-900 tabular-nums mt-0.5">
+                {centers.filter((c) => c.status === 'in_progress').length}
+              </p>
+            </div>
+
+            <div className="bg-white text-slate-900 rounded-xl px-3.5 py-2.5 shadow-xs">
+              <p className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-emerald-600">
+                Đã Hoàn Thành
+              </p>
+              <p className="text-lg sm:text-2xl font-extrabold text-emerald-700 tabular-nums mt-0.5">
+                {centers.filter((c) => c.status === 'completed').length}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Create New TTTC Modal / Inline Card */}
+        {showCreateModal && (
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 border-2 border-[#0d9488] shadow-lg space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div>
+                <h2 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white">
+                  Tạo Mới TTTC Đang Khai Trương
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Nhập thông tin cơ bản (hoặc tạo trống để điền sau trong phần Thông tin trung tâm)
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(false)}
+                className="text-xs font-bold text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                Đóng ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateNewCenter} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                    Mã trung tâm
+                  </label>
+                  <input
+                    type="text"
+                    value={newCenterForm.code}
+                    onChange={(e) =>
+                      setNewCenterForm({ ...newCenterForm, code: e.target.value })
+                    }
+                    placeholder="VD: 58270"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                    Leader phụ trách
+                  </label>
+                  <input
+                    type="text"
+                    value={newCenterForm.leader}
+                    onChange={(e) =>
+                      setNewCenterForm({ ...newCenterForm, leader: e.target.value })
+                    }
+                    placeholder="VD: Nguyễn Lê Đạt Minh"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="sm:col-span-1">
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                    Địa chỉ trung tâm
+                  </label>
+                  <input
+                    type="text"
+                    value={newCenterForm.address}
+                    onChange={(e) =>
+                      setNewCenterForm({ ...newCenterForm, address: e.target.value })
+                    }
+                    placeholder="VD: 288b Võ Thị Sáu, P. Trấn Biên"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                    Ngày khai trương
+                  </label>
+                  <input
+                    type="text"
+                    value={newCenterForm.openingDate}
+                    onChange={(e) =>
+                      setNewCenterForm({
+                        ...newCenterForm,
+                        openingDate: e.target.value,
+                      })
+                    }
+                    placeholder="DD/MM/YYYY"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                    ASM phụ trách
+                  </label>
+                  <input
+                    type="text"
+                    value={newCenterForm.asm}
+                    onChange={(e) =>
+                      setNewCenterForm({ ...newCenterForm, asm: e.target.value })
+                    }
+                    placeholder="VD: Nguyễn Chí Quang"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-[#0d9488] hover:bg-[#0b7a70] text-white text-xs sm:text-sm font-bold cursor-pointer"
+                >
+                  Tạo & Mở Checklist Khai Trương →
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Search Bar */}
+        {centers.length > 0 && (
+          <div className="relative">
+            <input
+              type="text"
+              value={listSearchQuery}
+              onChange={(e) => setListSearchQuery(e.target.value)}
+              placeholder="Tìm kiếm TTTC theo Mã TT, Địa chỉ, Leader, ASM..."
+              className="w-full pl-10 pr-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs sm:text-sm text-slate-900 dark:text-slate-100 shadow-xs focus:outline-none focus:ring-2 focus:ring-[#0d9488]"
+            />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          </div>
+        )}
+
+        {/* SECTION 1: DANH SÁCH ĐANG KHAI TRƯƠNG */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#0d9488] animate-pulse" />
+              <h2 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white">
+                1. Danh Sách TTTC Đang Khai Trương ({inProgressCenters.length})
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={handleQuickStartEmptyCenter}
+              className="text-xs font-bold text-[#0d9488] hover:underline flex items-center gap-1 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" /> Tạo nhanh TTTC mới
+            </button>
+          </div>
+
+          {inProgressCenters.length === 0 ? (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 border border-dashed border-slate-300 dark:border-slate-800 text-center space-y-3">
+              <Building2 className="w-10 h-10 text-teal-500 mx-auto opacity-80" />
+              <div>
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                  Chưa có TTTC nào trong danh sách Đang khai trương
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Nhấn nút bên dưới để bắt đầu thiết lập Checklist Setup Trung Tâm Tiêm Chủng mới.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleQuickStartEmptyCenter}
+                className="px-5 py-2.5 rounded-xl bg-[#0d9488] hover:bg-[#0b7a70] text-white font-bold text-xs sm:text-sm inline-flex items-center gap-2 shadow-xs cursor-pointer"
+              >
+                <Plus className="w-4 h-4" /> Bắt đầu Khai Trương TTTC Mới
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {inProgressCenters.map((center) => {
+                const chkDone = center.checklistItems.filter((i) => i.completed).length;
+                const chkPct =
+                  center.checklistItems.length > 0
+                    ? Math.round((chkDone / center.checklistItems.length) * 100)
+                    : 0;
+                const jobDone = center.taskforceJobs.filter((j) => j.completed).length;
+                const jobPct =
+                  center.taskforceJobs.length > 0
+                    ? Math.round((jobDone / center.taskforceJobs.length) * 100)
+                    : 0;
+
+                return (
+                  <div
+                    key={center.id}
+                    onClick={() => {
+                      setSelectedCenterId(center.id);
+                      setActiveMainTab('center_info');
+                    }}
+                    className="group bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200/90 dark:border-slate-800 hover:border-[#0d9488] shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between gap-4"
+                  >
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="px-2.5 py-1 rounded-lg bg-[#0d9488]/10 text-[#0d9488] dark:text-teal-300 font-extrabold text-xs tabular-nums">
+                            MÃ TT: {center.centerInfo.code || 'Chưa nhập'}
+                          </span>
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+                            <Clock className="w-3 h-3" /> Đang khai trương
+                          </span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteCenter(center.id, e)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                          title="Xóa TTTC này"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div>
+                        <h3 className="text-base font-extrabold text-slate-900 dark:text-white group-hover:text-[#0d9488] transition-colors flex items-center gap-1.5">
+                          <MapPin className="w-4 h-4 text-[#0d9488] shrink-0" />
+                          <span>
+                            {center.centerInfo.address || 'Chưa nhập địa chỉ trung tâm'}
+                          </span>
+                        </h3>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 pt-1 text-xs">
+                        <div className="bg-slate-50 dark:bg-slate-800/70 rounded-xl p-2.5">
+                          <p className="text-[10px] font-bold uppercase text-slate-400">
+                            LEADER
+                          </p>
+                          <p className="font-bold text-slate-800 dark:text-slate-200 truncate mt-0.5">
+                            {center.centerInfo.leader || '—'}
+                          </p>
+                        </div>
+
+                        <div className="bg-slate-50 dark:bg-slate-800/70 rounded-xl p-2.5">
+                          <p className="text-[10px] font-bold uppercase text-slate-400">
+                            KHAI TRƯƠNG
+                          </p>
+                          <p className="font-bold text-slate-800 dark:text-slate-200 tabular-nums truncate mt-0.5">
+                            {center.centerInfo.openingDate || '—'}
+                          </p>
+                        </div>
+
+                        <div className="bg-slate-50 dark:bg-slate-800/70 rounded-xl p-2.5">
+                          <p className="text-[10px] font-bold uppercase text-slate-400">
+                            ASM
+                          </p>
+                          <p className="font-bold text-slate-800 dark:text-slate-200 truncate mt-0.5">
+                            {center.centerInfo.asm || '—'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Mini Progress Pills */}
+                      <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] font-bold">
+                        <span className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 tabular-nums">
+                          Thiết bị: {center.equipmentList.length} mục
+                        </span>
+                        <span className="px-2.5 py-1 rounded-lg bg-[#d2f4ee] text-[#0c6b63] tabular-nums">
+                          Hạng mục: {chkPct}%
+                        </span>
+                        <span className="px-2.5 py-1 rounded-lg bg-[#d2f4ee] text-[#0c6b63] tabular-nums">
+                          Công việc: {jobPct}%
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={(e) => handleMarkCenterCompleted(center.id, e)}
+                        className="px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Hoàn thành khai trương
+                      </button>
+
+                      <span className="px-3.5 py-2 rounded-xl bg-[#0f1e36] text-white font-bold text-xs inline-flex items-center gap-1 group-hover:bg-[#0d9488] transition-colors">
+                        Vào Checklist Setup <ChevronRight className="w-3.5 h-3.5" />
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* SECTION 2: DANH SÁCH ĐÃ HOÀN THÀNH KHAI TRƯƠNG */}
+        <div className="space-y-3 pt-2">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+            <h2 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white">
+              2. Danh Sách TTTC Đã Hoàn Thành Khai Trương ({completedCenters.length})
+            </h2>
+          </div>
+
+          {completedCenters.length === 0 ? (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200/80 dark:border-slate-800 text-center text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+              Chưa có TTTC nào hoàn thành khai trương. Khi một TTTC đang khai trương hoàn tất, nhấn &ldquo;Hoàn thành khai trương&rdquo; để lưu vào danh sách này để xem lại bất cứ lúc nào.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {completedCenters.map((center) => {
+                const chkDone = center.checklistItems.filter((i) => i.completed).length;
+                const chkPct =
+                  center.checklistItems.length > 0
+                    ? Math.round((chkDone / center.checklistItems.length) * 100)
+                    : 0;
+                const jobDone = center.taskforceJobs.filter((j) => j.completed).length;
+                const jobPct =
+                  center.taskforceJobs.length > 0
+                    ? Math.round((jobDone / center.taskforceJobs.length) * 100)
+                    : 0;
+
+                return (
+                  <div
+                    key={center.id}
+                    onClick={() => {
+                      setSelectedCenterId(center.id);
+                      setActiveMainTab('center_info');
+                    }}
+                    className="group bg-white dark:bg-slate-900 rounded-2xl p-5 border border-emerald-500/30 hover:border-emerald-500 shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between gap-4"
+                  >
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-extrabold text-xs tabular-nums">
+                            MÃ TT: {center.centerInfo.code || '—'}
+                          </span>
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                            <CheckCircle2 className="w-3 h-3" /> Đã hoàn thành
+                          </span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteCenter(center.id, e)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                          title="Xóa hồ sơ này"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div>
+                        <h3 className="text-base font-extrabold text-slate-900 dark:text-white group-hover:text-emerald-600 transition-colors flex items-center gap-1.5">
+                          <MapPin className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>
+                            {center.centerInfo.address || 'Chưa nhập địa chỉ trung tâm'}
+                          </span>
+                        </h3>
+                        {center.completedAt && (
+                          <p className="text-[11px] text-slate-400 mt-0.5 tabular-nums">
+                            Hoàn thành lúc: {center.completedAt}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 pt-1 text-xs">
+                        <div className="bg-slate-50 dark:bg-slate-800/70 rounded-xl p-2.5">
+                          <p className="text-[10px] font-bold uppercase text-slate-400">
+                            LEADER
+                          </p>
+                          <p className="font-bold text-slate-800 dark:text-slate-200 truncate mt-0.5">
+                            {center.centerInfo.leader || '—'}
+                          </p>
+                        </div>
+
+                        <div className="bg-slate-50 dark:bg-slate-800/70 rounded-xl p-2.5">
+                          <p className="text-[10px] font-bold uppercase text-slate-400">
+                            KHAI TRƯƠNG
+                          </p>
+                          <p className="font-bold text-slate-800 dark:text-slate-200 tabular-nums truncate mt-0.5">
+                            {center.centerInfo.openingDate || '—'}
+                          </p>
+                        </div>
+
+                        <div className="bg-slate-50 dark:bg-slate-800/70 rounded-xl p-2.5">
+                          <p className="text-[10px] font-bold uppercase text-slate-400">
+                            ASM
+                          </p>
+                          <p className="font-bold text-slate-800 dark:text-slate-200 truncate mt-0.5">
+                            {center.centerInfo.asm || '—'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] font-bold">
+                        <span className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 tabular-nums">
+                          Thiết bị: {center.equipmentList.length} mục
+                        </span>
+                        <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 tabular-nums">
+                          Hạng mục: {chkPct}%
+                        </span>
+                        <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 tabular-nums">
+                          Công việc: {jobPct}%
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={(e) => handleReopenCenter(center.id, e)}
+                        className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" /> Chuyển về Đang khai trương
+                      </button>
+
+                      <span className="px-3.5 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs inline-flex items-center gap-1.5 group-hover:bg-emerald-700 transition-colors">
+                        <Eye className="w-3.5 h-3.5" /> Xem lại hồ sơ
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================================
+  // VIEW 2: CHI TIẾT CHECKLIST SETUP TRUNG TÂM TIÊM CHỦNG (Matches User Screenshot)
+  // ============================================================================
   return (
     <div className="space-y-4 pb-12">
       {/* Hidden File Inputs */}
@@ -835,7 +1511,49 @@ export const VaccineCenterSetupView: React.FC = () => {
         onChange={handlePhotoUpload}
       />
 
-      {/* TOP TEAL BANNER (Matches Screenshot 2 & 4) */}
+      {/* Top Back Bar & Status Controls */}
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-white dark:bg-slate-900 px-4 py-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs print:hidden">
+        <button
+          type="button"
+          onClick={() => setSelectedCenterId(null)}
+          className="inline-flex items-center gap-2 text-xs sm:text-sm font-extrabold text-slate-700 dark:text-slate-200 hover:text-[#0d9488] transition-colors cursor-pointer"
+        >
+          <ArrowLeft className="w-4 h-4" /> Quay lại danh sách TTTC
+        </button>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {selectedCenter.status === 'in_progress' ? (
+            <>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+                <Clock className="w-3.5 h-3.5" /> Đang khai trương
+              </span>
+              <button
+                type="button"
+                onClick={() => handleMarkCenterCompleted(selectedCenter.id)}
+                className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" /> Hoàn thành khai trương
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                <Lock className="w-3.5 h-3.5" /> Chế độ Xem lại (Đã hoàn thành{' '}
+                {selectedCenter.completedAt ? `lúc ${selectedCenter.completedAt}` : ''})
+              </span>
+              <button
+                type="button"
+                onClick={() => handleReopenCenter(selectedCenter.id)}
+                className="px-3.5 py-1.5 rounded-xl bg-[#0f1e36] hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Unlock className="w-3.5 h-3.5" /> Mở khóa chỉnh sửa
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* TOP TEAL BANNER (Matches Screenshot) */}
       <div className="rounded-2xl bg-gradient-to-r from-[#0d9488] via-[#0ea599] to-[#10b2a5] text-white p-5 sm:p-6 shadow-md print:hidden">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div>
@@ -907,7 +1625,7 @@ export const VaccineCenterSetupView: React.FC = () => {
         )}
       </div>
 
-      {/* 7-TAB NAVIGATION BAR (Matches Screenshot 2 & 4) */}
+      {/* 7-TAB NAVIGATION BAR (Matches Screenshot) */}
       <div className="bg-[#efede6] dark:bg-slate-800/95 p-2 rounded-2xl shadow-sm border border-slate-200/80 dark:border-slate-700 grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-2 print:hidden">
         <button
           type="button"
@@ -1001,7 +1719,7 @@ export const VaccineCenterSetupView: React.FC = () => {
       </div>
 
       {/* ===================================================================== */}
-      {/* TAB 1: THÔNG TIN TRUNG TÂM (Matches Screenshot 2)                      */}
+      {/* TAB 1: THÔNG TIN TRUNG TÂM                                             */}
       {/* ===================================================================== */}
       {activeMainTab === 'center_info' && (
         <div className="pt-2">
@@ -1014,7 +1732,8 @@ export const VaccineCenterSetupView: React.FC = () => {
                   </label>
                   <input
                     type="text"
-                    value={draftCenterInfo.code}
+                    readOnly={isReadOnlyReview}
+                    value={centerInfo.code}
                     onChange={(e) => updateCenterField('code', e.target.value)}
                     placeholder="Nhập mã trung tâm..."
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#0d9488]"
@@ -1027,7 +1746,8 @@ export const VaccineCenterSetupView: React.FC = () => {
                   </label>
                   <input
                     type="text"
-                    value={draftCenterInfo.leader}
+                    readOnly={isReadOnlyReview}
+                    value={centerInfo.leader}
                     onChange={(e) => updateCenterField('leader', e.target.value)}
                     placeholder="Nhập họ tên Leader phụ trách..."
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#0d9488]"
@@ -1041,7 +1761,8 @@ export const VaccineCenterSetupView: React.FC = () => {
                 </label>
                 <input
                   type="text"
-                  value={draftCenterInfo.address}
+                  readOnly={isReadOnlyReview}
+                  value={centerInfo.address}
                   onChange={(e) => updateCenterField('address', e.target.value)}
                   placeholder="Nhập địa chỉ trung tâm..."
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#0d9488]"
@@ -1055,7 +1776,8 @@ export const VaccineCenterSetupView: React.FC = () => {
                 <div className="relative">
                   <input
                     type="text"
-                    value={draftCenterInfo.openingDate}
+                    readOnly={isReadOnlyReview}
+                    value={centerInfo.openingDate}
                     onChange={(e) =>
                       updateCenterField('openingDate', e.target.value)
                     }
@@ -1072,35 +1794,38 @@ export const VaccineCenterSetupView: React.FC = () => {
                 </label>
                 <input
                   type="text"
-                  value={draftCenterInfo.asm}
+                  readOnly={isReadOnlyReview}
+                  value={centerInfo.asm}
                   onChange={(e) => updateCenterField('asm', e.target.value)}
                   placeholder="Nhập họ tên ASM phụ trách..."
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#0d9488]"
                 />
               </div>
 
-              <div className="flex flex-wrap items-center gap-3 pt-2">
-                <button
-                  type="submit"
-                  className="px-6 py-2.5 rounded-xl bg-[#136f72] hover:bg-[#0f5a5c] text-white font-bold text-sm shadow-xs transition-colors cursor-pointer"
-                >
-                  Lưu thông tin
-                </button>
-                <button
-                  type="button"
-                  onClick={handleClearCenterInfo}
-                  className="px-5 py-2.5 rounded-xl border border-[#c86428] text-[#c86428] hover:bg-orange-50 dark:hover:bg-orange-950/30 font-semibold text-sm transition-colors cursor-pointer"
-                >
-                  Xóa
-                </button>
-              </div>
+              {!isReadOnlyReview && (
+                <div className="flex flex-wrap items-center gap-3 pt-2">
+                  <button
+                    type="submit"
+                    className="px-6 py-2.5 rounded-xl bg-[#136f72] hover:bg-[#0f5a5c] text-white font-bold text-sm shadow-xs transition-colors cursor-pointer"
+                  >
+                    Lưu thông tin
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearCenterInfo}
+                    className="px-5 py-2.5 rounded-xl border border-[#c86428] text-[#c86428] hover:bg-orange-50 dark:hover:bg-orange-950/30 font-semibold text-sm transition-colors cursor-pointer"
+                  >
+                    Xóa
+                  </button>
+                </div>
+              )}
             </form>
           </div>
         </div>
       )}
 
       {/* ===================================================================== */}
-      {/* TAB 2: TRANG THIẾT BỊ (Matches Screenshot 3)                           */}
+      {/* TAB 2: TRANG THIẾT BỊ                                                 */}
       {/* ===================================================================== */}
       {activeMainTab === 'equipment' && (
         <div className="space-y-4">
@@ -1125,13 +1850,15 @@ export const VaccineCenterSetupView: React.FC = () => {
           {/* Action Toolbar Buttons */}
           <div className="space-y-2.5">
             <div className="flex flex-wrap items-center gap-2.5">
-              <button
-                type="button"
-                onClick={() => excelInputRef.current?.click()}
-                className="px-4 py-2.5 rounded-xl bg-[#0d7377] hover:bg-[#0a5c5f] text-white font-bold text-xs sm:text-sm shadow-xs transition-colors cursor-pointer"
-              >
-                ⬆ Tải file Excel
-              </button>
+              {!isReadOnlyReview && (
+                <button
+                  type="button"
+                  onClick={() => excelInputRef.current?.click()}
+                  className="px-4 py-2.5 rounded-xl bg-[#0d7377] hover:bg-[#0a5c5f] text-white font-bold text-xs sm:text-sm shadow-xs transition-colors cursor-pointer"
+                >
+                  ⬆ Tải file Excel
+                </button>
+              )}
 
               <button
                 type="button"
@@ -1145,21 +1872,25 @@ export const VaccineCenterSetupView: React.FC = () => {
                 (Tất cả)
               </button>
 
-              <button
-                type="button"
-                onClick={handleClearEnteredQuantities}
-                className="px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold text-xs sm:text-sm shadow-xs transition-colors cursor-pointer"
-              >
-                ↺ Xoá số lượng đã nhập
-              </button>
+              {!isReadOnlyReview && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleClearEnteredQuantities}
+                    className="px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold text-xs sm:text-sm shadow-xs transition-colors cursor-pointer"
+                  >
+                    ↺ Xoá số lượng đã nhập
+                  </button>
 
-              <button
-                type="button"
-                onClick={handleResetAndUploadNew}
-                className="px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold text-xs sm:text-sm shadow-xs transition-colors cursor-pointer"
-              >
-                🗑 Xoá toàn bộ & tải file mới
-              </button>
+                  <button
+                    type="button"
+                    onClick={handleResetAndUploadNew}
+                    className="px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold text-xs sm:text-sm shadow-xs transition-colors cursor-pointer"
+                  >
+                    🗑 Xoá toàn bộ & tải file mới
+                  </button>
+                </>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-2.5">
@@ -1171,17 +1902,19 @@ export const VaccineCenterSetupView: React.FC = () => {
                 💾 Lưu tiến độ
               </button>
 
-              <button
-                type="button"
-                onClick={() => progressJsonInputRef.current?.click()}
-                className="px-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-dashed border-[#0d7377] text-[#0d7377] dark:text-teal-400 hover:bg-teal-50/50 font-bold text-xs sm:text-sm transition-colors cursor-pointer"
-              >
-                📁 Tải tiến độ lên
-              </button>
+              {!isReadOnlyReview && (
+                <button
+                  type="button"
+                  onClick={() => progressJsonInputRef.current?.click()}
+                  className="px-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-dashed border-[#0d7377] text-[#0d7377] dark:text-teal-400 hover:bg-teal-50/50 font-bold text-xs sm:text-sm transition-colors cursor-pointer"
+                >
+                  📁 Tải tiến độ lên
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Sub-tabs: Danh mục hành chính (205) | Danh mục thuốc (55) */}
+          {/* Sub-tabs: Danh mục hành chính | Danh mục thuốc */}
           <div className="flex items-center gap-2 pt-1">
             <button
               type="button"
@@ -1334,13 +2067,15 @@ export const VaccineCenterSetupView: React.FC = () => {
                                 Vui lòng nhấn nút &ldquo;⬆ Tải file Excel&rdquo; ở trên để tải danh sách trang thiết bị khai trương lên hệ thống.
                               </p>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => excelInputRef.current?.click()}
-                              className="mt-1 px-4 py-2 rounded-xl bg-[#0d7377] hover:bg-[#0a5c5f] text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
-                            >
-                              ⬆ Tải file Excel ngay
-                            </button>
+                            {!isReadOnlyReview && (
+                              <button
+                                type="button"
+                                onClick={() => excelInputRef.current?.click()}
+                                className="mt-1 px-4 py-2 rounded-xl bg-[#0d7377] hover:bg-[#0a5c5f] text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+                              >
+                                ⬆ Tải file Excel ngay
+                              </button>
+                            )}
                           </div>
                         ) : (
                           <span>Không tìm thấy sản phẩm phù hợp với bộ lọc hiện tại.</span>
@@ -1381,6 +2116,7 @@ export const VaccineCenterSetupView: React.FC = () => {
                           <td className="py-2.5 px-3 text-center">
                             <input
                               type="checkbox"
+                              disabled={isReadOnlyReview}
                               checked={isEnoughChecked}
                               onChange={(e) =>
                                 handleToggleItemEnough(item.id, e.target.checked)
@@ -1392,6 +2128,7 @@ export const VaccineCenterSetupView: React.FC = () => {
                             <input
                               type="number"
                               min={0}
+                              readOnly={isReadOnlyReview}
                               value={item.actualQty === null ? '' : item.actualQty}
                               onChange={(e) =>
                                 handleActualQtyChange(item.id, e.target.value)
@@ -1448,139 +2185,157 @@ export const VaccineCenterSetupView: React.FC = () => {
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            {!isReadOnlyReview && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateSelectedCenter((prev) => ({
+                      ...prev,
+                      checklistItems: prev.checklistItems.map((i) => ({
+                        ...i,
+                        completed: true,
+                      })),
+                    }));
+                    addToast('Đã đánh dấu hoàn thành 100% các hạng mục!', 'success');
+                  }}
+                  className="px-4 py-2 rounded-xl bg-[#0d9488] hover:bg-[#0b7a70] text-white text-xs font-bold cursor-pointer"
+                >
+                  ✓ Đánh dấu đạt 100%
+                </button>
+              </div>
+            )}
+          </div>
+
+          {!isReadOnlyReview && (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center gap-3 shadow-xs">
+              <select
+                value={newChecklistArea}
+                onChange={(e) => setNewChecklistArea(e.target.value)}
+                className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
+              >
+                <option value="1. Mặt tiền & Biển bảng POSM">1. Mặt tiền & Biển bảng POSM</option>
+                <option value="2. Quầy Lễ Tân & Sảnh Tiếp Đón">2. Quầy Lễ Tân & Sảnh Tiếp Đón</option>
+                <option value="3. Phòng Khám Sàng Lọc">3. Phòng Khám Sàng Lọc</option>
+                <option value="4. Phòng Tiêm Chủng & Cấp Cứu">4. Phòng Tiêm Chủng & Cấp Cứu</option>
+                <option value="5. Khu Vực Theo Dõi Sau Tiêm 30 Phút">5. Khu Vực Theo Dõi Sau Tiêm 30 Phút</option>
+                <option value="6. Pháp Lý, PCCC & Vệ Sinh Môi Trường">6. Pháp Lý, PCCC & Vệ Sinh Môi Trường</option>
+              </select>
+
+              <input
+                type="text"
+                value={newChecklistTitle}
+                onChange={(e) => setNewChecklistTitle(e.target.value)}
+                placeholder="Thêm hạng mục kiểm tra mới..."
+                className="flex-1 min-w-[220px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs sm:text-sm"
+              />
+
               <button
                 type="button"
                 onClick={() => {
-                  setChecklistItems((prev) =>
-                    prev.map((i) => ({ ...i, completed: true }))
-                  );
-                  addToast('Đã đánh dấu hoàn thành 100% các hạng mục!', 'success');
+                  if (!newChecklistTitle.trim()) return;
+                  updateSelectedCenter((prev) => ({
+                    ...prev,
+                    checklistItems: [
+                      ...prev.checklistItems,
+                      {
+                        id: `chk_${Date.now()}`,
+                        area: newChecklistArea,
+                        title: newChecklistTitle.trim(),
+                        standard: 'Đạt tiêu chuẩn SOP Trung tâm tiêm chủng Long Châu',
+                        completed: true,
+                        verifier: centerInfo.leader || 'Taskforce',
+                        note: 'Đã kiểm tra',
+                      },
+                    ],
+                  }));
+                  setNewChecklistTitle('');
+                  addToast('Đã thêm hạng mục kiểm tra mới!', 'success');
                 }}
-                className="px-4 py-2 rounded-xl bg-[#0d9488] hover:bg-[#0b7a70] text-white text-xs font-bold cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-[#0f1e36] text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
               >
-                ✓ Đánh dấu đạt 100%
+                <Plus className="w-4 h-4" /> Thêm hạng mục
               </button>
             </div>
-          </div>
+          )}
 
-          {/* Add new checklist item */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center gap-3 shadow-xs">
-            <select
-              value={newChecklistArea}
-              onChange={(e) => setNewChecklistArea(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
-            >
-              <option value="1. Mặt tiền & Biển bảng POSM">1. Mặt tiền & Biển bảng POSM</option>
-              <option value="2. Quầy Lễ Tân & Sảnh Tiếp Đón">2. Quầy Lễ Tân & Sảnh Tiếp Đón</option>
-              <option value="3. Phòng Khám Sàng Lọc">3. Phòng Khám Sàng Lọc</option>
-              <option value="4. Phòng Tiêm Chủng & Cấp Cứu">4. Phòng Tiêm Chủng & Cấp Cứu</option>
-              <option value="5. Khu Vực Theo Dõi Sau Tiêm 30 Phút">5. Khu Vực Theo Dõi Sau Tiêm 30 Phút</option>
-              <option value="6. Pháp Lý, PCCC & Vệ Sinh Môi Trường">6. Pháp Lý, PCCC & Vệ Sinh Môi Trường</option>
-            </select>
-
-            <input
-              type="text"
-              value={newChecklistTitle}
-              onChange={(e) => setNewChecklistTitle(e.target.value)}
-              placeholder="Thêm hạng mục kiểm tra mới..."
-              className="flex-1 min-w-[220px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs sm:text-sm"
-            />
-
-            <button
-              type="button"
-              onClick={() => {
-                if (!newChecklistTitle.trim()) return;
-                setChecklistItems((prev) => [
-                  ...prev,
-                  {
-                    id: `chk_${Date.now()}`,
-                    area: newChecklistArea,
-                    title: newChecklistTitle.trim(),
-                    standard: 'Đạt tiêu chuẩn SOP Trung tâm tiêm chủng Long Châu',
-                    completed: true,
-                    verifier: centerInfo.leader || 'Nguyễn Lê Đạt Minh',
-                    note: 'Đã kiểm tra',
-                  },
-                ]);
-                setNewChecklistTitle('');
-                addToast('Đã thêm hạng mục kiểm tra mới!', 'success');
-              }}
-              className="px-4 py-2 rounded-xl bg-[#0f1e36] text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-            >
-              <Plus className="w-4 h-4" /> Thêm hạng mục
-            </button>
-          </div>
-
-          {/* Checklist items table */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden shadow-xs">
-            <table className="w-full text-left border-collapse">
-              <thead className="bg-[#0f1e36] text-white text-xs uppercase font-bold">
-                <tr>
-                  <th className="py-3 px-4 w-14 text-center">Đạt</th>
-                  <th className="py-3 px-4 w-56">Khu vực</th>
-                  <th className="py-3 px-4">Nội dung hạng mục kiểm tra</th>
-                  <th className="py-3 px-4 w-64">Tiêu chuẩn nghiệm thu</th>
-                  <th className="py-3 px-4 w-44">Người kiểm tra</th>
-                  <th className="py-3 px-4 w-12"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs sm:text-sm">
-                {checklistItems
-                  .filter(
-                    (i) =>
-                      checklistAreaFilter === 'ALL' || i.area === checklistAreaFilter
-                  )
-                  .map((item) => (
-                    <tr
-                      key={item.id}
-                      className="hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                    >
-                      <td className="py-3 px-4 text-center">
-                        <input
-                          type="checkbox"
-                          checked={item.completed}
-                          onChange={(e) =>
-                            setChecklistItems((prev) =>
-                              prev.map((x) =>
-                                x.id === item.id
-                                  ? { ...x, completed: e.target.checked }
-                                  : x
-                              )
-                            )
-                          }
-                          className="w-4 h-4 rounded accent-[#0d9488] cursor-pointer"
-                        />
-                      </td>
-                      <td className="py-3 px-4 font-bold text-[#0d9488]">
-                        {item.area}
-                      </td>
-                      <td className="py-3 px-4 font-semibold text-slate-900 dark:text-slate-100">
-                        {item.title}
-                      </td>
-                      <td className="py-3 px-4 text-slate-600 dark:text-slate-400 text-xs">
-                        {item.standard}
-                      </td>
-                      <td className="py-3 px-4 font-medium text-slate-700 dark:text-slate-300">
-                        {item.verifier}
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setChecklistItems((prev) =>
-                              prev.filter((x) => x.id !== item.id)
-                            )
-                          }
-                          className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-[#0f1e36] text-white text-xs uppercase font-bold">
+                  <tr>
+                    <th className="py-3 px-4 w-14 text-center">Đạt</th>
+                    <th className="py-3 px-4 w-56">Khu vực</th>
+                    <th className="py-3 px-4">Nội dung hạng mục kiểm tra</th>
+                    <th className="py-3 px-4 w-64">Tiêu chuẩn nghiệm thu</th>
+                    <th className="py-3 px-4 w-44">Người kiểm tra</th>
+                    {!isReadOnlyReview && <th className="py-3 px-4 w-12"></th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs sm:text-sm">
+                  {checklistItems
+                    .filter(
+                      (i) =>
+                        checklistAreaFilter === 'ALL' || i.area === checklistAreaFilter
+                    )
+                    .map((item) => (
+                      <tr
+                        key={item.id}
+                        className="hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                      >
+                        <td className="py-3 px-4 text-center">
+                          <input
+                            type="checkbox"
+                            disabled={isReadOnlyReview}
+                            checked={item.completed}
+                            onChange={(e) =>
+                              updateSelectedCenter((prev) => ({
+                                ...prev,
+                                checklistItems: prev.checklistItems.map((x) =>
+                                  x.id === item.id
+                                    ? { ...x, completed: e.target.checked }
+                                    : x
+                                ),
+                              }))
+                            }
+                            className="w-4 h-4 rounded accent-[#0d9488] cursor-pointer"
+                          />
+                        </td>
+                        <td className="py-3 px-4 font-bold text-[#0d9488]">
+                          {item.area}
+                        </td>
+                        <td className="py-3 px-4 font-semibold text-slate-900 dark:text-slate-100">
+                          {item.title}
+                        </td>
+                        <td className="py-3 px-4 text-slate-600 dark:text-slate-400 text-xs">
+                          {item.standard}
+                        </td>
+                        <td className="py-3 px-4 font-medium text-slate-700 dark:text-slate-300">
+                          {item.verifier}
+                        </td>
+                        {!isReadOnlyReview && (
+                          <td className="py-3 px-4 text-center">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateSelectedCenter((prev) => ({
+                                  ...prev,
+                                  checklistItems: prev.checklistItems.filter(
+                                    (x) => x.id !== item.id
+                                  ),
+                                }))
+                              }
+                              className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -1600,152 +2355,171 @@ export const VaccineCenterSetupView: React.FC = () => {
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            {!isReadOnlyReview && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateSelectedCenter((prev) => ({
+                      ...prev,
+                      taskforceJobs: prev.taskforceJobs.map((j) => ({
+                        ...j,
+                        completed: true,
+                      })),
+                    }));
+                    addToast('Đã hoàn tất 100% đầu việc Taskforce!', 'success');
+                  }}
+                  className="px-4 py-2 rounded-xl bg-[#0d9488] hover:bg-[#0b7a70] text-white text-xs font-bold cursor-pointer"
+                >
+                  ✓ Hoàn tất 100% công việc
+                </button>
+              </div>
+            )}
+          </div>
+
+          {!isReadOnlyReview && (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center gap-3 shadow-xs">
+              <input
+                type="text"
+                value={newJobPhase}
+                onChange={(e) => setNewJobPhase(e.target.value)}
+                placeholder="Giai đoạn..."
+                className="w-56 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
+              />
+              <input
+                type="text"
+                value={newJobTitle}
+                onChange={(e) => setNewJobTitle(e.target.value)}
+                placeholder="Nhập tên công việc cần thực hiện..."
+                className="flex-1 min-w-[220px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs sm:text-sm"
+              />
+              <input
+                type="text"
+                value={newJobAssignee}
+                onChange={(e) => setNewJobAssignee(e.target.value)}
+                placeholder="Người phụ trách"
+                className="w-44 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
+              />
+              <input
+                type="text"
+                value={newJobDueDate}
+                onChange={(e) => setNewJobDueDate(e.target.value)}
+                placeholder="Hạn hoàn thành"
+                className="w-32 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs tabular-nums"
+              />
               <button
                 type="button"
                 onClick={() => {
-                  setTaskforceJobs((prev) =>
-                    prev.map((j) => ({ ...j, completed: true }))
-                  );
-                  addToast('Đã hoàn tất 100% đầu việc Taskforce!', 'success');
+                  if (!newJobTitle.trim()) return;
+                  updateSelectedCenter((prev) => ({
+                    ...prev,
+                    taskforceJobs: [
+                      ...prev.taskforceJobs,
+                      {
+                        id: `job_${Date.now()}`,
+                        phase: newJobPhase,
+                        title: newJobTitle.trim(),
+                        assignee: newJobAssignee || centerInfo.leader || 'Taskforce',
+                        dueDate: newJobDueDate || centerInfo.openingDate || '',
+                        priority: 'Cao',
+                        completed: true,
+                        note: 'Hoàn thành đúng tiến độ',
+                      },
+                    ],
+                  }));
+                  setNewJobTitle('');
+                  addToast('Đã thêm công việc mới!', 'success');
                 }}
-                className="px-4 py-2 rounded-xl bg-[#0d9488] hover:bg-[#0b7a70] text-white text-xs font-bold cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-[#0f1e36] text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
               >
-                ✓ Hoàn tất 100% công việc
+                <Plus className="w-4 h-4" /> Thêm việc
               </button>
             </div>
-          </div>
-
-          {/* Add new job */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center gap-3 shadow-xs">
-            <input
-              type="text"
-              value={newJobPhase}
-              onChange={(e) => setNewJobPhase(e.target.value)}
-              placeholder="Giai đoạn..."
-              className="w-56 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold"
-            />
-            <input
-              type="text"
-              value={newJobTitle}
-              onChange={(e) => setNewJobTitle(e.target.value)}
-              placeholder="Nhập tên công việc cần thực hiện..."
-              className="flex-1 min-w-[220px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs sm:text-sm"
-            />
-            <input
-              type="text"
-              value={newJobAssignee}
-              onChange={(e) => setNewJobAssignee(e.target.value)}
-              placeholder="Người phụ trách"
-              className="w-44 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
-            />
-            <input
-              type="text"
-              value={newJobDueDate}
-              onChange={(e) => setNewJobDueDate(e.target.value)}
-              placeholder="Hạn hoàn thành"
-              className="w-32 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs tabular-nums"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                if (!newJobTitle.trim()) return;
-                setTaskforceJobs((prev) => [
-                  ...prev,
-                  {
-                    id: `job_${Date.now()}`,
-                    phase: newJobPhase,
-                    title: newJobTitle.trim(),
-                    assignee: newJobAssignee,
-                    dueDate: newJobDueDate,
-                    priority: 'Cao',
-                    completed: true,
-                    note: 'Hoàn thành đúng tiến độ',
-                  },
-                ]);
-                setNewJobTitle('');
-                addToast('Đã thêm công việc mới!', 'success');
-              }}
-              className="px-4 py-2 rounded-xl bg-[#0f1e36] text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-            >
-              <Plus className="w-4 h-4" /> Thêm việc
-            </button>
-          </div>
+          )}
 
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden shadow-xs">
-            <table className="w-full text-left border-collapse">
-              <thead className="bg-[#0f1e36] text-white text-xs uppercase font-bold">
-                <tr>
-                  <th className="py-3 px-4 w-14 text-center">Xong</th>
-                  <th className="py-3 px-4 w-64">Giai đoạn</th>
-                  <th className="py-3 px-4">Nội dung công việc</th>
-                  <th className="py-3 px-4 w-44">Phụ trách</th>
-                  <th className="py-3 px-4 w-28 text-center">Hạn chót</th>
-                  <th className="py-3 px-4 w-24 text-center">Ưu tiên</th>
-                  <th className="py-3 px-4 w-12"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs sm:text-sm">
-                {taskforceJobs.map((job) => (
-                  <tr
-                    key={job.id}
-                    className="hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                  >
-                    <td className="py-3 px-4 text-center">
-                      <input
-                        type="checkbox"
-                        checked={job.completed}
-                        onChange={(e) =>
-                          setTaskforceJobs((prev) =>
-                            prev.map((x) =>
-                              x.id === job.id
-                                ? { ...x, completed: e.target.checked }
-                                : x
-                            )
-                          )
-                        }
-                        className="w-4 h-4 rounded accent-[#0d9488] cursor-pointer"
-                      />
-                    </td>
-                    <td className="py-3 px-4 font-bold text-[#136f72]">
-                      {job.phase}
-                    </td>
-                    <td className="py-3 px-4 font-semibold text-slate-900 dark:text-slate-100">
-                      {job.title}
-                      {job.note && (
-                        <p className="text-xs font-normal text-slate-500 mt-0.5">
-                          Ghi chú: {job.note}
-                        </p>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 font-medium text-slate-700 dark:text-slate-300">
-                      {job.assignee}
-                    </td>
-                    <td className="py-3 px-4 text-center font-bold tabular-nums text-slate-700 dark:text-slate-300">
-                      {job.dueDate}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">
-                        {job.priority}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setTaskforceJobs((prev) =>
-                            prev.filter((x) => x.id !== job.id)
-                          )
-                        }
-                        className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-[#0f1e36] text-white text-xs uppercase font-bold">
+                  <tr>
+                    <th className="py-3 px-4 w-14 text-center">Xong</th>
+                    <th className="py-3 px-4 w-64">Giai đoạn</th>
+                    <th className="py-3 px-4">Nội dung công việc</th>
+                    <th className="py-3 px-4 w-44">Phụ trách</th>
+                    <th className="py-3 px-4 w-28 text-center">Hạn chót</th>
+                    <th className="py-3 px-4 w-24 text-center">Ưu tiên</th>
+                    {!isReadOnlyReview && <th className="py-3 px-4 w-12"></th>}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs sm:text-sm">
+                  {taskforceJobs.map((job) => (
+                    <tr
+                      key={job.id}
+                      className="hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                    >
+                      <td className="py-3 px-4 text-center">
+                        <input
+                          type="checkbox"
+                          disabled={isReadOnlyReview}
+                          checked={job.completed}
+                          onChange={(e) =>
+                            updateSelectedCenter((prev) => ({
+                              ...prev,
+                              taskforceJobs: prev.taskforceJobs.map((x) =>
+                                x.id === job.id
+                                  ? { ...x, completed: e.target.checked }
+                                  : x
+                              ),
+                            }))
+                          }
+                          className="w-4 h-4 rounded accent-[#0d9488] cursor-pointer"
+                        />
+                      </td>
+                      <td className="py-3 px-4 font-bold text-[#136f72]">
+                        {job.phase}
+                      </td>
+                      <td className="py-3 px-4 font-semibold text-slate-900 dark:text-slate-100">
+                        {job.title}
+                        {job.note && (
+                          <p className="text-xs font-normal text-slate-500 mt-0.5">
+                            Ghi chú: {job.note}
+                          </p>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 font-medium text-slate-700 dark:text-slate-300">
+                        {job.assignee}
+                      </td>
+                      <td className="py-3 px-4 text-center font-bold tabular-nums text-slate-700 dark:text-slate-300">
+                        {job.dueDate}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">
+                          {job.priority}
+                        </span>
+                      </td>
+                      {!isReadOnlyReview && (
+                        <td className="py-3 px-4 text-center">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateSelectedCenter((prev) => ({
+                                ...prev,
+                                taskforceJobs: prev.taskforceJobs.filter(
+                                  (x) => x.id !== job.id
+                                ),
+                              }))
+                            }
+                            className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -1790,7 +2564,7 @@ export const VaccineCenterSetupView: React.FC = () => {
                 Đầu dò nhiệt kế tự ghi WiFi
               </h3>
               <ul className="text-xs text-slate-600 dark:text-slate-300 space-y-1.5 list-disc pl-4">
-                <li>Đặt đầu dò глиcol chính giữa tâm tủ bảo quản, không chạm thành lạnh.</li>
+                <li>Đặt đầu dò glycol chính giữa tâm tủ bảo quản, không chạm thành lạnh.</li>
                 <li>Cài đặt chu kỳ ghi 5 phút/lần; ngưỡng báo động dưới 2.0°C và trên 8.0°C.</li>
                 <li>Kiểm tra kết nối WiFi gửi cảnh báo tự động về điện thoại Leader & Bác sĩ.</li>
               </ul>
@@ -1811,11 +2585,10 @@ export const VaccineCenterSetupView: React.FC = () => {
             </div>
           </div>
 
-          {/* Fridge Validation Log Table */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden shadow-xs">
             <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
               <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                Nhật Ký Nghiệm Thu Thẩm Định Tủ Thực Tế — Mã TT: {centerInfo.code}
+                Nhật Ký Nghiệm Thu Thẩm Định Tủ Thực Tế — Mã TT: {centerInfo.code || '—'}
               </h3>
               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
                 <ShieldCheck className="w-3.5 h-3.5" /> Đạt Chuẩn GSP 100%
@@ -1887,104 +2660,118 @@ export const VaccineCenterSetupView: React.FC = () => {
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => photoUploadInputRef.current?.click()}
-                className="px-4 py-2.5 rounded-xl bg-[#0d9488] hover:bg-[#0b7a70] text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-xs cursor-pointer"
-              >
-                <Camera className="w-4 h-4" /> Chụp / Tải ảnh báo cáo lên
-              </button>
+              {!isReadOnlyReview && (
+                <button
+                  type="button"
+                  onClick={() => photoUploadInputRef.current?.click()}
+                  className="px-4 py-2.5 rounded-xl bg-[#0d9488] hover:bg-[#0b7a70] text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-xs cursor-pointer"
+                >
+                  <Camera className="w-4 h-4" /> Chụp / Tải ảnh báo cáo lên
+                </button>
+              )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <select
-                value={photoCategory}
-                onChange={(e) => setPhotoCategory(e.target.value)}
-                className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs sm:text-sm font-semibold"
-              >
-                <option value="Mặt tiền & Biển hiệu">Mặt tiền & Biển hiệu</option>
-                <option value="Quầy lễ tân & Sảnh chờ">Quầy lễ tân & Sảnh chờ</option>
-                <option value="Phòng khám sàng lọc">Phòng khám sàng lọc</option>
-                <option value="Phòng tiêm & Tủ cấp cứu">Phòng tiêm & Tủ cấp cứu</option>
-                <option value="Tủ vắc xin & Nhiệt kế LogTag">Tủ vắc xin & Nhiệt kế LogTag</option>
-                <option value="Kiểm kê trang thiết bị">Kiểm kê trang thiết bị</option>
-                <option value="Biên bản bàn giao">Biên bản bàn giao</option>
-              </select>
+            {!isReadOnlyReview && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <select
+                  value={photoCategory}
+                  onChange={(e) => setPhotoCategory(e.target.value)}
+                  className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs sm:text-sm font-semibold"
+                >
+                  <option value="Mặt tiền & Biển hiệu">Mặt tiền & Biển hiệu</option>
+                  <option value="Quầy lễ tân & Sảnh chờ">Quầy lễ tân & Sảnh chờ</option>
+                  <option value="Phòng khám sàng lọc">Phòng khám sàng lọc</option>
+                  <option value="Phòng tiêm & Tủ cấp cứu">Phòng tiêm & Tủ cấp cứu</option>
+                  <option value="Tủ vắc xin & Nhiệt kế LogTag">Tủ vắc xin & Nhiệt kế LogTag</option>
+                  <option value="Kiểm kê trang thiết bị">Kiểm kê trang thiết bị</option>
+                  <option value="Biên bản bàn giao">Biên bản bàn giao</option>
+                </select>
 
-              <input
-                type="text"
-                value={photoTitle}
-                onChange={(e) => setPhotoTitle(e.target.value)}
-                placeholder="Tiêu đề ảnh (VD: Tủ lạnh vắc xin đạt 4.5 độ C)..."
-                className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs sm:text-sm"
-              />
+                <input
+                  type="text"
+                  value={photoTitle}
+                  onChange={(e) => setPhotoTitle(e.target.value)}
+                  placeholder="Tiêu đề ảnh (VD: Tủ lạnh vắc xin đạt 4.5 độ C)..."
+                  className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs sm:text-sm"
+                />
 
-              <input
-                type="text"
-                value={photoNote}
-                onChange={(e) => setPhotoNote(e.target.value)}
-                placeholder="Ghi chú nghiệm thu..."
-                className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs sm:text-sm"
-              />
-            </div>
+                <input
+                  type="text"
+                  value={photoNote}
+                  onChange={(e) => setPhotoNote(e.target.value)}
+                  placeholder="Ghi chú nghiệm thu..."
+                  className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs sm:text-sm"
+                />
+              </div>
+            )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {reportPhotos.map((photo) => (
-              <div
-                key={photo.id}
-                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden shadow-xs flex flex-col"
-              >
-                <div className="aspect-video bg-slate-100 dark:bg-slate-800 relative overflow-hidden">
-                  <img
-                    src={photo.imageUrl}
-                    alt={photo.title}
-                    className="w-full h-full object-cover"
-                  />
-                  <span className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-[#0f1e36]/85 text-white backdrop-blur-xs">
-                    {photo.category}
-                  </span>
-                </div>
-                <div className="p-4 flex-1 flex flex-col justify-between">
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                      {photo.title}
-                    </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      {photo.note}
-                    </p>
+          {reportPhotos.length === 0 ? (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl p-10 border border-slate-200/80 dark:border-slate-800 text-center text-xs sm:text-sm text-slate-500">
+              Chưa có hình ảnh báo cáo nào được tải lên cho trung tâm này.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {reportPhotos.map((photo) => (
+                <div
+                  key={photo.id}
+                  className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden shadow-xs flex flex-col"
+                >
+                  <div className="aspect-video bg-slate-100 dark:bg-slate-800 relative overflow-hidden">
+                    <img
+                      src={photo.imageUrl}
+                      alt={photo.title}
+                      className="w-full h-full object-cover"
+                    />
+                    <span className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-[#0f1e36]/85 text-white backdrop-blur-xs">
+                      {photo.category}
+                    </span>
                   </div>
-                  <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-400">
-                    <span>Người chụp: {photo.uploader}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="tabular-nums">{photo.capturedAt}</span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setReportPhotos((prev) =>
-                            prev.filter((p) => p.id !== photo.id)
-                          )
-                        }
-                        className="text-slate-400 hover:text-rose-600 cursor-pointer"
-                        title="Xóa ảnh"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                  <div className="p-4 flex-1 flex flex-col justify-between">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                        {photo.title}
+                      </h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        {photo.note}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-400">
+                      <span>Người chụp: {photo.uploader}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="tabular-nums">{photo.capturedAt}</span>
+                        {!isReadOnlyReview && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateSelectedCenter((prev) => ({
+                                ...prev,
+                                reportPhotos: prev.reportPhotos.filter(
+                                  (p) => p.id !== photo.id
+                                ),
+                              }))
+                            }
+                            className="text-slate-400 hover:text-rose-600 cursor-pointer"
+                            title="Xóa ảnh"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       {/* ===================================================================== */}
-      {/* TAB 7: BIÊN BẢN BÀN GIAO (Matches Screenshot 4)                        */}
+      {/* TAB 7: BIÊN BẢN BÀN GIAO                                              */}
       {/* ===================================================================== */}
       {activeMainTab === 'handover' && (
         <div className="space-y-4">
-          {/* 4 Sub-tabs Bar (Trang thiết bị | Danh mục thuốc | Thiết bị phòng tiêm | CSVC) */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 print:hidden">
             {(
               [
@@ -2009,7 +2796,6 @@ export const VaccineCenterSetupView: React.FC = () => {
             ))}
           </div>
 
-          {/* Right-aligned Export PDF A4 Button */}
           <div className="flex justify-end print:hidden">
             <button
               type="button"
@@ -2020,11 +2806,8 @@ export const VaccineCenterSetupView: React.FC = () => {
             </button>
           </div>
 
-          {/* Official Handover Document Card */}
           <div className="bg-white text-slate-900 rounded-2xl p-6 sm:p-8 border border-slate-200/90 shadow-xs space-y-5 print:shadow-none print:border-none print:p-0">
-            {/* Document Header with FPT Retail Long Châu Vaccine Center Branding */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-3 border-b border-slate-100">
-              {/* Left Brand Block */}
               <div className="flex items-center gap-3">
                 <div className="flex flex-col items-start">
                   <div className="flex items-center gap-1">
@@ -2049,13 +2832,12 @@ export const VaccineCenterSetupView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Center Title Block */}
               <div className="md:text-center flex-1">
                 <h2 className="text-base sm:text-lg font-extrabold text-slate-900 uppercase tracking-tight">
                   {getHandoverTitle(handoverSubTab)}
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5 font-medium">
-                  Mã TT: {centerInfo.code} — Địa chỉ: {centerInfo.address}
+                  Mã TT: {centerInfo.code || '—'} — Địa chỉ: {centerInfo.address || '—'}
                 </p>
               </div>
 
@@ -2075,12 +2857,16 @@ export const VaccineCenterSetupView: React.FC = () => {
                   </span>
                   <input
                     type="text"
+                    readOnly={isReadOnlyReview}
                     value={handoverParty.delivererName}
                     onChange={(e) =>
-                      setHandoverParty({
-                        ...handoverParty,
-                        delivererName: e.target.value,
-                      })
+                      updateSelectedCenter((prev) => ({
+                        ...prev,
+                        handoverParty: {
+                          ...prev.handoverParty,
+                          delivererName: e.target.value,
+                        },
+                      }))
                     }
                     className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-900"
                   />
@@ -2092,12 +2878,16 @@ export const VaccineCenterSetupView: React.FC = () => {
                   </span>
                   <input
                     type="text"
+                    readOnly={isReadOnlyReview}
                     value={handoverParty.delivererPhone}
                     onChange={(e) =>
-                      setHandoverParty({
-                        ...handoverParty,
-                        delivererPhone: e.target.value,
-                      })
+                      updateSelectedCenter((prev) => ({
+                        ...prev,
+                        handoverParty: {
+                          ...prev.handoverParty,
+                          delivererPhone: e.target.value,
+                        },
+                      }))
                     }
                     className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-900 tabular-nums"
                   />
@@ -2124,12 +2914,16 @@ export const VaccineCenterSetupView: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-600">Bộ phận:</span>
                   <select
+                    disabled={isReadOnlyReview}
                     value={handoverParty.receiverDept}
                     onChange={(e) =>
-                      setHandoverParty({
-                        ...handoverParty,
-                        receiverDept: e.target.value,
-                      })
+                      updateSelectedCenter((prev) => ({
+                        ...prev,
+                        handoverParty: {
+                          ...prev.handoverParty,
+                          receiverDept: e.target.value,
+                        },
+                      }))
                     }
                     className="px-2.5 py-1 rounded-lg bg-[#f3f2ec] text-slate-800 text-xs font-semibold border border-slate-200"
                   >
@@ -2146,12 +2940,16 @@ export const VaccineCenterSetupView: React.FC = () => {
                   </span>
                   <input
                     type="text"
+                    readOnly={isReadOnlyReview}
                     value={handoverParty.receiverName}
                     onChange={(e) =>
-                      setHandoverParty({
-                        ...handoverParty,
-                        receiverName: e.target.value,
-                      })
+                      updateSelectedCenter((prev) => ({
+                        ...prev,
+                        handoverParty: {
+                          ...prev.handoverParty,
+                          receiverName: e.target.value,
+                        },
+                      }))
                     }
                     className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-900"
                   />
@@ -2163,12 +2961,16 @@ export const VaccineCenterSetupView: React.FC = () => {
                   </span>
                   <input
                     type="text"
+                    readOnly={isReadOnlyReview}
                     value={handoverParty.receiverPhone}
                     onChange={(e) =>
-                      setHandoverParty({
-                        ...handoverParty,
-                        receiverPhone: e.target.value,
-                      })
+                      updateSelectedCenter((prev) => ({
+                        ...prev,
+                        handoverParty: {
+                          ...prev.handoverParty,
+                          receiverPhone: e.target.value,
+                        },
+                      }))
                     }
                     className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-900 tabular-nums"
                   />
@@ -2176,13 +2978,11 @@ export const VaccineCenterSetupView: React.FC = () => {
               </div>
             </div>
 
-            {/* Callout Bar: Nội dung bàn giao */}
             <div className="rounded-xl bg-[#eaf4f4] px-4 py-2.5 text-xs sm:text-sm text-slate-800">
               <span className="font-bold">Nội dung bàn giao: </span>
               <span>{handoverParty.handoverNote}</span>
             </div>
 
-            {/* Handover Table */}
             <div className="overflow-x-auto rounded-lg border border-slate-200">
               <table className="w-full text-left border-collapse">
                 <thead className="bg-[#0f1e36] text-white text-xs font-bold">
@@ -2226,6 +3026,7 @@ export const VaccineCenterSetupView: React.FC = () => {
                           <input
                             type="number"
                             min={0}
+                            readOnly={isReadOnlyReview}
                             value={item.actualQty === null ? '' : item.actualQty}
                             onChange={(e) =>
                               handleActualQtyChange(item.id, e.target.value)
@@ -2236,6 +3037,7 @@ export const VaccineCenterSetupView: React.FC = () => {
                         <td className="py-2 px-3">
                           <input
                             type="text"
+                            readOnly={isReadOnlyReview}
                             value={item.note}
                             onChange={(e) =>
                               handleItemNoteChange(item.id, e.target.value)
@@ -2251,7 +3053,6 @@ export const VaccineCenterSetupView: React.FC = () => {
               </table>
             </div>
 
-            {/* Official Signature Footer */}
             <div className="grid grid-cols-2 gap-6 pt-6 text-center">
               <div>
                 <p className="text-xs font-extrabold uppercase text-slate-800">

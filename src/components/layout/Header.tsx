@@ -82,30 +82,30 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-30 h-18 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 flex items-center justify-between transition-colors">
+    <header className="sticky top-0 z-30 h-18 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 sm:px-6 flex items-center justify-between gap-2 transition-colors">
       {/* Left: Mobile trigger & Page title */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
         <button
           type="button"
           onClick={() => setIsOpenMobile(true)}
-          className="lg:hidden p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          className="lg:hidden p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
           aria-label="Mở menu"
         >
           <Menu className="w-5 h-5" />
         </button>
 
-        <div>
-          <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white font-display tracking-tight leading-tight">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm sm:text-lg font-bold text-slate-900 dark:text-white font-display tracking-tight leading-tight truncate">
             {currentInfo.title}
           </h2>
-          <p className="hidden md:block text-xs text-slate-500 dark:text-slate-400 line-clamp-1">
+          <p className="hidden md:block text-xs text-slate-500 dark:text-slate-400 truncate">
             {currentInfo.subtitle}
           </p>
         </div>
       </div>
 
       {/* Right Controls */}
-      <div className="flex items-center gap-2 sm:gap-3">
+      <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
         {/* Persistent Sync Status Indicator ('Online' / 'Syncing...' / 'Offline') */}
         <SyncStatusIndicator />
 
