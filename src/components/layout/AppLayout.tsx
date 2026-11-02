@@ -9,6 +9,7 @@ import { useAuth } from '../../context/AuthContext';
 const Dashboard = lazy(() => import('../../features/dashboard').then(m => ({ default: m.Dashboard })));
 const WorkView = lazy(() => import('../../features/work/WorkView').then(m => ({ default: m.WorkView })));
 const ExpensesView = lazy(() => import('../../features/expenses/ExpensesView').then(m => ({ default: m.ExpensesView })));
+const VaccineCenterSetupView = lazy(() => import('../../features/vaccine-center/VaccineCenterSetupView').then(m => ({ default: m.VaccineCenterSetupView })));
 const InvestmentsView = lazy(() => import('../../features/investments/InvestmentsView').then(m => ({ default: m.InvestmentsView })));
 const StorageView = lazy(() => import('../../features/storage/StorageView').then(m => ({ default: m.StorageView })));
 const ReportsView = lazy(() => import('../../features/reports/ReportsView').then(m => ({ default: m.ReportsView })));
@@ -20,7 +21,7 @@ export const AppLayout: React.FC = () => {
   const [activeTab, setActiveTab] = useState<NavTab>(() => {
     if (typeof window !== 'undefined') {
       const savedTab = localStorage.getItem('activeTab');
-      if (savedTab && ['dashboard', 'work', 'expenses', 'investments', 'storage', 'reports', 'settings'].includes(savedTab)) {
+      if (savedTab && ['dashboard', 'work', 'expenses', 'vaccine-center', 'investments', 'storage', 'reports', 'settings'].includes(savedTab)) {
         return savedTab as NavTab;
       }
     }
@@ -116,6 +117,8 @@ export const AppLayout: React.FC = () => {
             {activeTab === 'work' && <WorkView />}
 
             {activeTab === 'expenses' && <ExpensesView />}
+
+            {activeTab === 'vaccine-center' && <VaccineCenterSetupView />}
 
             {activeTab === 'investments' && <InvestmentsView />}
 

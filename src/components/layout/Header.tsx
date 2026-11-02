@@ -61,6 +61,8 @@ export const Header: React.FC<HeaderProps> = ({
         return { title: 'Quản Lý Giờ Công & Chấm Công', subtitle: 'Theo dõi ca làm việc, tăng ca, ngày nghỉ và xuất báo cáo Excel' };
       case 'expenses':
         return { title: 'Quản Lý Thu Chi Cá Nhân', subtitle: 'Kiểm soát dòng tiền, phân loại danh mục và biểu đồ chi tiêu' };
+      case 'vaccine-center':
+        return { title: 'Khai Trương Trung Tâm Tiêm Chủng (TTTC)', subtitle: 'Taskforce thị trường — theo dõi tiến độ khai trương, kiểm kê thiết bị & biên bản bàn giao' };
       case 'investments':
         return { title: 'Danh Mục & Quản Lý Đầu Tư', subtitle: 'Theo dõi Crypto, Cổ phiếu, Quỹ, Vàng và lợi nhuận danh mục' };
       case 'storage':

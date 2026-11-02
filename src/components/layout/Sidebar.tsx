@@ -12,11 +12,12 @@ import {
   HardDrive,
   Sparkles,
   ShieldCheck,
-  Zap
+  Zap,
+  ClipboardCheck
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
-export type NavTab = 'dashboard' | 'work' | 'expenses' | 'investments' | 'storage' | 'reports' | 'settings';
+export type NavTab = 'dashboard' | 'work' | 'expenses' | 'vaccine-center' | 'investments' | 'storage' | 'reports' | 'settings';
 
 interface SidebarProps {
   activeTab: NavTab;
@@ -60,6 +61,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Wallet,
       badge: undefined,
       color: 'text-emerald-500',
+    },
+    {
+      id: 'vaccine-center' as NavTab,
+      label: 'Khai Trương TTTC',
+      icon: ClipboardCheck,
+      badge: 'Setup',
+      color: 'text-teal-500',
     },
     {
       id: 'investments' as NavTab,
