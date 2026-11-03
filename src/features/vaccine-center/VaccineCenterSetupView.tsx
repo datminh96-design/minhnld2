@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import * as XLSX from 'xlsx';
 import {
   Calendar,
@@ -115,6 +116,36 @@ function getItemStatus(item: EquipmentItem): 'unentered' | 'enough' | 'shortage'
   return 'surplus';
 }
 
+function getHandoverItemNoteDisplay(item: EquipmentItem): string {
+  if (item.note && item.note.trim() !== '') {
+    return item.note.trim();
+  }
+  const st = getItemStatus(item);
+  if (st === 'enough') return 'Đủ';
+  if (st === 'shortage') return `Thiếu ${item.requiredQty - (item.actualQty ?? 0)}`;
+  if (st === 'surplus') return `Dư ${(item.actualQty ?? 0) - item.requiredQty}`;
+  return 'Chưa nhập';
+}
+
+function formatHandoverDatePrintLine(dateStr?: string): string {
+  const raw = (dateStr || '').trim();
+  if (!raw) {
+    return 'Ngày ...... Tháng ...... năm ..........';
+  }
+  const slashParts = raw.split(/[/-]/);
+  if (slashParts.length === 3) {
+    if (slashParts[0].length === 4) {
+      const [yyyy, mm, dd] = slashParts;
+      return `Ngày ${dd.padStart(2, '0')} Tháng ${mm.padStart(2, '0')} năm ${yyyy}`;
+    }
+    const [dd, mm, yyyy] = slashParts;
+    if (dd && mm && yyyy) {
+      return `Ngày ${dd.padStart(2, '0')} Tháng ${mm.padStart(2, '0')} năm ${yyyy}`;
+    }
+  }
+  return `Ngày ${raw}`;
+}
+
 function createBlankCenterRecord(initialInfo?: Partial<CenterInfo>): VaccineCenterRecord {
   const mergedInfo: CenterInfo = {
     ...EMPTY_CENTER_INFO,
@@ -128,7 +159,7 @@ function createBlankCenterRecord(initialInfo?: Partial<CenterInfo>): VaccineCent
     handoverParty: {
       ...EMPTY_HANDOVER_PARTY,
       delivererName: mergedInfo.leader || '',
-      handoverDate: mergedInfo.openingDate || '',
+      handoverDate: '',
     },
     equipmentList: [],
     csvcSignageRows: DEFAULT_CSVC_SIGNAGE_ROWS.map((r) => ({ ...r })),
@@ -471,7 +502,24 @@ export const VaccineCenterSetupView: React.FC = () => {
 
   // Handover items for Tab 7 based on selected sub-tab
   const handoverItems = useMemo(() => {
-    return equipmentList.filter((item) => item.handoverGroup === handoverSubTab);
+    if (handoverSubTab === 'medicine') {
+      return equipmentList.filter((item) => item.tab === 'medicine');
+    }
+    if (handoverSubTab === 'injection_room') {
+      return equipmentList.filter((item) => {
+        if (item.tab !== 'admin') return false;
+        const t = (item.type || '').toLowerCase();
+        return t.includes('phòng tiêm') || t.includes('phong tiem');
+      });
+    }
+    if (handoverSubTab === 'equipment') {
+      return equipmentList.filter((item) => {
+        if (item.tab !== 'admin') return false;
+        const t = (item.type || '').toLowerCase();
+        return !t.includes('phòng tiêm') && !t.includes('phong tiem');
+      });
+    }
+    return [];
   }, [equipmentList, handoverSubTab]);
 
   // Handlers for Tab 1: Thông tin trung tâm
@@ -836,8 +884,7 @@ export const VaccineCenterSetupView: React.FC = () => {
               itemTab === 'medicine' ? 'medicine' : 'equipment';
             if (
               typeLower.includes('phòng tiêm') ||
-              typeLower.includes('phong tiem') ||
-              typeLower.includes('y tế')
+              typeLower.includes('phong tiem')
             ) {
               handoverGroup = 'injection_room';
             } else if (
@@ -2930,30 +2977,55 @@ export const VaccineCenterSetupView: React.FC = () => {
           </div>
 
           {/* Printable Handover Card */}
-          <div className="bg-white text-slate-900 rounded-2xl p-4 sm:p-8 border border-slate-200/90 space-y-5 print:shadow-none print:border-none print:p-0">
-            {/* Document Title & Subtitle */}
-            <div className="text-center pt-1 pb-2">
-              <h2 className="text-base sm:text-xl font-extrabold text-[#0f1e36] uppercase tracking-tight">
-                {getHandoverTitle(handoverSubTab)}
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                {centerInfo.code || centerInfo.address
-                  ? `${centerInfo.code ? `Mã TT: ${centerInfo.code}` : ''}${
-                      centerInfo.code && centerInfo.address ? ' — ' : ''
-                    }${centerInfo.address ? `Địa chỉ: ${centerInfo.address}` : ''}`
-                  : 'Mã Trung tâm, địa chỉ Trung tâm'}
-              </p>
+          <div className="bg-[#f7f6f1] text-slate-900 rounded-2xl p-4 sm:p-8 border border-slate-300/90 space-y-4">
+            {/* Document Header with FPT Retail & Long Châu Logo + Title (Matches IMG_0817) */}
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pt-1 pb-2">
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-col items-center">
+                  <div className="flex items-center gap-0.5">
+                    <span className="inline-block w-3 h-2.5 rounded-[2px] bg-[#00529b] -skew-x-12" />
+                    <span className="inline-block w-3 h-2.5 rounded-[2px] bg-[#f37021] -skew-x-12" />
+                    <span className="inline-block w-3 h-2.5 rounded-[2px] bg-[#50b848] -skew-x-12" />
+                  </div>
+                  <span className="text-[8px] font-extrabold text-[#00529b] tracking-tight mt-0.5">
+                    FPT Retail
+                  </span>
+                </div>
+                <div className="leading-none">
+                  <p className="text-[9px] font-extrabold text-[#00529b] tracking-tight uppercase">
+                    TRUNG TÂM TIÊM CHỦNG
+                  </p>
+                  <p className="text-sm sm:text-base font-black text-[#00529b] tracking-tight uppercase">
+                    LONG CHÂU
+                  </p>
+                </div>
+              </div>
+
+              <div className="text-center flex-1">
+                <h2 className="text-base sm:text-xl font-extrabold text-[#111827] uppercase tracking-tight">
+                  {getHandoverTitle(handoverSubTab)}
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                  {centerInfo.code || centerInfo.address
+                    ? `${centerInfo.code ? `Mã TT: ${centerInfo.code}` : ''}${
+                        centerInfo.code && centerInfo.address ? ' — ' : ''
+                      }${centerInfo.address ? `Địa chỉ: ${centerInfo.address}` : ''}`
+                    : 'Mã Trung tâm, địa chỉ Trung tâm'}
+                </p>
+              </div>
+
+              <div className="hidden sm:block w-36 shrink-0" />
             </div>
 
             {/* 1. BÊN BÀN GIAO */}
             <div className="space-y-2.5">
-              <h3 className="text-xs sm:text-sm font-extrabold uppercase tracking-wide text-[#0f1e36]">
+              <h3 className="text-xs sm:text-sm font-extrabold uppercase tracking-wide text-[#111827]">
                 1. BÊN BÀN GIAO
               </h3>
 
-              <div className="space-y-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs sm:text-sm text-slate-600 shrink-0">
+                  <span className="text-xs sm:text-sm text-slate-700 shrink-0">
                     Họ và tên:
                   </span>
                   <input
@@ -2969,12 +3041,13 @@ export const VaccineCenterSetupView: React.FC = () => {
                         },
                       }))
                     }
-                    className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#136f72]"
+                    placeholder="..........................."
+                    className="flex-1 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs sm:text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#136f72]"
                   />
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="text-xs sm:text-sm text-slate-600 shrink-0">
+                  <span className="text-xs sm:text-sm text-slate-700 shrink-0">
                     Số điện thoại:
                   </span>
                   <input
@@ -2990,29 +3063,30 @@ export const VaccineCenterSetupView: React.FC = () => {
                         },
                       }))
                     }
-                    className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-[#136f72]"
+                    placeholder="..........................."
+                    className="flex-1 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs sm:text-sm font-medium text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-[#136f72]"
                   />
                 </div>
+              </div>
 
-                <div className="flex items-center gap-2">
-                  <span className="text-xs sm:text-sm text-slate-600 shrink-0">
-                    Bộ phận:
-                  </span>
-                  <span className="inline-block px-3 py-1.5 rounded-lg bg-[#f6f5f0] text-slate-900 text-xs sm:text-sm font-medium">
-                    {handoverParty.delivererDept || 'Taskforce Vacxin Long Châu'}
-                  </span>
-                </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs sm:text-sm text-slate-700 shrink-0">
+                  Bộ phận:
+                </span>
+                <span className="inline-block px-2.5 py-1 rounded-lg bg-[#ecebe4] text-slate-900 text-xs sm:text-sm font-medium">
+                  {handoverParty.delivererDept || 'Taskforce Vacxin Long Châu'}
+                </span>
               </div>
             </div>
 
             {/* 2. BÊN NHẬN BÀN GIAO */}
             <div className="space-y-2.5">
-              <h3 className="text-xs sm:text-sm font-extrabold uppercase tracking-wide text-[#0f1e36]">
+              <h3 className="text-xs sm:text-sm font-extrabold uppercase tracking-wide text-[#111827]">
                 2. BÊN NHẬN BÀN GIAO
               </h3>
 
               <div className="flex flex-wrap items-center gap-2.5">
-                <span className="text-xs sm:text-sm text-slate-600">Bộ phận:</span>
+                <span className="text-xs sm:text-sm text-slate-700">Bộ phận:</span>
                 <select
                   disabled={isReadOnlyReview}
                   value={handoverParty.receiverDept}
@@ -3025,7 +3099,7 @@ export const VaccineCenterSetupView: React.FC = () => {
                       },
                     }))
                   }
-                  className="px-3 py-1.5 rounded-lg bg-[#f6f5f0] text-slate-900 text-xs sm:text-sm font-medium border border-slate-200/80"
+                  className="px-3 py-1.5 rounded-lg bg-white text-slate-900 text-xs sm:text-sm font-medium border border-slate-300"
                 >
                   <option value="Bác sĩ">Bác sĩ</option>
                   <option value="Điều dưỡng trưởng">Điều dưỡng trưởng</option>
@@ -3033,7 +3107,7 @@ export const VaccineCenterSetupView: React.FC = () => {
                   <option value="Quản lý trung tâm">Quản lý trung tâm</option>
                 </select>
 
-                <span className="text-xs sm:text-sm text-slate-600 ml-1">
+                <span className="text-xs sm:text-sm text-slate-700 ml-1">
                   Họ và tên:
                 </span>
                 <input
@@ -3049,10 +3123,11 @@ export const VaccineCenterSetupView: React.FC = () => {
                       },
                     }))
                   }
-                  className="flex-1 min-w-[160px] px-3 py-2 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#136f72]"
+                  placeholder="..........................."
+                  className="flex-1 min-w-[160px] px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs sm:text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#136f72]"
                 />
 
-                <span className="text-xs sm:text-sm text-slate-600">
+                <span className="text-xs sm:text-sm text-slate-700">
                   Số điện thoại:
                 </span>
                 <input
@@ -3068,14 +3143,15 @@ export const VaccineCenterSetupView: React.FC = () => {
                       },
                     }))
                   }
-                  className="w-full sm:w-auto flex-1 min-w-[160px] px-3 py-2 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-[#136f72]"
+                  placeholder="..........................."
+                  className="w-full sm:w-auto flex-1 min-w-[160px] px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs sm:text-sm font-medium text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-[#136f72]"
                 />
               </div>
             </div>
 
-            {/* Callout Box: Nội dung bàn giao */}
-            <div className="rounded-xl bg-[#e8f4f2] px-4 py-3 text-xs sm:text-sm text-slate-800 leading-relaxed">
-              <span className="font-bold">Nội dung bàn giao: </span>
+            {/* Nội dung bàn giao */}
+            <div className="text-xs sm:text-sm text-slate-900 leading-relaxed pt-1">
+              <span className="font-extrabold">Nội dung bàn giao: </span>
               <span>{getHandoverNoteText(handoverSubTab)}</span>
             </div>
 
@@ -3090,27 +3166,37 @@ export const VaccineCenterSetupView: React.FC = () => {
                     Các bảng biểu trong trung tâm
                   </h4>
 
-                  <div className="overflow-x-auto rounded-lg border border-slate-200">
+                  <div className="overflow-x-auto border border-slate-400">
                     <table className="w-full text-left border-collapse">
-                      <thead className="bg-[#0f243c] text-white text-xs font-bold">
+                      <thead className="bg-[#e6e5df] text-slate-900 text-xs font-extrabold">
                         <tr>
-                          <th className="py-2.5 px-2.5 w-10 text-center">STT</th>
-                          <th className="py-2.5 px-2.5">Tên sản phẩm</th>
-                          <th className="py-2.5 px-2 w-16 text-center">SL</th>
-                          <th className="py-2.5 px-2 w-16 text-center">ĐVT</th>
-                          <th className="py-2.5 px-2.5 w-28">Ghi chú</th>
+                          <th className="py-2 px-2 w-10 text-center border border-slate-400">
+                            STT
+                          </th>
+                          <th className="py-2 px-2.5 border border-slate-400">
+                            Tên sản phẩm
+                          </th>
+                          <th className="py-2 px-2 w-16 text-center border border-slate-400">
+                            SL
+                          </th>
+                          <th className="py-2 px-2 w-16 text-center border border-slate-400">
+                            ĐVT
+                          </th>
+                          <th className="py-2 px-2.5 w-28 border border-slate-400">
+                            Ghi chú
+                          </th>
                           {!isReadOnlyReview && (
-                            <th className="py-2.5 px-2 w-9 text-center print:hidden"></th>
+                            <th className="py-2 px-2 w-9 text-center border border-slate-400 print:hidden"></th>
                           )}
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-200 text-xs sm:text-sm">
+                      <tbody className="text-xs sm:text-sm">
                         {csvcSignageRows.map((row, idx) => (
-                          <tr key={row.id} className="hover:bg-slate-50/80">
-                            <td className="py-2.5 px-2 text-center text-slate-500 font-medium tabular-nums">
+                          <tr key={row.id} className="hover:bg-white/60">
+                            <td className="py-2 px-2 text-center text-slate-800 font-medium tabular-nums border border-slate-400">
                               {idx + 1}
                             </td>
-                            <td className="py-2 px-2.5">
+                            <td className="py-1.5 px-2 border border-slate-400">
                               <input
                                 type="text"
                                 readOnly={isReadOnlyReview}
@@ -3124,10 +3210,10 @@ export const VaccineCenterSetupView: React.FC = () => {
                                   )
                                 }
                                 placeholder="Nhập tên bảng biểu..."
-                                className="w-full bg-transparent text-slate-900 font-medium focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5"
+                                className="w-full bg-transparent text-slate-900 font-medium focus:outline-none focus:bg-white rounded px-1 py-0.5"
                               />
                             </td>
-                            <td className="py-2 px-1.5 text-center">
+                            <td className="py-1.5 px-1.5 text-center border border-slate-400">
                               <input
                                 type="number"
                                 min={0}
@@ -3141,10 +3227,10 @@ export const VaccineCenterSetupView: React.FC = () => {
                                     e.target.value === '' ? 0 : Number(e.target.value)
                                   )
                                 }
-                                className="w-14 px-1.5 py-1 text-center rounded-md border border-slate-200 text-slate-900 font-semibold tabular-nums"
+                                className="w-12 px-1 py-0.5 text-center rounded border border-slate-300 bg-white text-slate-900 font-semibold tabular-nums"
                               />
                             </td>
-                            <td className="py-2 px-1.5 text-center">
+                            <td className="py-1.5 px-1.5 text-center border border-slate-400">
                               <input
                                 type="text"
                                 readOnly={isReadOnlyReview}
@@ -3157,10 +3243,10 @@ export const VaccineCenterSetupView: React.FC = () => {
                                     e.target.value
                                   )
                                 }
-                                className="w-14 px-1 py-1 text-center rounded-md bg-transparent text-slate-700 focus:outline-none focus:border focus:border-slate-200"
+                                className="w-14 px-1 py-0.5 text-center rounded bg-transparent text-slate-800 focus:outline-none"
                               />
                             </td>
-                            <td className="py-2 px-2">
+                            <td className="py-1.5 px-2 border border-slate-400">
                               <input
                                 type="text"
                                 readOnly={isReadOnlyReview}
@@ -3174,11 +3260,11 @@ export const VaccineCenterSetupView: React.FC = () => {
                                   )
                                 }
                                 placeholder="Ghi chú"
-                                className="w-full px-2 py-1 rounded-md border border-slate-200 text-xs text-slate-700 placeholder:text-slate-300"
+                                className="w-full px-1.5 py-0.5 rounded bg-transparent text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:bg-white"
                               />
                             </td>
                             {!isReadOnlyReview && (
-                              <td className="py-2 px-1.5 text-center print:hidden">
+                              <td className="py-1.5 px-1.5 text-center border border-slate-400 print:hidden">
                                 <button
                                   type="button"
                                   onClick={() =>
@@ -3214,27 +3300,37 @@ export const VaccineCenterSetupView: React.FC = () => {
                     Dịch vụ kĩ thuật
                   </h4>
 
-                  <div className="overflow-x-auto rounded-lg border border-slate-200">
+                  <div className="overflow-x-auto border border-slate-400">
                     <table className="w-full text-left border-collapse">
-                      <thead className="bg-[#0f243c] text-white text-xs font-bold">
+                      <thead className="bg-[#e6e5df] text-slate-900 text-xs font-extrabold">
                         <tr>
-                          <th className="py-2.5 px-2.5 w-10 text-center">STT</th>
-                          <th className="py-2.5 px-2.5">Tên sản phẩm</th>
-                          <th className="py-2.5 px-2 w-16 text-center">SL</th>
-                          <th className="py-2.5 px-2 w-16 text-center">ĐVT</th>
-                          <th className="py-2.5 px-2.5 w-28">Ghi chú</th>
+                          <th className="py-2 px-2 w-10 text-center border border-slate-400">
+                            STT
+                          </th>
+                          <th className="py-2 px-2.5 border border-slate-400">
+                            Tên sản phẩm
+                          </th>
+                          <th className="py-2 px-2 w-16 text-center border border-slate-400">
+                            SL
+                          </th>
+                          <th className="py-2 px-2 w-16 text-center border border-slate-400">
+                            ĐVT
+                          </th>
+                          <th className="py-2 px-2.5 w-28 border border-slate-400">
+                            Ghi chú
+                          </th>
                           {!isReadOnlyReview && (
-                            <th className="py-2.5 px-2 w-9 text-center print:hidden"></th>
+                            <th className="py-2 px-2 w-9 text-center border border-slate-400 print:hidden"></th>
                           )}
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-200 text-xs sm:text-sm">
+                      <tbody className="text-xs sm:text-sm">
                         {csvcTechRows.map((row, idx) => (
-                          <tr key={row.id} className="hover:bg-slate-50/80">
-                            <td className="py-2.5 px-2 text-center text-slate-500 font-medium tabular-nums">
+                          <tr key={row.id} className="hover:bg-white/60">
+                            <td className="py-2 px-2 text-center text-slate-800 font-medium tabular-nums border border-slate-400">
                               {idx + 1}
                             </td>
-                            <td className="py-2 px-2.5">
+                            <td className="py-1.5 px-2 border border-slate-400">
                               <input
                                 type="text"
                                 readOnly={isReadOnlyReview}
@@ -3248,10 +3344,10 @@ export const VaccineCenterSetupView: React.FC = () => {
                                   )
                                 }
                                 placeholder="Nhập tên thiết bị kĩ thuật..."
-                                className="w-full bg-transparent text-slate-900 font-medium focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5"
+                                className="w-full bg-transparent text-slate-900 font-medium focus:outline-none focus:bg-white rounded px-1 py-0.5"
                               />
                             </td>
-                            <td className="py-2 px-1.5 text-center">
+                            <td className="py-1.5 px-1.5 text-center border border-slate-400">
                               <input
                                 type="number"
                                 min={0}
@@ -3265,10 +3361,10 @@ export const VaccineCenterSetupView: React.FC = () => {
                                     e.target.value === '' ? 0 : Number(e.target.value)
                                   )
                                 }
-                                className="w-14 px-1.5 py-1 text-center rounded-md border border-slate-200 text-slate-900 font-semibold tabular-nums"
+                                className="w-12 px-1 py-0.5 text-center rounded border border-slate-300 bg-white text-slate-900 font-semibold tabular-nums"
                               />
                             </td>
-                            <td className="py-2 px-1.5 text-center">
+                            <td className="py-1.5 px-1.5 text-center border border-slate-400">
                               <input
                                 type="text"
                                 readOnly={isReadOnlyReview}
@@ -3281,10 +3377,10 @@ export const VaccineCenterSetupView: React.FC = () => {
                                     e.target.value
                                   )
                                 }
-                                className="w-14 px-1 py-1 text-center rounded-md bg-transparent text-slate-700 focus:outline-none focus:border focus:border-slate-200"
+                                className="w-14 px-1 py-0.5 text-center rounded bg-transparent text-slate-800 focus:outline-none"
                               />
                             </td>
-                            <td className="py-2 px-2">
+                            <td className="py-1.5 px-2 border border-slate-400">
                               <input
                                 type="text"
                                 readOnly={isReadOnlyReview}
@@ -3298,11 +3394,11 @@ export const VaccineCenterSetupView: React.FC = () => {
                                   )
                                 }
                                 placeholder="Ghi chú"
-                                className="w-full px-2 py-1 rounded-md border border-slate-200 text-xs text-slate-700 placeholder:text-slate-300"
+                                className="w-full px-1.5 py-0.5 rounded bg-transparent text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:bg-white"
                               />
                             </td>
                             {!isReadOnlyReview && (
-                              <td className="py-2 px-1.5 text-center print:hidden">
+                              <td className="py-1.5 px-1.5 text-center border border-slate-400 print:hidden">
                                 <button
                                   type="button"
                                   onClick={() =>
@@ -3339,183 +3435,286 @@ export const VaccineCenterSetupView: React.FC = () => {
             {/* =============================================================== */}
             {handoverSubTab === 'injection_room' && (
               <div className="space-y-2.5">
-                <h4 className="text-sm sm:text-base font-extrabold text-[#0f1e36]">
-                  Danh mục thiết bị phòng tiêm
-                </h4>
-
-                <div className="overflow-x-auto rounded-lg border border-slate-200">
-                  <table className="w-full text-left border-collapse">
-                    <thead className="bg-[#0f243c] text-white text-xs font-bold">
-                      <tr>
-                        <th className="py-2.5 px-2.5 w-10 text-center">STT</th>
-                        <th className="py-2.5 px-2.5">Tên sản phẩm</th>
-                        <th className="py-2.5 px-2 w-16 text-center">SL</th>
-                        <th className="py-2.5 px-2 w-16 text-center">ĐVT</th>
-                        <th className="py-2.5 px-2.5 w-28">Ghi chú</th>
-                        {!isReadOnlyReview && (
-                          <th className="py-2.5 px-2 w-9 text-center print:hidden"></th>
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 text-xs sm:text-sm">
-                      {injectionRoomRows.map((row, idx) => (
-                        <tr key={row.id} className="hover:bg-slate-50/80">
-                          <td className="py-2.5 px-2 text-center text-slate-500 font-medium tabular-nums">
-                            {idx + 1}
-                          </td>
-                          <td className="py-2 px-2.5">
-                            <input
-                              type="text"
-                              readOnly={isReadOnlyReview}
-                              value={row.name}
-                              onChange={(e) =>
-                                handleUpdateCsvcRow(
-                                  'injectionRoomRows',
-                                  row.id,
-                                  'name',
-                                  e.target.value
-                                )
-                              }
-                              placeholder="Nhập tên thiết bị phòng tiêm..."
-                              className="w-full bg-transparent text-slate-900 font-medium focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5"
-                            />
-                          </td>
-                          <td className="py-2 px-1.5 text-center">
-                            <input
-                              type="number"
-                              min={0}
-                              readOnly={isReadOnlyReview}
-                              value={row.qty}
-                              onChange={(e) =>
-                                handleUpdateCsvcRow(
-                                  'injectionRoomRows',
-                                  row.id,
-                                  'qty',
-                                  e.target.value === '' ? 0 : Number(e.target.value)
-                                )
-                              }
-                              className="w-14 px-1.5 py-1 text-center rounded-md border border-slate-200 text-slate-900 font-semibold tabular-nums"
-                            />
-                          </td>
-                          <td className="py-2 px-1.5 text-center">
-                            <input
-                              type="text"
-                              readOnly={isReadOnlyReview}
-                              value={row.unit}
-                              onChange={(e) =>
-                                handleUpdateCsvcRow(
-                                  'injectionRoomRows',
-                                  row.id,
-                                  'unit',
-                                  e.target.value
-                                )
-                              }
-                              className="w-14 px-1 py-1 text-center rounded-md bg-transparent text-slate-700 focus:outline-none focus:border focus:border-slate-200"
-                            />
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
-                              type="text"
-                              readOnly={isReadOnlyReview}
-                              value={row.note}
-                              onChange={(e) =>
-                                handleUpdateCsvcRow(
-                                  'injectionRoomRows',
-                                  row.id,
-                                  'note',
-                                  e.target.value
-                                )
-                              }
-                              placeholder="Ghi chú"
-                              className="w-full px-2 py-1 rounded-md border border-slate-200 text-xs text-slate-700 placeholder:text-slate-300"
-                            />
-                          </td>
-                          {!isReadOnlyReview && (
-                            <td className="py-2 px-1.5 text-center print:hidden">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleDeleteCsvcRow('injectionRoomRows', row.id)
-                                }
-                                className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
-                                title="Xóa dòng"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </td>
-                          )}
+                {handoverItems.length > 0 ? (
+                  <div className="overflow-x-auto border border-slate-400">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="bg-[#e6e5df] text-slate-900 text-xs font-extrabold">
+                        <tr>
+                          <th className="py-2 px-2 w-10 text-center border border-slate-400">
+                            STT
+                          </th>
+                          <th className="py-2 px-2 w-28 border border-slate-400">
+                            Loại
+                          </th>
+                          <th className="py-2 px-2.5 border border-slate-400">
+                            Tên sản phẩm
+                          </th>
+                          <th className="py-2 px-2 w-14 text-center border border-slate-400">
+                            ĐVT
+                          </th>
+                          <th className="py-2 px-2 w-14 text-center border border-slate-400">
+                            SL cấp
+                          </th>
+                          <th className="py-2 px-2 w-16 text-center border border-slate-400">
+                            SL nhận
+                          </th>
+                          <th className="py-2 px-2 w-24 border border-slate-400">
+                            Ghi chú
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody className="text-xs sm:text-sm">
+                        {handoverItems.map((item, idx) => (
+                          <tr key={item.id} className="hover:bg-white/60">
+                            <td className="py-2 px-2 text-center font-medium text-slate-800 tabular-nums border border-slate-400">
+                              {idx + 1}
+                            </td>
+                            <td className="py-2 px-2 text-slate-800 border border-slate-400">
+                              {item.type}
+                            </td>
+                            <td className="py-2 px-2.5 font-medium text-slate-900 border border-slate-400">
+                              {item.name}
+                            </td>
+                            <td className="py-2 px-1.5 text-center text-slate-800 border border-slate-400">
+                              {item.unit}
+                            </td>
+                            <td className="py-2 px-1.5 text-center font-medium text-slate-900 tabular-nums border border-slate-400">
+                              {item.requiredQty}
+                            </td>
+                            <td className="py-1.5 px-1.5 text-center border border-slate-400">
+                              <input
+                                type="number"
+                                min={0}
+                                readOnly={isReadOnlyReview}
+                                value={item.actualQty === null ? '' : item.actualQty}
+                                onChange={(e) =>
+                                  handleActualQtyChange(item.id, e.target.value)
+                                }
+                                className="w-12 px-1 py-0.5 text-center rounded border border-slate-300 bg-white font-semibold text-slate-900 tabular-nums"
+                              />
+                            </td>
+                            <td className="py-1.5 px-2 border border-slate-400">
+                              <input
+                                type="text"
+                                readOnly={isReadOnlyReview}
+                                value={item.note}
+                                onChange={(e) =>
+                                  handleItemNoteChange(item.id, e.target.value)
+                                }
+                                placeholder={getHandoverItemNoteDisplay(item)}
+                                className="w-full px-1 py-0.5 bg-transparent text-xs text-slate-800 placeholder:text-slate-700 focus:outline-none focus:bg-white"
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <>
+                    <div className="overflow-x-auto border border-slate-400">
+                      <table className="w-full text-left border-collapse">
+                        <thead className="bg-[#e6e5df] text-slate-900 text-xs font-extrabold">
+                          <tr>
+                            <th className="py-2 px-2 w-10 text-center border border-slate-400">
+                              STT
+                            </th>
+                            <th className="py-2 px-2.5 border border-slate-400">
+                              Tên sản phẩm
+                            </th>
+                            <th className="py-2 px-2 w-16 text-center border border-slate-400">
+                              SL
+                            </th>
+                            <th className="py-2 px-2 w-16 text-center border border-slate-400">
+                              ĐVT
+                            </th>
+                            <th className="py-2 px-2.5 w-28 border border-slate-400">
+                              Ghi chú
+                            </th>
+                            {!isReadOnlyReview && (
+                              <th className="py-2 px-2 w-9 text-center border border-slate-400 print:hidden"></th>
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody className="text-xs sm:text-sm">
+                          {injectionRoomRows.map((row, idx) => (
+                            <tr key={row.id} className="hover:bg-white/60">
+                              <td className="py-2 px-2 text-center text-slate-800 font-medium tabular-nums border border-slate-400">
+                                {idx + 1}
+                              </td>
+                              <td className="py-1.5 px-2 border border-slate-400">
+                                <input
+                                  type="text"
+                                  readOnly={isReadOnlyReview}
+                                  value={row.name}
+                                  onChange={(e) =>
+                                    handleUpdateCsvcRow(
+                                      'injectionRoomRows',
+                                      row.id,
+                                      'name',
+                                      e.target.value
+                                    )
+                                  }
+                                  placeholder="Nhập tên thiết bị phòng tiêm..."
+                                  className="w-full bg-transparent text-slate-900 font-medium focus:outline-none focus:bg-white rounded px-1 py-0.5"
+                                />
+                              </td>
+                              <td className="py-1.5 px-1.5 text-center border border-slate-400">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  readOnly={isReadOnlyReview}
+                                  value={row.qty}
+                                  onChange={(e) =>
+                                    handleUpdateCsvcRow(
+                                      'injectionRoomRows',
+                                      row.id,
+                                      'qty',
+                                      e.target.value === '' ? 0 : Number(e.target.value)
+                                    )
+                                  }
+                                  className="w-12 px-1 py-0.5 text-center rounded border border-slate-300 bg-white text-slate-900 font-semibold tabular-nums"
+                                />
+                              </td>
+                              <td className="py-1.5 px-1.5 text-center border border-slate-400">
+                                <input
+                                  type="text"
+                                  readOnly={isReadOnlyReview}
+                                  value={row.unit}
+                                  onChange={(e) =>
+                                    handleUpdateCsvcRow(
+                                      'injectionRoomRows',
+                                      row.id,
+                                      'unit',
+                                      e.target.value
+                                    )
+                                  }
+                                  className="w-14 px-1 py-0.5 text-center rounded bg-transparent text-slate-800 focus:outline-none"
+                                />
+                              </td>
+                              <td className="py-1.5 px-2 border border-slate-400">
+                                <input
+                                  type="text"
+                                  readOnly={isReadOnlyReview}
+                                  value={row.note}
+                                  onChange={(e) =>
+                                    handleUpdateCsvcRow(
+                                      'injectionRoomRows',
+                                      row.id,
+                                      'note',
+                                      e.target.value
+                                    )
+                                  }
+                                  placeholder="Ghi chú"
+                                  className="w-full px-1.5 py-0.5 rounded bg-transparent text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:bg-white"
+                                />
+                              </td>
+                              {!isReadOnlyReview && (
+                                <td className="py-1.5 px-1.5 text-center border border-slate-400 print:hidden">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleDeleteCsvcRow('injectionRoomRows', row.id)
+                                    }
+                                    className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
+                                    title="Xóa dòng"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
 
-                {!isReadOnlyReview && (
-                  <button
-                    type="button"
-                    onClick={() => handleAddCsvcRow('injectionRoomRows')}
-                    className="px-3.5 py-1.5 rounded-lg border border-dashed border-[#0d7377] text-[#0d7377] hover:bg-teal-50/50 text-xs font-bold transition-colors cursor-pointer print:hidden"
-                  >
-                    + Thêm dòng
-                  </button>
+                    {!isReadOnlyReview && (
+                      <button
+                        type="button"
+                        onClick={() => handleAddCsvcRow('injectionRoomRows')}
+                        className="px-3.5 py-1.5 rounded-lg border border-dashed border-[#0d7377] text-[#0d7377] hover:bg-teal-50/50 text-xs font-bold transition-colors cursor-pointer print:hidden"
+                      >
+                        + Thêm dòng
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             )}
 
             {/* =============================================================== */}
-            {/* SUB-TABS: TRANG THIẾT BỊ & DANH MỤC THUỐC (FROM EXCEL UPLOAD)   */}
+            {/* SUB-TABS: TRANG THIẾT BỊ & DANH MỤC THUỐC (MATCHES IMG_0817)    */}
             {/* =============================================================== */}
             {(handoverSubTab === 'equipment' || handoverSubTab === 'medicine') && (
-              <div className="overflow-x-auto rounded-lg border border-slate-200">
+              <div className="overflow-x-auto border border-slate-400">
                 <table className="w-full text-left border-collapse">
-                  <thead className="bg-[#0f243c] text-white text-xs font-bold">
+                  <thead className="bg-[#e6e5df] text-slate-900 text-xs font-extrabold">
                     <tr>
-                      <th className="py-2.5 px-2.5 w-10 text-center">STT</th>
-                      <th className="py-2.5 px-2.5">Tên sản phẩm</th>
-                      <th className="py-2.5 px-2 w-16 text-center">SL</th>
-                      <th className="py-2.5 px-2 w-16 text-center">ĐVT</th>
-                      <th className="py-2.5 px-2.5 w-32">Ghi chú</th>
+                      <th className="py-2 px-2 w-10 text-center border border-slate-400">
+                        STT
+                      </th>
+                      <th className="py-2 px-2 w-28 border border-slate-400">
+                        Loại
+                      </th>
+                      <th className="py-2 px-2.5 border border-slate-400">
+                        Tên sản phẩm
+                      </th>
+                      <th className="py-2 px-2 w-14 text-center border border-slate-400">
+                        ĐVT
+                      </th>
+                      <th className="py-2 px-2 w-14 text-center border border-slate-400">
+                        SL cấp
+                      </th>
+                      <th className="py-2 px-2 w-16 text-center border border-slate-400">
+                        SL nhận
+                      </th>
+                      <th className="py-2 px-2 w-24 border border-slate-400">
+                        Ghi chú
+                      </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200 text-xs sm:text-sm">
+                  <tbody className="text-xs sm:text-sm">
                     {handoverItems.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={5}
-                          className="py-10 px-4 text-center text-slate-400 italic"
+                          colSpan={7}
+                          className="py-10 px-4 text-center text-slate-500 italic border border-slate-400"
                         >
                           Chưa có dữ liệu bàn giao — dữ liệu sẽ tự động hiển thị sau khi tải file Excel tại mục &ldquo;Trang thiết bị&rdquo;.
                         </td>
                       </tr>
                     ) : (
                       handoverItems.map((item, idx) => (
-                        <tr key={item.id} className="hover:bg-slate-50">
-                          <td className="py-2.5 px-2 text-center font-medium text-slate-500 tabular-nums">
+                        <tr key={item.id} className="hover:bg-white/60">
+                          <td className="py-2 px-2 text-center font-medium text-slate-800 tabular-nums border border-slate-400">
                             {idx + 1}
                           </td>
-                          <td className="py-2 px-2.5 font-medium text-slate-900">
+                          <td className="py-2 px-2 text-slate-800 border border-slate-400">
+                            {item.type}
+                          </td>
+                          <td className="py-2 px-2.5 font-medium text-slate-900 border border-slate-400">
                             {item.name}
                           </td>
-                          <td className="py-2 px-1.5 text-center">
+                          <td className="py-2 px-1.5 text-center text-slate-800 border border-slate-400">
+                            {item.unit}
+                          </td>
+                          <td className="py-2 px-1.5 text-center font-medium text-slate-900 tabular-nums border border-slate-400">
+                            {item.requiredQty}
+                          </td>
+                          <td className="py-1.5 px-1.5 text-center border border-slate-400">
                             <input
                               type="number"
                               min={0}
                               readOnly={isReadOnlyReview}
-                              value={
-                                item.actualQty === null
-                                  ? item.requiredQty
-                                  : item.actualQty
-                              }
+                              value={item.actualQty === null ? '' : item.actualQty}
                               onChange={(e) =>
                                 handleActualQtyChange(item.id, e.target.value)
                               }
-                              className="w-14 px-1.5 py-1 text-center rounded-md border border-slate-200 font-semibold text-slate-900 tabular-nums"
+                              className="w-12 px-1 py-0.5 text-center rounded border border-slate-300 bg-white font-semibold text-slate-900 tabular-nums"
                             />
                           </td>
-                          <td className="py-2 px-1.5 text-center text-slate-700">
-                            {item.unit}
-                          </td>
-                          <td className="py-2 px-2">
+                          <td className="py-1.5 px-2 border border-slate-400">
                             <input
                               type="text"
                               readOnly={isReadOnlyReview}
@@ -3523,8 +3722,8 @@ export const VaccineCenterSetupView: React.FC = () => {
                               onChange={(e) =>
                                 handleItemNoteChange(item.id, e.target.value)
                               }
-                              placeholder="Ghi chú"
-                              className="w-full px-2 py-1 rounded-md border border-slate-200 text-xs text-slate-700 placeholder:text-slate-300"
+                              placeholder={getHandoverItemNoteDisplay(item)}
+                              className="w-full px-1 py-0.5 bg-transparent text-xs text-slate-800 placeholder:text-slate-800 focus:outline-none focus:bg-white"
                             />
                           </td>
                         </tr>
@@ -3536,85 +3735,91 @@ export const VaccineCenterSetupView: React.FC = () => {
             )}
 
             {/* =============================================================== */}
-            {/* HANDOVER FOOTER: NOTE, DATE & 4-PARTY SIGNATURE GRID (IMG_0759) */}
+            {/* HANDOVER FOOTER: NOTE, DATE & 4-PARTY SIGNATURE ROW (IMG_0819)  */}
             {/* =============================================================== */}
-            <div className="pt-2 space-y-4">
-              <p className="text-xs sm:text-sm italic text-slate-500 leading-relaxed">
+            <div className="pt-2 space-y-3">
+              <p className="text-xs sm:text-sm italic text-slate-700 leading-relaxed">
                 Người xác nhận phải bàn giao đầy đủ các hạng mục nếu có trường hợp chuyển shop hoặc thay đổi công việc
               </p>
 
-              <div className="flex items-center gap-2.5">
-                <span className="text-xs sm:text-sm text-slate-600">
-                  Ngày lập biên bản:
-                </span>
-                <div className="relative">
-                  <input
-                    type="text"
-                    readOnly={isReadOnlyReview}
-                    value={handoverParty.handoverDate ?? centerInfo.openingDate ?? ''}
-                    onChange={(e) =>
-                      updateSelectedCenter((prev) => ({
-                        ...prev,
-                        handoverParty: {
-                          ...prev.handoverParty,
-                          handoverDate: e.target.value,
-                        },
-                      }))
-                    }
-                    placeholder="dd/mm/yyyy"
-                    className="w-40 px-3 py-1.5 pr-8 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-[#136f72]"
-                  />
-                  <Calendar className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 print:hidden">
+                  <span className="text-xs sm:text-sm text-slate-600">
+                    Ngày lập biên bản:
+                  </span>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      readOnly={isReadOnlyReview}
+                      value={handoverParty.handoverDate ?? ''}
+                      onChange={(e) =>
+                        updateSelectedCenter((prev) => ({
+                          ...prev,
+                          handoverParty: {
+                            ...prev.handoverParty,
+                            handoverDate: e.target.value,
+                          },
+                        }))
+                      }
+                      placeholder="dd/mm/yyyy"
+                      className="w-36 px-3 py-1 pr-8 rounded-lg border border-slate-300 bg-white text-xs sm:text-sm font-medium text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-[#136f72]"
+                    />
+                    <Calendar className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
                 </div>
+
+                <p className="text-xs sm:text-sm text-slate-800 ml-auto">
+                  {formatHandoverDatePrintLine(handoverParty.handoverDate)}
+                </p>
               </div>
 
-              {/* 2x2 Signature Grid matching IMG_0759 */}
-              <div className="grid grid-cols-2 gap-x-6 gap-y-10 pt-3 text-center">
+              {/* 4-Column Signature Row matching IMG_0819 */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-3 pb-8 text-center">
                 <div>
-                  <p className="text-xs sm:text-sm font-extrabold text-[#0f1e36]">
+                  <p className="text-xs sm:text-sm font-extrabold text-[#111827]">
                     Bên bàn giao
                   </p>
-                  <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
+                  <p className="text-[11px] sm:text-xs italic text-slate-500 mt-0.5">
                     Ký và ghi rõ họ tên
                   </p>
                   <div className="h-14" />
-                  <p className="text-xs font-bold text-slate-800">
+                  <p className="text-xs font-bold text-slate-900">
                     {handoverParty.delivererName}
                   </p>
                 </div>
 
                 <div>
-                  <p className="text-xs sm:text-sm font-extrabold text-[#0f1e36]">
+                  <p className="text-xs sm:text-sm font-extrabold text-[#111827]">
                     Bác sĩ TTTC Long Châu
                   </p>
-                  <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
+                  <p className="text-[11px] sm:text-xs italic text-slate-500 mt-0.5">
                     Ký và ghi rõ họ tên
                   </p>
                   <div className="h-14" />
                 </div>
 
                 <div>
-                  <p className="text-xs sm:text-sm font-extrabold text-[#0f1e36]">
+                  <p className="text-xs sm:text-sm font-extrabold text-[#111827]">
                     ASM
                   </p>
-                  <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
+                  <p className="text-[11px] sm:text-xs italic text-slate-500 mt-0.5">
                     Ký và ghi rõ họ tên
                   </p>
                   <div className="h-14" />
-                  <p className="text-xs font-bold text-slate-800">
+                  <p className="text-xs font-bold text-slate-900">
                     {centerInfo.asm}
                   </p>
                 </div>
 
                 <div>
-                  <p className="text-xs sm:text-sm font-extrabold text-[#0f1e36]">
+                  <p className="text-xs sm:text-sm font-extrabold text-[#111827]">
                     Bên nhận bàn giao
                   </p>
-                  <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
+                  <p className="text-[11px] sm:text-xs italic text-slate-500 mt-0.5">
                     Ký và ghi rõ họ tên
                   </p>
                   <div className="h-14" />
-                  <p className="text-xs font-bold text-slate-800">
+                  <p className="text-xs font-bold text-slate-900">
                     {handoverParty.receiverName}
                   </p>
                 </div>
@@ -3623,6 +3828,525 @@ export const VaccineCenterSetupView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ===================================================================== */}
+      {/* DEDICATED A4 PRINT PORTAL (Matches IMG_0817 & IMG_0819 100%)          */}
+      {/* ===================================================================== */}
+      {typeof document !== 'undefined' &&
+        createPortal(
+          <>
+            <style>{`
+              @media screen {
+                #tttc-a4-print-portal {
+                  display: none !important;
+                }
+              }
+              @media print {
+                @page {
+                  size: A4 portrait;
+                  margin: 10mm 10mm 12mm 10mm;
+                }
+                html, body {
+                  background: #f6f5ef !important;
+                  color: #1f2937 !important;
+                  margin: 0 !important;
+                  padding: 0 !important;
+                  -webkit-print-color-adjust: exact !important;
+                  print-color-adjust: exact !important;
+                }
+                #root {
+                  display: none !important;
+                }
+                #tttc-a4-print-portal {
+                  display: block !important;
+                  width: 100% !important;
+                  background: #f6f5ef !important;
+                  color: #1f2937 !important;
+                  padding: 6px 8px !important;
+                  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+                  font-size: 12px !important;
+                  line-height: 1.4 !important;
+                }
+                #tttc-a4-print-portal table {
+                  width: 100% !important;
+                  border-collapse: collapse !important;
+                  page-break-inside: auto !important;
+                }
+                #tttc-a4-print-portal thead {
+                  display: table-header-group !important;
+                }
+                #tttc-a4-print-portal tr {
+                  page-break-inside: avoid !important;
+                  page-break-after: auto !important;
+                }
+                #tttc-a4-print-portal th,
+                #tttc-a4-print-portal td {
+                  border: 1px solid #9ca3af !important;
+                  padding: 6px 7px !important;
+                  vertical-align: middle !important;
+                  font-size: 11px !important;
+                  color: #1f2937 !important;
+                }
+                #tttc-a4-print-portal th {
+                  background-color: #e6e5df !important;
+                  font-weight: 700 !important;
+                  text-align: left !important;
+                }
+              }
+            `}</style>
+
+            <div id="tttc-a4-print-portal">
+              {/* Top A4 Header: FPT Retail + Long Châu Logo on Left, Title Centered */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  justifyContent: 'space-between',
+                  marginBottom: '14px',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    width: '175px',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: '2px' }}>
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          width: '10px',
+                          height: '8px',
+                          backgroundColor: '#00529b',
+                          borderRadius: '1px',
+                          transform: 'skewX(-12deg)',
+                        }}
+                      />
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          width: '10px',
+                          height: '8px',
+                          backgroundColor: '#f37021',
+                          borderRadius: '1px',
+                          transform: 'skewX(-12deg)',
+                        }}
+                      />
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          width: '10px',
+                          height: '8px',
+                          backgroundColor: '#50b848',
+                          borderRadius: '1px',
+                          transform: 'skewX(-12deg)',
+                        }}
+                      />
+                    </div>
+                    <span
+                      style={{
+                        fontSize: '7px',
+                        fontWeight: 800,
+                        color: '#00529b',
+                        marginTop: '2px',
+                      }}
+                    >
+                      FPT Retail
+                    </span>
+                  </div>
+                  <div style={{ lineHeight: 1.05 }}>
+                    <div
+                      style={{
+                        fontSize: '8px',
+                        fontWeight: 800,
+                        color: '#00529b',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      TRUNG TÂM TIÊM CHỦNG
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '14px',
+                        fontWeight: 900,
+                        color: '#00529b',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      LONG CHÂU
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ flex: 1, textAlign: 'center' }}>
+                  <div
+                    style={{
+                      fontSize: '16px',
+                      fontWeight: 800,
+                      color: '#111827',
+                      textTransform: 'uppercase',
+                      letterSpacing: '-0.01em',
+                    }}
+                  >
+                    {getHandoverTitle(handoverSubTab)}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: '11.5px',
+                      color: '#6b7280',
+                      marginTop: '2px',
+                    }}
+                  >
+                    {centerInfo.code || centerInfo.address
+                      ? `${centerInfo.code ? `Mã TT: ${centerInfo.code}` : ''}${
+                          centerInfo.code && centerInfo.address ? ' — ' : ''
+                        }${centerInfo.address ? `Địa chỉ: ${centerInfo.address}` : ''}`
+                      : 'Mã Trung tâm, địa chỉ Trung tâm'}
+                  </div>
+                </div>
+
+                <div style={{ width: '90px' }} />
+              </div>
+
+              {/* 1. BÊN BÀN GIAO */}
+              <div style={{ marginBottom: '10px' }}>
+                <div
+                  style={{
+                    fontSize: '13px',
+                    fontWeight: 800,
+                    color: '#111827',
+                    marginBottom: '6px',
+                  }}
+                >
+                  1. BÊN BÀN GIAO
+                </div>
+                <div
+                  style={{
+                    fontSize: '12.5px',
+                    color: '#1f2937',
+                    marginBottom: '6px',
+                  }}
+                >
+                  <span>
+                    Họ và tên:{' '}
+                    {handoverParty.delivererName?.trim()
+                      ? handoverParty.delivererName
+                      : '...........................'}
+                  </span>
+                  <span style={{ marginLeft: '24px' }}>
+                    Số điện thoại:{' '}
+                    {handoverParty.delivererPhone?.trim()
+                      ? handoverParty.delivererPhone
+                      : '...........................'}
+                  </span>
+                </div>
+                <div style={{ fontSize: '12.5px', color: '#1f2937' }}>
+                  Bộ phận: {handoverParty.delivererDept || 'Taskforce Vacxin Long Châu'}
+                </div>
+              </div>
+
+              {/* 2. BÊN NHẬN BÀN GIAO */}
+              <div style={{ marginBottom: '10px' }}>
+                <div
+                  style={{
+                    fontSize: '13px',
+                    fontWeight: 800,
+                    color: '#111827',
+                    marginBottom: '6px',
+                  }}
+                >
+                  2. BÊN NHẬN BÀN GIAO
+                </div>
+                <div style={{ fontSize: '12.5px', color: '#1f2937' }}>
+                  <span>Bộ phận: {handoverParty.receiverDept || 'Bác sĩ'}</span>
+                  <span style={{ marginLeft: '16px' }}>
+                    Họ và tên:{' '}
+                    {handoverParty.receiverName?.trim()
+                      ? handoverParty.receiverName
+                      : '...........................'}
+                  </span>
+                  <span style={{ marginLeft: '16px' }}>
+                    Số điện thoại:{' '}
+                    {handoverParty.receiverPhone?.trim()
+                      ? handoverParty.receiverPhone
+                      : '...........................'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Nội dung bàn giao */}
+              <div
+                style={{
+                  fontSize: '12.5px',
+                  color: '#1f2937',
+                  marginBottom: '10px',
+                  lineHeight: 1.45,
+                }}
+              >
+                <strong style={{ fontWeight: 800 }}>Nội dung bàn giao: </strong>
+                <span>{getHandoverNoteText(handoverSubTab)}</span>
+              </div>
+
+              {/* A4 Tables by Sub-Tab */}
+              {handoverSubTab === 'csvc' ? (
+                <div>
+                  <div
+                    style={{
+                      fontSize: '13px',
+                      fontWeight: 800,
+                      color: '#111827',
+                      margin: '8px 0 6px 0',
+                    }}
+                  >
+                    Các bảng biểu trong trung tâm
+                  </div>
+                  <table style={{ marginBottom: '14px' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: '34px' }}>STT</th>
+                        <th>Tên sản phẩm</th>
+                        <th style={{ width: '44px' }}>SL</th>
+                        <th style={{ width: '50px' }}>ĐVT</th>
+                        <th style={{ width: '90px' }}>Ghi chú</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {csvcSignageRows.map((row, idx) => (
+                        <tr key={row.id}>
+                          <td>{idx + 1}</td>
+                          <td>{row.name}</td>
+                          <td>{row.qty}</td>
+                          <td>{row.unit}</td>
+                          <td>{row.note || ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <div
+                    style={{
+                      fontSize: '13px',
+                      fontWeight: 800,
+                      color: '#111827',
+                      margin: '10px 0 6px 0',
+                    }}
+                  >
+                    Dịch vụ kĩ thuật
+                  </div>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th style={{ width: '34px' }}>STT</th>
+                        <th>Tên sản phẩm</th>
+                        <th style={{ width: '44px' }}>SL</th>
+                        <th style={{ width: '50px' }}>ĐVT</th>
+                        <th style={{ width: '90px' }}>Ghi chú</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {csvcTechRows.map((row, idx) => (
+                        <tr key={row.id}>
+                          <td>{idx + 1}</td>
+                          <td>{row.name}</td>
+                          <td>{row.qty}</td>
+                          <td>{row.unit}</td>
+                          <td>{row.note || ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : handoverSubTab === 'injection_room' && handoverItems.length === 0 ? (
+                <table>
+                  <thead>
+                    <tr>
+                      <th style={{ width: '34px' }}>STT</th>
+                      <th>Tên sản phẩm</th>
+                      <th style={{ width: '44px' }}>SL</th>
+                      <th style={{ width: '50px' }}>ĐVT</th>
+                      <th style={{ width: '90px' }}>Ghi chú</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {injectionRoomRows.map((row, idx) => (
+                      <tr key={row.id}>
+                        <td>{idx + 1}</td>
+                        <td>{row.name}</td>
+                        <td>{row.qty}</td>
+                        <td>{row.unit}</td>
+                        <td>{row.note || ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <table>
+                  <thead>
+                    <tr>
+                      <th style={{ width: '32px' }}>STT</th>
+                      <th style={{ width: '92px' }}>Loại</th>
+                      <th>Tên sản phẩm</th>
+                      <th style={{ width: '42px' }}>ĐVT</th>
+                      <th style={{ width: '40px' }}>SL cấp</th>
+                      <th style={{ width: '44px' }}>SL nhận</th>
+                      <th style={{ width: '58px' }}>Ghi chú</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {handoverItems.map((item, idx) => (
+                      <tr key={item.id}>
+                        <td>{idx + 1}</td>
+                        <td>{item.type}</td>
+                        <td>{item.name}</td>
+                        <td>{item.unit}</td>
+                        <td>{item.requiredQty}</td>
+                        <td>
+                          {item.actualQty !== null && item.actualQty !== undefined
+                            ? item.actualQty
+                            : ''}
+                        </td>
+                        <td>{getHandoverItemNoteDisplay(item)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
+              {/* Footer matching IMG_0819 */}
+              <div style={{ pageBreakInside: 'avoid', marginTop: '10px' }}>
+                <div
+                  style={{
+                    fontStyle: 'italic',
+                    fontSize: '11.5px',
+                    color: '#374151',
+                    marginBottom: '10px',
+                  }}
+                >
+                  Người xác nhận phải bàn giao đầy đủ các hạng mục nếu có trường hợp chuyển shop hoặc thay đổi công việc
+                </div>
+
+                <div
+                  style={{
+                    textAlign: 'right',
+                    fontSize: '13px',
+                    color: '#1f2937',
+                    marginBottom: '14px',
+                  }}
+                >
+                  {formatHandoverDatePrintLine(handoverParty.handoverDate)}
+                </div>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(4, 1fr)',
+                    gap: '8px',
+                    textAlign: 'center',
+                    paddingBottom: '48px',
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontSize: '11.5px',
+                        fontWeight: 800,
+                        color: '#111827',
+                      }}
+                    >
+                      Bên bàn giao
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '10px',
+                        fontStyle: 'italic',
+                        color: '#6b7280',
+                        marginTop: '2px',
+                      }}
+                    >
+                      Ký và ghi rõ họ tên
+                    </div>
+                  </div>
+
+                  <div>
+                    <div
+                      style={{
+                        fontSize: '11.5px',
+                        fontWeight: 800,
+                        color: '#111827',
+                      }}
+                    >
+                      Bác sĩ TTTC Long Châu
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '10px',
+                        fontStyle: 'italic',
+                        color: '#6b7280',
+                        marginTop: '2px',
+                      }}
+                    >
+                      Ký và ghi rõ họ tên
+                    </div>
+                  </div>
+
+                  <div>
+                    <div
+                      style={{
+                        fontSize: '11.5px',
+                        fontWeight: 800,
+                        color: '#111827',
+                      }}
+                    >
+                      ASM
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '10px',
+                        fontStyle: 'italic',
+                        color: '#6b7280',
+                        marginTop: '2px',
+                      }}
+                    >
+                      Ký và ghi rõ họ tên
+                    </div>
+                  </div>
+
+                  <div>
+                    <div
+                      style={{
+                        fontSize: '11.5px',
+                        fontWeight: 800,
+                        color: '#111827',
+                      }}
+                    >
+                      Bên nhận bàn giao
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '10px',
+                        fontStyle: 'italic',
+                        color: '#6b7280',
+                        marginTop: '2px',
+                      }}
+                    >
+                      Ký và ghi rõ họ tên
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>,
+          document.body
+        )}
     </div>
   );
 };
