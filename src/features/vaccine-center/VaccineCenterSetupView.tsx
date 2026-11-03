@@ -37,6 +37,10 @@ import {
   DEFAULT_CHECKLIST_ITEMS,
   DEFAULT_TASKFORCE_JOBS,
   DEFAULT_FRIDGE_LOGS,
+  CsvcHandoverRow,
+  DEFAULT_CSVC_SIGNAGE_ROWS,
+  DEFAULT_CSVC_TECH_ROWS,
+  DEFAULT_INJECTION_ROOM_ROWS,
 } from './vaccineCenterData';
 
 type SetupMainTab =
@@ -58,6 +62,9 @@ export interface VaccineCenterRecord {
   centerInfo: CenterInfo;
   handoverParty: HandoverPartyInfo;
   equipmentList: EquipmentItem[];
+  csvcSignageRows?: CsvcHandoverRow[];
+  csvcTechRows?: CsvcHandoverRow[];
+  injectionRoomRows?: CsvcHandoverRow[];
   checklistItems: ChecklistItem[];
   taskforceJobs: TaskforceJobItem[];
   fridgeLogs: FridgeValidationLog[];
@@ -85,7 +92,8 @@ const EMPTY_HANDOVER_PARTY: HandoverPartyInfo = {
   receiverName: '',
   receiverPhone: '',
   handoverNote:
-    'Bàn giao trang thiết bị lần đầu do Taskforce nhận tại shop mới Trung tâm tiêm chủng Long Châu',
+    'Bàn giao danh mục cơ sở vật chất lần đầu do Taskforce nhận tại shop mới Trung tâm tiêm chủng Long Châu',
+  handoverDate: '',
 };
 
 function formatNowVi(): string {
@@ -120,8 +128,12 @@ function createBlankCenterRecord(initialInfo?: Partial<CenterInfo>): VaccineCent
     handoverParty: {
       ...EMPTY_HANDOVER_PARTY,
       delivererName: mergedInfo.leader || '',
+      handoverDate: mergedInfo.openingDate || '',
     },
     equipmentList: [],
+    csvcSignageRows: DEFAULT_CSVC_SIGNAGE_ROWS.map((r) => ({ ...r })),
+    csvcTechRows: DEFAULT_CSVC_TECH_ROWS.map((r) => ({ ...r })),
+    injectionRoomRows: DEFAULT_INJECTION_ROOM_ROWS.map((r) => ({ ...r })),
     checklistItems: DEFAULT_CHECKLIST_ITEMS.map((i) => ({ ...i })),
     taskforceJobs: DEFAULT_TASKFORCE_JOBS.map((j) => ({ ...j })),
     fridgeLogs: DEFAULT_FRIDGE_LOGS.map((l) => ({ ...l })),
@@ -325,6 +337,27 @@ export const VaccineCenterSetupView: React.FC = () => {
   const centerInfo = selectedCenter?.centerInfo || EMPTY_CENTER_INFO;
   const handoverParty = selectedCenter?.handoverParty || EMPTY_HANDOVER_PARTY;
   const equipmentList = selectedCenter?.equipmentList || [];
+  const csvcSignageRows = useMemo(
+    () =>
+      selectedCenter?.csvcSignageRows && selectedCenter.csvcSignageRows.length > 0
+        ? selectedCenter.csvcSignageRows
+        : DEFAULT_CSVC_SIGNAGE_ROWS,
+    [selectedCenter?.csvcSignageRows]
+  );
+  const csvcTechRows = useMemo(
+    () =>
+      selectedCenter?.csvcTechRows && selectedCenter.csvcTechRows.length > 0
+        ? selectedCenter.csvcTechRows
+        : DEFAULT_CSVC_TECH_ROWS,
+    [selectedCenter?.csvcTechRows]
+  );
+  const injectionRoomRows = useMemo(
+    () =>
+      selectedCenter?.injectionRoomRows && selectedCenter.injectionRoomRows.length > 0
+        ? selectedCenter.injectionRoomRows
+        : DEFAULT_INJECTION_ROOM_ROWS,
+    [selectedCenter?.injectionRoomRows]
+  );
   const checklistItems = selectedCenter?.checklistItems || [];
   const taskforceJobs = selectedCenter?.taskforceJobs || [];
   const fridgeLogs = selectedCenter?.fridgeLogs || [];
@@ -355,7 +388,7 @@ export const VaccineCenterSetupView: React.FC = () => {
   const [photoNote, setPhotoNote] = useState<string>('');
 
   // Tab 7 (Handover) sub-tab
-  const [handoverSubTab, setHandoverSubTab] = useState<HandoverSubTab>('equipment');
+  const [handoverSubTab, setHandoverSubTab] = useState<HandoverSubTab>('csvc');
 
   // Hidden file input refs
   const excelInputRef = useRef<HTMLInputElement | null>(null);
@@ -995,12 +1028,101 @@ export const VaccineCenterSetupView: React.FC = () => {
       case 'equipment':
         return 'BIÊN BẢN BÀN GIAO TRANG THIẾT BỊ';
       case 'medicine':
-        return 'BIÊN BẢN BÀN GIAO DANH MỤC THUỐC & VẬT TƯ Y TẾ';
+        return 'BIÊN BẢN BÀN GIAO DANH MỤC THUỐC';
       case 'injection_room':
         return 'BIÊN BẢN BÀN GIAO THIẾT BỊ PHÒNG TIÊM';
       case 'csvc':
-        return 'BIÊN BẢN BÀN GIAO CƠ SỞ VẬT CHẤT (CSVC)';
+        return 'BIÊN BẢN BÀN GIAO CƠ SỞ VẬT CHẤT';
     }
+  };
+
+  const getHandoverNoteText = (sub: HandoverSubTab) => {
+    switch (sub) {
+      case 'csvc':
+        return 'Bàn giao danh mục cơ sở vật chất lần đầu do Taskforce nhận tại shop mới Trung tâm tiêm chủng Long Châu';
+      case 'injection_room':
+        return 'Bàn giao danh mục thiết bị phòng tiêm lần đầu do Taskforce nhận tại shop mới Trung tâm tiêm chủng Long Châu';
+      case 'medicine':
+        return 'Bàn giao danh mục thuốc & vật tư y tế lần đầu do Taskforce nhận tại shop mới Trung tâm tiêm chủng Long Châu';
+      case 'equipment':
+      default:
+        return 'Bàn giao trang thiết bị lần đầu do Taskforce nhận tại shop mới Trung tâm tiêm chủng Long Châu';
+    }
+  };
+
+  // Handlers for CSVC Signage / Tech / Injection Room editable rows
+  const handleUpdateCsvcRow = (
+    listKey: 'csvcSignageRows' | 'csvcTechRows' | 'injectionRoomRows',
+    rowId: string,
+    field: keyof CsvcHandoverRow,
+    value: string | number
+  ) => {
+    if (isReadOnlyReview) return;
+    updateSelectedCenter((prev) => {
+      const currentList =
+        listKey === 'csvcSignageRows'
+          ? prev.csvcSignageRows || DEFAULT_CSVC_SIGNAGE_ROWS
+          : listKey === 'csvcTechRows'
+          ? prev.csvcTechRows || DEFAULT_CSVC_TECH_ROWS
+          : prev.injectionRoomRows || DEFAULT_INJECTION_ROOM_ROWS;
+
+      return {
+        ...prev,
+        lastSavedTime: formatNowVi(),
+        [listKey]: currentList.map((r) =>
+          r.id === rowId ? { ...r, [field]: value } : r
+        ),
+      };
+    });
+  };
+
+  const handleAddCsvcRow = (
+    listKey: 'csvcSignageRows' | 'csvcTechRows' | 'injectionRoomRows'
+  ) => {
+    if (isReadOnlyReview) return;
+    updateSelectedCenter((prev) => {
+      const currentList =
+        listKey === 'csvcSignageRows'
+          ? prev.csvcSignageRows || DEFAULT_CSVC_SIGNAGE_ROWS
+          : listKey === 'csvcTechRows'
+          ? prev.csvcTechRows || DEFAULT_CSVC_TECH_ROWS
+          : prev.injectionRoomRows || DEFAULT_INJECTION_ROOM_ROWS;
+
+      const newRow: CsvcHandoverRow = {
+        id: `${listKey}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        name: '',
+        qty: 1,
+        unit: 'Cái',
+        note: '',
+      };
+
+      return {
+        ...prev,
+        lastSavedTime: formatNowVi(),
+        [listKey]: [...currentList, newRow],
+      };
+    });
+  };
+
+  const handleDeleteCsvcRow = (
+    listKey: 'csvcSignageRows' | 'csvcTechRows' | 'injectionRoomRows',
+    rowId: string
+  ) => {
+    if (isReadOnlyReview) return;
+    updateSelectedCenter((prev) => {
+      const currentList =
+        listKey === 'csvcSignageRows'
+          ? prev.csvcSignageRows || DEFAULT_CSVC_SIGNAGE_ROWS
+          : listKey === 'csvcTechRows'
+          ? prev.csvcTechRows || DEFAULT_CSVC_TECH_ROWS
+          : prev.injectionRoomRows || DEFAULT_INJECTION_ROOM_ROWS;
+
+      return {
+        ...prev,
+        lastSavedTime: formatNowVi(),
+        [listKey]: currentList.filter((r) => r.id !== rowId),
+      };
+    });
   };
 
   // ============================================================================
@@ -1625,12 +1747,12 @@ export const VaccineCenterSetupView: React.FC = () => {
         )}
       </div>
 
-      {/* 7-TAB NAVIGATION BAR (Matches Screenshot) */}
-      <div className="bg-[#efede6] dark:bg-slate-800/95 p-2 rounded-2xl shadow-sm border border-slate-200/80 dark:border-slate-700 grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-2 print:hidden">
+      {/* 7-TAB NAVIGATION BAR (Matches Screenshot IMG_0762) */}
+      <div className="bg-[#efede6] dark:bg-slate-800/95 p-1.5 sm:p-2 rounded-2xl shadow-sm border border-slate-200/80 dark:border-slate-700 grid grid-cols-7 gap-1 sm:gap-2 print:hidden">
         <button
           type="button"
           onClick={() => setActiveMainTab('center_info')}
-          className={`min-h-[54px] px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex flex-col items-center justify-center text-center cursor-pointer ${
+          className={`min-h-[60px] sm:min-h-[54px] px-1 sm:px-3 py-2 rounded-xl text-[10px] sm:text-xs md:text-sm font-bold leading-tight transition-all flex flex-col items-center justify-center text-center cursor-pointer ${
             activeMainTab === 'center_info'
               ? 'bg-[#0f1e36] text-white shadow-sm'
               : 'bg-white dark:bg-slate-900 text-[#0f1e36] dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-700'
@@ -1642,7 +1764,7 @@ export const VaccineCenterSetupView: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveMainTab('equipment')}
-          className={`min-h-[54px] px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex flex-col items-center justify-center text-center cursor-pointer ${
+          className={`min-h-[60px] sm:min-h-[54px] px-1 sm:px-3 py-2 rounded-xl text-[10px] sm:text-xs md:text-sm font-bold leading-tight transition-all flex flex-col items-center justify-center text-center cursor-pointer ${
             activeMainTab === 'equipment'
               ? 'bg-[#0f1e36] text-white shadow-sm'
               : 'bg-white dark:bg-slate-900 text-[#0f1e36] dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-700'
@@ -1654,14 +1776,14 @@ export const VaccineCenterSetupView: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveMainTab('checklist')}
-          className={`min-h-[54px] px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex flex-col items-center justify-center text-center gap-1 cursor-pointer ${
+          className={`min-h-[60px] sm:min-h-[54px] px-1 sm:px-3 py-1.5 rounded-xl text-[10px] sm:text-xs md:text-sm font-bold leading-tight transition-all flex flex-col items-center justify-center text-center gap-1 cursor-pointer ${
             activeMainTab === 'checklist'
               ? 'bg-[#0f1e36] text-white shadow-sm'
               : 'bg-white dark:bg-slate-900 text-[#0f1e36] dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-700'
           }`}
         >
           <span>Check các hạng mục</span>
-          <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-[#d2f4ee] text-[#0c6b63] tabular-nums">
+          <span className="inline-block px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-extrabold bg-[#d2f4ee] text-[#0c6b63] tabular-nums">
             {checklistProgress}%
           </span>
         </button>
@@ -1669,14 +1791,14 @@ export const VaccineCenterSetupView: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveMainTab('tasks')}
-          className={`min-h-[54px] px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex flex-col items-center justify-center text-center gap-1 cursor-pointer ${
+          className={`min-h-[60px] sm:min-h-[54px] px-1 sm:px-3 py-1.5 rounded-xl text-[10px] sm:text-xs md:text-sm font-bold leading-tight transition-all flex flex-col items-center justify-center text-center gap-1 cursor-pointer ${
             activeMainTab === 'tasks'
               ? 'bg-[#0f1e36] text-white shadow-sm'
               : 'bg-white dark:bg-slate-900 text-[#0f1e36] dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-700'
           }`}
         >
           <span>Công việc</span>
-          <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-[#d2f4ee] text-[#0c6b63] tabular-nums">
+          <span className="inline-block px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-extrabold bg-[#d2f4ee] text-[#0c6b63] tabular-nums">
             {jobsProgress}%
           </span>
         </button>
@@ -1684,7 +1806,7 @@ export const VaccineCenterSetupView: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveMainTab('fridge_guide')}
-          className={`min-h-[54px] px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex flex-col items-center justify-center text-center cursor-pointer ${
+          className={`min-h-[60px] sm:min-h-[54px] px-1 sm:px-3 py-2 rounded-xl text-[10px] sm:text-xs md:text-sm font-bold leading-tight transition-all flex flex-col items-center justify-center text-center cursor-pointer ${
             activeMainTab === 'fridge_guide'
               ? 'bg-[#0f1e36] text-white shadow-sm'
               : 'bg-white dark:bg-slate-900 text-[#0f1e36] dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-700'
@@ -1696,7 +1818,7 @@ export const VaccineCenterSetupView: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveMainTab('photo_report')}
-          className={`min-h-[54px] px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex flex-col items-center justify-center text-center cursor-pointer ${
+          className={`min-h-[60px] sm:min-h-[54px] px-1 sm:px-3 py-2 rounded-xl text-[10px] sm:text-xs md:text-sm font-bold leading-tight transition-all flex flex-col items-center justify-center text-center cursor-pointer ${
             activeMainTab === 'photo_report'
               ? 'bg-[#0f1e36] text-white shadow-sm'
               : 'bg-white dark:bg-slate-900 text-[#0f1e36] dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-700'
@@ -1708,7 +1830,7 @@ export const VaccineCenterSetupView: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveMainTab('handover')}
-          className={`min-h-[54px] px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex flex-col items-center justify-center text-center cursor-pointer ${
+          className={`min-h-[60px] sm:min-h-[54px] px-1 sm:px-3 py-2 rounded-xl text-[10px] sm:text-xs md:text-sm font-bold leading-tight transition-all flex flex-col items-center justify-center text-center cursor-pointer ${
             activeMainTab === 'handover'
               ? 'bg-[#0f1e36] text-white shadow-sm'
               : 'bg-white dark:bg-slate-900 text-[#0f1e36] dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-700'
@@ -2768,11 +2890,12 @@ export const VaccineCenterSetupView: React.FC = () => {
       )}
 
       {/* ===================================================================== */}
-      {/* TAB 7: BIÊN BẢN BÀN GIAO                                              */}
+      {/* TAB 7: BIÊN BẢN BÀN GIAO (Matches IMG_0759, IMG_0760, IMG_0761, IMG_0762) */}
       {/* ===================================================================== */}
       {activeMainTab === 'handover' && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 print:hidden">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-6 border border-slate-200/90 dark:border-slate-800 shadow-xs space-y-4">
+          {/* 4 Sub-tabs in a single 4-column row */}
+          <div className="grid grid-cols-4 gap-2 sm:gap-3 print:hidden">
             {(
               [
                 { id: 'equipment', label: 'Trang thiết bị' },
@@ -2785,10 +2908,10 @@ export const VaccineCenterSetupView: React.FC = () => {
                 key={tab.id}
                 type="button"
                 onClick={() => setHandoverSubTab(tab.id)}
-                className={`py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                className={`min-h-[54px] py-2 px-2 sm:px-4 rounded-xl text-xs sm:text-sm font-bold leading-snug transition-all flex items-center justify-center text-center cursor-pointer ${
                   handoverSubTab === tab.id
                     ? 'bg-[#136f72] text-white shadow-xs'
-                    : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
+                    : 'bg-white dark:bg-slate-900 text-[#0f1e36] dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
                 }`}
               >
                 {tab.label}
@@ -2800,59 +2923,37 @@ export const VaccineCenterSetupView: React.FC = () => {
             <button
               type="button"
               onClick={handlePrintHandoverA4}
-              className="px-4 py-2 rounded-lg bg-[#c86428] hover:bg-[#b05520] text-white font-bold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              className="px-4 py-2 rounded-xl bg-[#b85d27] hover:bg-[#9e4e1f] text-white font-bold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
             >
               <Printer className="w-4 h-4" /> Xuất PDF A4
             </button>
           </div>
 
-          <div className="bg-white text-slate-900 rounded-2xl p-6 sm:p-8 border border-slate-200/90 shadow-xs space-y-5 print:shadow-none print:border-none print:p-0">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col items-start">
-                  <div className="flex items-center gap-1">
-                    <span className="px-2 py-0.5 rounded bg-[#00529b] text-white font-extrabold text-xs tracking-tight">
-                      FPT
-                    </span>
-                    <span className="px-2 py-0.5 rounded bg-[#f37021] text-white font-extrabold text-xs tracking-tight">
-                      Retail
-                    </span>
-                  </div>
-                  <span className="text-[9px] text-slate-500 font-semibold mt-0.5">
-                    FPT Digital Retail JSC
-                  </span>
-                </div>
-                <div className="border-l border-slate-200 pl-3">
-                  <p className="text-xs font-extrabold text-[#00529b] tracking-tight leading-tight">
-                    TRUNG TÂM TIÊM CHỦNG
-                  </p>
-                  <p className="text-lg font-black text-[#00529b] tracking-tight leading-none">
-                    LONG CHÂU
-                  </p>
-                </div>
-              </div>
-
-              <div className="md:text-center flex-1">
-                <h2 className="text-base sm:text-lg font-extrabold text-slate-900 uppercase tracking-tight">
-                  {getHandoverTitle(handoverSubTab)}
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5 font-medium">
-                  Mã TT: {centerInfo.code || '—'} — Địa chỉ: {centerInfo.address || '—'}
-                </p>
-              </div>
-
-              <div className="hidden md:block w-36" />
+          {/* Printable Handover Card */}
+          <div className="bg-white text-slate-900 rounded-2xl p-4 sm:p-8 border border-slate-200/90 space-y-5 print:shadow-none print:border-none print:p-0">
+            {/* Document Title & Subtitle */}
+            <div className="text-center pt-1 pb-2">
+              <h2 className="text-base sm:text-xl font-extrabold text-[#0f1e36] uppercase tracking-tight">
+                {getHandoverTitle(handoverSubTab)}
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                {centerInfo.code || centerInfo.address
+                  ? `${centerInfo.code ? `Mã TT: ${centerInfo.code}` : ''}${
+                      centerInfo.code && centerInfo.address ? ' — ' : ''
+                    }${centerInfo.address ? `Địa chỉ: ${centerInfo.address}` : ''}`
+                  : 'Mã Trung tâm, địa chỉ Trung tâm'}
+              </p>
             </div>
 
             {/* 1. BÊN BÀN GIAO */}
             <div className="space-y-2.5">
-              <h3 className="text-xs font-extrabold uppercase tracking-wider text-[#0f1e36]">
+              <h3 className="text-xs sm:text-sm font-extrabold uppercase tracking-wide text-[#0f1e36]">
                 1. BÊN BÀN GIAO
               </h3>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-center">
+              <div className="space-y-2.5">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-600 w-20 shrink-0">
+                  <span className="text-xs sm:text-sm text-slate-600 shrink-0">
                     Họ và tên:
                   </span>
                   <input
@@ -2868,12 +2969,12 @@ export const VaccineCenterSetupView: React.FC = () => {
                         },
                       }))
                     }
-                    className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-900"
+                    className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#136f72]"
                   />
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-600 w-24 shrink-0">
+                  <span className="text-xs sm:text-sm text-slate-600 shrink-0">
                     Số điện thoại:
                   </span>
                   <input
@@ -2889,195 +2990,634 @@ export const VaccineCenterSetupView: React.FC = () => {
                         },
                       }))
                     }
-                    className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-900 tabular-nums"
+                    className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-[#136f72]"
                   />
                 </div>
-              </div>
 
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-600 w-20 shrink-0">
-                  Bộ phận:
-                </span>
-                <span className="inline-block px-3 py-1 rounded-lg bg-[#f3f2ec] text-slate-800 text-xs font-semibold">
-                  {handoverParty.delivererDept}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs sm:text-sm text-slate-600 shrink-0">
+                    Bộ phận:
+                  </span>
+                  <span className="inline-block px-3 py-1.5 rounded-lg bg-[#f6f5f0] text-slate-900 text-xs sm:text-sm font-medium">
+                    {handoverParty.delivererDept || 'Taskforce Vacxin Long Châu'}
+                  </span>
+                </div>
               </div>
             </div>
 
             {/* 2. BÊN NHẬN BÀN GIAO */}
             <div className="space-y-2.5">
-              <h3 className="text-xs font-extrabold uppercase tracking-wider text-[#0f1e36]">
+              <h3 className="text-xs sm:text-sm font-extrabold uppercase tracking-wide text-[#0f1e36]">
                 2. BÊN NHẬN BÀN GIAO
               </h3>
 
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-600">Bộ phận:</span>
-                  <select
-                    disabled={isReadOnlyReview}
-                    value={handoverParty.receiverDept}
-                    onChange={(e) =>
-                      updateSelectedCenter((prev) => ({
-                        ...prev,
-                        handoverParty: {
-                          ...prev.handoverParty,
-                          receiverDept: e.target.value,
-                        },
-                      }))
-                    }
-                    className="px-2.5 py-1 rounded-lg bg-[#f3f2ec] text-slate-800 text-xs font-semibold border border-slate-200"
-                  >
-                    <option value="Bác sĩ">Bác sĩ</option>
-                    <option value="Điều dưỡng trưởng">Điều dưỡng trưởng</option>
-                    <option value="Dược sĩ">Dược sĩ</option>
-                    <option value="Quản lý trung tâm">Quản lý trung tâm</option>
-                  </select>
-                </div>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <span className="text-xs sm:text-sm text-slate-600">Bộ phận:</span>
+                <select
+                  disabled={isReadOnlyReview}
+                  value={handoverParty.receiverDept}
+                  onChange={(e) =>
+                    updateSelectedCenter((prev) => ({
+                      ...prev,
+                      handoverParty: {
+                        ...prev.handoverParty,
+                        receiverDept: e.target.value,
+                      },
+                    }))
+                  }
+                  className="px-3 py-1.5 rounded-lg bg-[#f6f5f0] text-slate-900 text-xs sm:text-sm font-medium border border-slate-200/80"
+                >
+                  <option value="Bác sĩ">Bác sĩ</option>
+                  <option value="Điều dưỡng trưởng">Điều dưỡng trưởng</option>
+                  <option value="Dược sĩ">Dược sĩ</option>
+                  <option value="Quản lý trung tâm">Quản lý trung tâm</option>
+                </select>
 
-                <div className="flex items-center gap-2 flex-1 min-w-[220px]">
-                  <span className="text-xs text-slate-600 shrink-0">
-                    Họ và tên:
-                  </span>
-                  <input
-                    type="text"
-                    readOnly={isReadOnlyReview}
-                    value={handoverParty.receiverName}
-                    onChange={(e) =>
-                      updateSelectedCenter((prev) => ({
-                        ...prev,
-                        handoverParty: {
-                          ...prev.handoverParty,
-                          receiverName: e.target.value,
-                        },
-                      }))
-                    }
-                    className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-900"
-                  />
-                </div>
+                <span className="text-xs sm:text-sm text-slate-600 ml-1">
+                  Họ và tên:
+                </span>
+                <input
+                  type="text"
+                  readOnly={isReadOnlyReview}
+                  value={handoverParty.receiverName}
+                  onChange={(e) =>
+                    updateSelectedCenter((prev) => ({
+                      ...prev,
+                      handoverParty: {
+                        ...prev.handoverParty,
+                        receiverName: e.target.value,
+                      },
+                    }))
+                  }
+                  className="flex-1 min-w-[160px] px-3 py-2 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#136f72]"
+                />
 
-                <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-                  <span className="text-xs text-slate-600 shrink-0">
-                    Số điện thoại:
-                  </span>
-                  <input
-                    type="text"
-                    readOnly={isReadOnlyReview}
-                    value={handoverParty.receiverPhone}
-                    onChange={(e) =>
-                      updateSelectedCenter((prev) => ({
-                        ...prev,
-                        handoverParty: {
-                          ...prev.handoverParty,
-                          receiverPhone: e.target.value,
-                        },
-                      }))
-                    }
-                    className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-900 tabular-nums"
-                  />
-                </div>
+                <span className="text-xs sm:text-sm text-slate-600">
+                  Số điện thoại:
+                </span>
+                <input
+                  type="text"
+                  readOnly={isReadOnlyReview}
+                  value={handoverParty.receiverPhone}
+                  onChange={(e) =>
+                    updateSelectedCenter((prev) => ({
+                      ...prev,
+                      handoverParty: {
+                        ...prev.handoverParty,
+                        receiverPhone: e.target.value,
+                      },
+                    }))
+                  }
+                  className="w-full sm:w-auto flex-1 min-w-[160px] px-3 py-2 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-[#136f72]"
+                />
               </div>
             </div>
 
-            <div className="rounded-xl bg-[#eaf4f4] px-4 py-2.5 text-xs sm:text-sm text-slate-800">
+            {/* Callout Box: Nội dung bàn giao */}
+            <div className="rounded-xl bg-[#e8f4f2] px-4 py-3 text-xs sm:text-sm text-slate-800 leading-relaxed">
               <span className="font-bold">Nội dung bàn giao: </span>
-              <span>{handoverParty.handoverNote}</span>
+              <span>{getHandoverNoteText(handoverSubTab)}</span>
             </div>
 
-            <div className="overflow-x-auto rounded-lg border border-slate-200">
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-[#0f1e36] text-white text-xs font-bold">
-                  <tr>
-                    <th className="py-2.5 px-3 w-12 text-center">STT</th>
-                    <th className="py-2.5 px-3 w-40">Loại</th>
-                    <th className="py-2.5 px-3">Tên sản phẩm</th>
-                    <th className="py-2.5 px-3 w-20 text-center">ĐVT</th>
-                    <th className="py-2.5 px-3 w-24 text-center">SL cấp</th>
-                    <th className="py-2.5 px-3 w-24 text-center">SL nhận</th>
-                    <th className="py-2.5 px-3 w-48">Ghi chú</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 text-xs sm:text-sm">
-                  {handoverItems.length === 0 ? (
+            {/* =============================================================== */}
+            {/* SUB-TAB: CSVC (2 TABLES: Các bảng biểu & Dịch vụ kĩ thuật)       */}
+            {/* =============================================================== */}
+            {handoverSubTab === 'csvc' && (
+              <div className="space-y-6">
+                {/* TABLE 1: Các bảng biểu trong trung tâm */}
+                <div className="space-y-2.5">
+                  <h4 className="text-sm sm:text-base font-extrabold text-[#0f1e36]">
+                    Các bảng biểu trong trung tâm
+                  </h4>
+
+                  <div className="overflow-x-auto rounded-lg border border-slate-200">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="bg-[#0f243c] text-white text-xs font-bold">
+                        <tr>
+                          <th className="py-2.5 px-2.5 w-10 text-center">STT</th>
+                          <th className="py-2.5 px-2.5">Tên sản phẩm</th>
+                          <th className="py-2.5 px-2 w-16 text-center">SL</th>
+                          <th className="py-2.5 px-2 w-16 text-center">ĐVT</th>
+                          <th className="py-2.5 px-2.5 w-28">Ghi chú</th>
+                          {!isReadOnlyReview && (
+                            <th className="py-2.5 px-2 w-9 text-center print:hidden"></th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 text-xs sm:text-sm">
+                        {csvcSignageRows.map((row, idx) => (
+                          <tr key={row.id} className="hover:bg-slate-50/80">
+                            <td className="py-2.5 px-2 text-center text-slate-500 font-medium tabular-nums">
+                              {idx + 1}
+                            </td>
+                            <td className="py-2 px-2.5">
+                              <input
+                                type="text"
+                                readOnly={isReadOnlyReview}
+                                value={row.name}
+                                onChange={(e) =>
+                                  handleUpdateCsvcRow(
+                                    'csvcSignageRows',
+                                    row.id,
+                                    'name',
+                                    e.target.value
+                                  )
+                                }
+                                placeholder="Nhập tên bảng biểu..."
+                                className="w-full bg-transparent text-slate-900 font-medium focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5"
+                              />
+                            </td>
+                            <td className="py-2 px-1.5 text-center">
+                              <input
+                                type="number"
+                                min={0}
+                                readOnly={isReadOnlyReview}
+                                value={row.qty}
+                                onChange={(e) =>
+                                  handleUpdateCsvcRow(
+                                    'csvcSignageRows',
+                                    row.id,
+                                    'qty',
+                                    e.target.value === '' ? 0 : Number(e.target.value)
+                                  )
+                                }
+                                className="w-14 px-1.5 py-1 text-center rounded-md border border-slate-200 text-slate-900 font-semibold tabular-nums"
+                              />
+                            </td>
+                            <td className="py-2 px-1.5 text-center">
+                              <input
+                                type="text"
+                                readOnly={isReadOnlyReview}
+                                value={row.unit}
+                                onChange={(e) =>
+                                  handleUpdateCsvcRow(
+                                    'csvcSignageRows',
+                                    row.id,
+                                    'unit',
+                                    e.target.value
+                                  )
+                                }
+                                className="w-14 px-1 py-1 text-center rounded-md bg-transparent text-slate-700 focus:outline-none focus:border focus:border-slate-200"
+                              />
+                            </td>
+                            <td className="py-2 px-2">
+                              <input
+                                type="text"
+                                readOnly={isReadOnlyReview}
+                                value={row.note}
+                                onChange={(e) =>
+                                  handleUpdateCsvcRow(
+                                    'csvcSignageRows',
+                                    row.id,
+                                    'note',
+                                    e.target.value
+                                  )
+                                }
+                                placeholder="Ghi chú"
+                                className="w-full px-2 py-1 rounded-md border border-slate-200 text-xs text-slate-700 placeholder:text-slate-300"
+                              />
+                            </td>
+                            {!isReadOnlyReview && (
+                              <td className="py-2 px-1.5 text-center print:hidden">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleDeleteCsvcRow('csvcSignageRows', row.id)
+                                  }
+                                  className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
+                                  title="Xóa dòng"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {!isReadOnlyReview && (
+                    <button
+                      type="button"
+                      onClick={() => handleAddCsvcRow('csvcSignageRows')}
+                      className="px-3.5 py-1.5 rounded-lg border border-dashed border-[#0d7377] text-[#0d7377] hover:bg-teal-50/50 text-xs font-bold transition-colors cursor-pointer print:hidden"
+                    >
+                      + Thêm dòng
+                    </button>
+                  )}
+                </div>
+
+                {/* TABLE 2: Dịch vụ kĩ thuật */}
+                <div className="space-y-2.5">
+                  <h4 className="text-sm sm:text-base font-extrabold text-[#0f1e36]">
+                    Dịch vụ kĩ thuật
+                  </h4>
+
+                  <div className="overflow-x-auto rounded-lg border border-slate-200">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="bg-[#0f243c] text-white text-xs font-bold">
+                        <tr>
+                          <th className="py-2.5 px-2.5 w-10 text-center">STT</th>
+                          <th className="py-2.5 px-2.5">Tên sản phẩm</th>
+                          <th className="py-2.5 px-2 w-16 text-center">SL</th>
+                          <th className="py-2.5 px-2 w-16 text-center">ĐVT</th>
+                          <th className="py-2.5 px-2.5 w-28">Ghi chú</th>
+                          {!isReadOnlyReview && (
+                            <th className="py-2.5 px-2 w-9 text-center print:hidden"></th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 text-xs sm:text-sm">
+                        {csvcTechRows.map((row, idx) => (
+                          <tr key={row.id} className="hover:bg-slate-50/80">
+                            <td className="py-2.5 px-2 text-center text-slate-500 font-medium tabular-nums">
+                              {idx + 1}
+                            </td>
+                            <td className="py-2 px-2.5">
+                              <input
+                                type="text"
+                                readOnly={isReadOnlyReview}
+                                value={row.name}
+                                onChange={(e) =>
+                                  handleUpdateCsvcRow(
+                                    'csvcTechRows',
+                                    row.id,
+                                    'name',
+                                    e.target.value
+                                  )
+                                }
+                                placeholder="Nhập tên thiết bị kĩ thuật..."
+                                className="w-full bg-transparent text-slate-900 font-medium focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5"
+                              />
+                            </td>
+                            <td className="py-2 px-1.5 text-center">
+                              <input
+                                type="number"
+                                min={0}
+                                readOnly={isReadOnlyReview}
+                                value={row.qty}
+                                onChange={(e) =>
+                                  handleUpdateCsvcRow(
+                                    'csvcTechRows',
+                                    row.id,
+                                    'qty',
+                                    e.target.value === '' ? 0 : Number(e.target.value)
+                                  )
+                                }
+                                className="w-14 px-1.5 py-1 text-center rounded-md border border-slate-200 text-slate-900 font-semibold tabular-nums"
+                              />
+                            </td>
+                            <td className="py-2 px-1.5 text-center">
+                              <input
+                                type="text"
+                                readOnly={isReadOnlyReview}
+                                value={row.unit}
+                                onChange={(e) =>
+                                  handleUpdateCsvcRow(
+                                    'csvcTechRows',
+                                    row.id,
+                                    'unit',
+                                    e.target.value
+                                  )
+                                }
+                                className="w-14 px-1 py-1 text-center rounded-md bg-transparent text-slate-700 focus:outline-none focus:border focus:border-slate-200"
+                              />
+                            </td>
+                            <td className="py-2 px-2">
+                              <input
+                                type="text"
+                                readOnly={isReadOnlyReview}
+                                value={row.note}
+                                onChange={(e) =>
+                                  handleUpdateCsvcRow(
+                                    'csvcTechRows',
+                                    row.id,
+                                    'note',
+                                    e.target.value
+                                  )
+                                }
+                                placeholder="Ghi chú"
+                                className="w-full px-2 py-1 rounded-md border border-slate-200 text-xs text-slate-700 placeholder:text-slate-300"
+                              />
+                            </td>
+                            {!isReadOnlyReview && (
+                              <td className="py-2 px-1.5 text-center print:hidden">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleDeleteCsvcRow('csvcTechRows', row.id)
+                                  }
+                                  className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
+                                  title="Xóa dòng"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {!isReadOnlyReview && (
+                    <button
+                      type="button"
+                      onClick={() => handleAddCsvcRow('csvcTechRows')}
+                      className="px-3.5 py-1.5 rounded-lg border border-dashed border-[#0d7377] text-[#0d7377] hover:bg-teal-50/50 text-xs font-bold transition-colors cursor-pointer print:hidden"
+                    >
+                      + Thêm dòng
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* =============================================================== */}
+            {/* SUB-TAB: THIẾT BỊ PHÒNG TIÊM                                    */}
+            {/* =============================================================== */}
+            {handoverSubTab === 'injection_room' && (
+              <div className="space-y-2.5">
+                <h4 className="text-sm sm:text-base font-extrabold text-[#0f1e36]">
+                  Danh mục thiết bị phòng tiêm
+                </h4>
+
+                <div className="overflow-x-auto rounded-lg border border-slate-200">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-[#0f243c] text-white text-xs font-bold">
+                      <tr>
+                        <th className="py-2.5 px-2.5 w-10 text-center">STT</th>
+                        <th className="py-2.5 px-2.5">Tên sản phẩm</th>
+                        <th className="py-2.5 px-2 w-16 text-center">SL</th>
+                        <th className="py-2.5 px-2 w-16 text-center">ĐVT</th>
+                        <th className="py-2.5 px-2.5 w-28">Ghi chú</th>
+                        {!isReadOnlyReview && (
+                          <th className="py-2.5 px-2 w-9 text-center print:hidden"></th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 text-xs sm:text-sm">
+                      {injectionRoomRows.map((row, idx) => (
+                        <tr key={row.id} className="hover:bg-slate-50/80">
+                          <td className="py-2.5 px-2 text-center text-slate-500 font-medium tabular-nums">
+                            {idx + 1}
+                          </td>
+                          <td className="py-2 px-2.5">
+                            <input
+                              type="text"
+                              readOnly={isReadOnlyReview}
+                              value={row.name}
+                              onChange={(e) =>
+                                handleUpdateCsvcRow(
+                                  'injectionRoomRows',
+                                  row.id,
+                                  'name',
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Nhập tên thiết bị phòng tiêm..."
+                              className="w-full bg-transparent text-slate-900 font-medium focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5"
+                            />
+                          </td>
+                          <td className="py-2 px-1.5 text-center">
+                            <input
+                              type="number"
+                              min={0}
+                              readOnly={isReadOnlyReview}
+                              value={row.qty}
+                              onChange={(e) =>
+                                handleUpdateCsvcRow(
+                                  'injectionRoomRows',
+                                  row.id,
+                                  'qty',
+                                  e.target.value === '' ? 0 : Number(e.target.value)
+                                )
+                              }
+                              className="w-14 px-1.5 py-1 text-center rounded-md border border-slate-200 text-slate-900 font-semibold tabular-nums"
+                            />
+                          </td>
+                          <td className="py-2 px-1.5 text-center">
+                            <input
+                              type="text"
+                              readOnly={isReadOnlyReview}
+                              value={row.unit}
+                              onChange={(e) =>
+                                handleUpdateCsvcRow(
+                                  'injectionRoomRows',
+                                  row.id,
+                                  'unit',
+                                  e.target.value
+                                )
+                              }
+                              className="w-14 px-1 py-1 text-center rounded-md bg-transparent text-slate-700 focus:outline-none focus:border focus:border-slate-200"
+                            />
+                          </td>
+                          <td className="py-2 px-2">
+                            <input
+                              type="text"
+                              readOnly={isReadOnlyReview}
+                              value={row.note}
+                              onChange={(e) =>
+                                handleUpdateCsvcRow(
+                                  'injectionRoomRows',
+                                  row.id,
+                                  'note',
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Ghi chú"
+                              className="w-full px-2 py-1 rounded-md border border-slate-200 text-xs text-slate-700 placeholder:text-slate-300"
+                            />
+                          </td>
+                          {!isReadOnlyReview && (
+                            <td className="py-2 px-1.5 text-center print:hidden">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleDeleteCsvcRow('injectionRoomRows', row.id)
+                                }
+                                className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
+                                title="Xóa dòng"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {!isReadOnlyReview && (
+                  <button
+                    type="button"
+                    onClick={() => handleAddCsvcRow('injectionRoomRows')}
+                    className="px-3.5 py-1.5 rounded-lg border border-dashed border-[#0d7377] text-[#0d7377] hover:bg-teal-50/50 text-xs font-bold transition-colors cursor-pointer print:hidden"
+                  >
+                    + Thêm dòng
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* =============================================================== */}
+            {/* SUB-TABS: TRANG THIẾT BỊ & DANH MỤC THUỐC (FROM EXCEL UPLOAD)   */}
+            {/* =============================================================== */}
+            {(handoverSubTab === 'equipment' || handoverSubTab === 'medicine') && (
+              <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-[#0f243c] text-white text-xs font-bold">
                     <tr>
-                      <td
-                        colSpan={7}
-                        className="py-10 px-4 text-center text-slate-400 italic"
-                      >
-                        Chưa có dữ liệu bàn giao — dữ liệu sẽ tự động hiển thị sau khi tải file Excel tại mục &ldquo;Trang thiết bị&rdquo;.
-                      </td>
+                      <th className="py-2.5 px-2.5 w-10 text-center">STT</th>
+                      <th className="py-2.5 px-2.5">Tên sản phẩm</th>
+                      <th className="py-2.5 px-2 w-16 text-center">SL</th>
+                      <th className="py-2.5 px-2 w-16 text-center">ĐVT</th>
+                      <th className="py-2.5 px-2.5 w-32">Ghi chú</th>
                     </tr>
-                  ) : (
-                    handoverItems.map((item, idx) => (
-                      <tr key={item.id} className="hover:bg-slate-50">
-                        <td className="py-2 px-3 text-center font-semibold text-slate-600 tabular-nums">
-                          {idx + 1}
-                        </td>
-                        <td className="py-2 px-3 text-slate-700">{item.type}</td>
-                        <td className="py-2 px-3 font-semibold text-slate-900">
-                          {item.name}
-                        </td>
-                        <td className="py-2 px-3 text-center text-slate-600">
-                          {item.unit}
-                        </td>
-                        <td className="py-2 px-3 text-center font-bold text-slate-800 tabular-nums">
-                          {item.requiredQty}
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          <input
-                            type="number"
-                            min={0}
-                            readOnly={isReadOnlyReview}
-                            value={item.actualQty === null ? '' : item.actualQty}
-                            onChange={(e) =>
-                              handleActualQtyChange(item.id, e.target.value)
-                            }
-                            className="w-16 px-2 py-1 text-center rounded border border-slate-200 font-bold text-slate-900 tabular-nums"
-                          />
-                        </td>
-                        <td className="py-2 px-3">
-                          <input
-                            type="text"
-                            readOnly={isReadOnlyReview}
-                            value={item.note}
-                            onChange={(e) =>
-                              handleItemNoteChange(item.id, e.target.value)
-                            }
-                            placeholder="—"
-                            className="w-full px-2 py-1 rounded border border-transparent hover:border-slate-200 focus:border-slate-300 text-xs text-slate-700"
-                          />
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 text-xs sm:text-sm">
+                    {handoverItems.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={5}
+                          className="py-10 px-4 text-center text-slate-400 italic"
+                        >
+                          Chưa có dữ liệu bàn giao — dữ liệu sẽ tự động hiển thị sau khi tải file Excel tại mục &ldquo;Trang thiết bị&rdquo;.
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    ) : (
+                      handoverItems.map((item, idx) => (
+                        <tr key={item.id} className="hover:bg-slate-50">
+                          <td className="py-2.5 px-2 text-center font-medium text-slate-500 tabular-nums">
+                            {idx + 1}
+                          </td>
+                          <td className="py-2 px-2.5 font-medium text-slate-900">
+                            {item.name}
+                          </td>
+                          <td className="py-2 px-1.5 text-center">
+                            <input
+                              type="number"
+                              min={0}
+                              readOnly={isReadOnlyReview}
+                              value={
+                                item.actualQty === null
+                                  ? item.requiredQty
+                                  : item.actualQty
+                              }
+                              onChange={(e) =>
+                                handleActualQtyChange(item.id, e.target.value)
+                              }
+                              className="w-14 px-1.5 py-1 text-center rounded-md border border-slate-200 font-semibold text-slate-900 tabular-nums"
+                            />
+                          </td>
+                          <td className="py-2 px-1.5 text-center text-slate-700">
+                            {item.unit}
+                          </td>
+                          <td className="py-2 px-2">
+                            <input
+                              type="text"
+                              readOnly={isReadOnlyReview}
+                              value={item.note}
+                              onChange={(e) =>
+                                handleItemNoteChange(item.id, e.target.value)
+                              }
+                              placeholder="Ghi chú"
+                              className="w-full px-2 py-1 rounded-md border border-slate-200 text-xs text-slate-700 placeholder:text-slate-300"
+                            />
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
-            <div className="grid grid-cols-2 gap-6 pt-6 text-center">
-              <div>
-                <p className="text-xs font-extrabold uppercase text-slate-800">
-                  ĐẠI DIỆN BÊN BÀN GIAO
-                </p>
-                <p className="text-[11px] text-slate-500 italic mt-0.5">
-                  (Ký và ghi rõ họ tên)
-                </p>
-                <div className="h-16" />
-                <p className="text-xs font-bold text-slate-900">
-                  {handoverParty.delivererName}
-                </p>
+            {/* =============================================================== */}
+            {/* HANDOVER FOOTER: NOTE, DATE & 4-PARTY SIGNATURE GRID (IMG_0759) */}
+            {/* =============================================================== */}
+            <div className="pt-2 space-y-4">
+              <p className="text-xs sm:text-sm italic text-slate-500 leading-relaxed">
+                Người xác nhận phải bàn giao đầy đủ các hạng mục nếu có trường hợp chuyển shop hoặc thay đổi công việc
+              </p>
+
+              <div className="flex items-center gap-2.5">
+                <span className="text-xs sm:text-sm text-slate-600">
+                  Ngày lập biên bản:
+                </span>
+                <div className="relative">
+                  <input
+                    type="text"
+                    readOnly={isReadOnlyReview}
+                    value={handoverParty.handoverDate ?? centerInfo.openingDate ?? ''}
+                    onChange={(e) =>
+                      updateSelectedCenter((prev) => ({
+                        ...prev,
+                        handoverParty: {
+                          ...prev.handoverParty,
+                          handoverDate: e.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="dd/mm/yyyy"
+                    className="w-40 px-3 py-1.5 pr-8 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-[#136f72]"
+                  />
+                  <Calendar className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
               </div>
 
-              <div>
-                <p className="text-xs font-extrabold uppercase text-slate-800">
-                  ĐẠI DIỆN BÊN NHẬN BÀN GIAO
-                </p>
-                <p className="text-[11px] text-slate-500 italic mt-0.5">
-                  (Ký và ghi rõ họ tên)
-                </p>
-                <div className="h-16" />
-                <p className="text-xs font-bold text-slate-900">
-                  {handoverParty.receiverName}
-                </p>
+              {/* 2x2 Signature Grid matching IMG_0759 */}
+              <div className="grid grid-cols-2 gap-x-6 gap-y-10 pt-3 text-center">
+                <div>
+                  <p className="text-xs sm:text-sm font-extrabold text-[#0f1e36]">
+                    Bên bàn giao
+                  </p>
+                  <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
+                    Ký và ghi rõ họ tên
+                  </p>
+                  <div className="h-14" />
+                  <p className="text-xs font-bold text-slate-800">
+                    {handoverParty.delivererName}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs sm:text-sm font-extrabold text-[#0f1e36]">
+                    Bác sĩ TTTC Long Châu
+                  </p>
+                  <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
+                    Ký và ghi rõ họ tên
+                  </p>
+                  <div className="h-14" />
+                </div>
+
+                <div>
+                  <p className="text-xs sm:text-sm font-extrabold text-[#0f1e36]">
+                    ASM
+                  </p>
+                  <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
+                    Ký và ghi rõ họ tên
+                  </p>
+                  <div className="h-14" />
+                  <p className="text-xs font-bold text-slate-800">
+                    {centerInfo.asm}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs sm:text-sm font-extrabold text-[#0f1e36]">
+                    Bên nhận bàn giao
+                  </p>
+                  <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
+                    Ký và ghi rõ họ tên
+                  </p>
+                  <div className="h-14" />
+                  <p className="text-xs font-bold text-slate-800">
+                    {handoverParty.receiverName}
+                  </p>
+                </div>
               </div>
             </div>
           </div>

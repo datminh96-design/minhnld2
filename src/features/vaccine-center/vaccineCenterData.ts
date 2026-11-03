@@ -14,7 +14,63 @@ export interface HandoverPartyInfo {
   receiverName: string;
   receiverPhone: string;
   handoverNote: string;
+  handoverDate?: string;
 }
+
+export interface CsvcHandoverRow {
+  id: string;
+  name: string;
+  qty: number | string;
+  unit: string;
+  note: string;
+}
+
+export const DEFAULT_CSVC_SIGNAGE_ROWS: CsvcHandoverRow[] = [
+  { id: 'sig_1', name: 'A1_Bang thong tin TTTC', qty: 2, unit: 'Cai', note: '' },
+  { id: 'sig_2', name: 'Bang gia niem yet vac xin', qty: 2, unit: 'Cai', note: '' },
+  { id: 'sig_3', name: 'Bang huong dan quy trinh tiem chung', qty: 2, unit: 'Cai', note: '' },
+  { id: 'sig_4', name: 'Bang noi quy trung tam tiem chung', qty: 1, unit: 'Cai', note: '' },
+  { id: 'sig_5', name: 'Bang phac do cap cuu soc phan ve', qty: 2, unit: 'Cai', note: '' },
+  { id: 'sig_6', name: 'Bang theo doi nhiet do tu lanh', qty: 2, unit: 'Cai', note: '' },
+  { id: 'sig_7', name: 'Bang ten phong kham sang loc', qty: 2, unit: 'Cai', note: '' },
+  { id: 'sig_8', name: 'Bang ten phong tiem chung', qty: 2, unit: 'Cai', note: '' },
+  { id: 'sig_9', name: 'Bang ten khu vuc theo doi sau tiem', qty: 1, unit: 'Cai', note: '' },
+  { id: 'sig_10', name: 'Bang ten phong cho me va be', qty: 1, unit: 'Cai', note: '' },
+  { id: 'sig_11', name: 'Bang chi dan nha ve sinh (WC)', qty: 2, unit: 'Cai', note: '' },
+  { id: 'sig_12', name: 'Bang phan loai chat thai y te', qty: 4, unit: 'Cai', note: '' },
+  { id: 'sig_13', name: 'Quy trinh rua tay thuong quy', qty: 3, unit: 'Cai', note: '' },
+  { id: 'sig_14', name: 'Hotline cap cuu', qty: 1, unit: 'Cai', note: '' },
+  { id: 'sig_15', name: 'Luu y (ba me cho con bu)', qty: 1, unit: 'Cai', note: '' },
+  { id: 'sig_16', name: 'Khu vuc luu tru rac y te', qty: 1, unit: 'Cai', note: '' },
+  { id: 'sig_17', name: 'Cam quay phim chup hinh', qty: 4, unit: 'Cai', note: '' },
+];
+
+export const DEFAULT_CSVC_TECH_ROWS: CsvcHandoverRow[] = [
+  { id: 'tech_1', name: 'Camera Hikvision (Trong nha)', qty: 12, unit: 'Cai', note: '' },
+  { id: 'tech_2', name: 'Camera quan sat (Ngoai troi)', qty: 7, unit: 'Cai', note: '' },
+  { id: 'tech_3', name: 'Camera Hikvision (Thu ngan)', qty: 1, unit: 'Cai', note: '' },
+  { id: 'tech_4', name: 'Ghi am ReSpeaker', qty: 0, unit: 'Cai', note: '' },
+  { id: 'tech_5', name: 'May tinh xach tay', qty: 2, unit: 'Cai', note: '' },
+  { id: 'tech_6', name: 'May tinh de ban', qty: 6, unit: 'Bo', note: '' },
+  { id: 'tech_7', name: 'Ban phim Rapoo', qty: 6, unit: 'Cai', note: '' },
+  { id: 'tech_8', name: 'Chuot Rapoo', qty: 8, unit: 'Cai', note: '' },
+  { id: 'tech_9', name: 'May in Barcode', qty: 1, unit: 'Cai', note: '' },
+  { id: 'tech_10', name: 'May in Bill (Epson)', qty: 1, unit: 'Cai', note: '' },
+  { id: 'tech_11', name: 'May in Canon', qty: 4, unit: 'Cai', note: '' },
+];
+
+export const DEFAULT_INJECTION_ROOM_ROWS: CsvcHandoverRow[] = [
+  { id: 'inj_1', name: 'Tủ lạnh chuyên dụng bảo quản vắc xin Haier', qty: 2, unit: 'Cái', note: '' },
+  { id: 'inj_2', name: 'Nhiệt kế tự ghi LogTag kèm đầu dò', qty: 4, unit: 'Bộ', note: '' },
+  { id: 'inj_3', name: 'Hòm lạnh bảo quản vắc xin di động', qty: 4, unit: 'Cái', note: '' },
+  { id: 'inj_4', name: 'Xe tiêm inox 3 tầng có bánh xe', qty: 3, unit: 'Cái', note: '' },
+  { id: 'inj_5', name: 'Giường khám & tiêm chủng nệm y tế', qty: 4, unit: 'Cái', note: '' },
+  { id: 'inj_6', name: 'Tủ thuốc cấp cứu phản vệ inox', qty: 2, unit: 'Cái', note: '' },
+  { id: 'inj_7', name: 'Bình oxy y tế 10L kèm đồng hồ thở', qty: 2, unit: 'Bộ', note: '' },
+  { id: 'inj_8', name: 'Máy đo huyết áp tự động Omron', qty: 3, unit: 'Cái', note: '' },
+  { id: 'inj_9', name: 'Nhiệt kế hồng ngoại đo trán Microlife', qty: 4, unit: 'Cái', note: '' },
+  { id: 'inj_10', name: 'Cân điện tử đo chiều cao cân nặng', qty: 2, unit: 'Cái', note: '' },
+];
 
 export type EquipmentCategoryTab = 'admin' | 'medicine';
 export type HandoverSubTab = 'equipment' | 'medicine' | 'injection_room' | 'csvc';
