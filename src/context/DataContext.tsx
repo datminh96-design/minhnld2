@@ -8,6 +8,7 @@ import {
 } from '../types';
 import {
   DEFAULT_WORK_SETTINGS,
+  DEFAULT_MONTHLY_SALARY_DATA,
   DEFAULT_USER_SETTINGS,
   DEFAULT_EXPENSE_CATEGORIES,
   getInitialWorkLogs,
@@ -663,21 +664,34 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const m = Number(r.month);
             const y = Number(r.year);
             if (m && y) {
-              salMap[`${y}_${m}`] = {
-                baseSalary: Number(r.base_salary) || 0,
-                kpiBonus: Number(r.kpi_bonus) || 0,
-                salesBonus: Number(r.sales_bonus) || 0,
-                otherAllowance: Number(r.other_allowance) || 0,
-                insuranceDeduction: Number(r.insurance_deduction) || 0,
-              };
+              const bSal = Number(r.base_salary) || 0;
+              const kpi = Number(r.kpi_bonus) || 0;
+              const sales = Number(r.sales_bonus) || 0;
+              const allow = Number(r.other_allowance) || 0;
+              const ins = Number(r.insurance_deduction) || 0;
+              // Skip completely empty rows so they don't overwrite defaults
+              if (bSal > 0 || kpi > 0 || sales > 0 || allow > 0 || ins > 0) {
+                salMap[`${y}_${m}`] = {
+                  baseSalary: bSal > 0 ? bSal : DEFAULT_MONTHLY_SALARY_DATA.baseSalary,
+                  kpiBonus: kpi > 0 ? kpi : DEFAULT_MONTHLY_SALARY_DATA.kpiBonus,
+                  salesBonus: sales > 0 ? sales : DEFAULT_MONTHLY_SALARY_DATA.salesBonus,
+                  otherAllowance: allow > 0 ? allow : DEFAULT_MONTHLY_SALARY_DATA.otherAllowance,
+                  insuranceDeduction: ins > 0 ? ins : DEFAULT_MONTHLY_SALARY_DATA.insuranceDeduction,
+                };
+              }
             }
           });
           if (Object.keys(salMap).length > 0) {
             setSalaryRecords(prev => {
-              const merged = { ...prev, ...salMap };
+              const merged: Record<string, MonthlySalaryData> = { ...prev };
+              Object.entries(salMap).forEach(([k, v]) => {
+                // Keep local customized record if already customized
+                if (prev[k]?.isCustomized) return;
+                merged[k] = v;
+              });
               if (typeof window !== 'undefined') {
                 localStorage.setItem('app_salary_records', JSON.stringify(merged));
-                Object.entries(salMap).forEach(([k, v]) => {
+                Object.entries(merged).forEach(([k, v]) => {
                   localStorage.setItem(`app_salary_${k}`, JSON.stringify(v));
                 });
               }
@@ -1827,30 +1841,136 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const getSalaryRecord = (month: number, year: number): MonthlySalaryData => {
     const key = `${year}_${month}`;
-    if (salaryRecords[key]) return salaryRecords[key];
-    if (workSettings?.salary_data && workSettings.salary_data[key]) {
-      return workSettings.salary_data[key];
+
+    // Resolve baseline template (either latest saved default template or DEFAULT_MONTHLY_SALARY_DATA)
+    let baselineTemplate: MonthlySalaryData = { ...DEFAULT_MONTHLY_SALARY_DATA };
+    if (typeof window !== 'undefined') {
+      try {
+        const savedTpl = localStorage.getItem('app_default_salary_template');
+        if (savedTpl) {
+          const parsedTpl = JSON.parse(savedTpl);
+          if (parsedTpl && typeof parsedTpl === 'object' && Number(parsedTpl.baseSalary) > 0) {
+            baselineTemplate = {
+              baseSalary: Number(parsedTpl.baseSalary) || DEFAULT_MONTHLY_SALARY_DATA.baseSalary,
+              kpiBonus:
+                parsedTpl.kpiBonus !== undefined
+                  ? Number(parsedTpl.kpiBonus)
+                  : DEFAULT_MONTHLY_SALARY_DATA.kpiBonus,
+              salesBonus:
+                parsedTpl.salesBonus !== undefined
+                  ? Number(parsedTpl.salesBonus)
+                  : DEFAULT_MONTHLY_SALARY_DATA.salesBonus,
+              otherAllowance:
+                parsedTpl.otherAllowance !== undefined
+                  ? Number(parsedTpl.otherAllowance)
+                  : DEFAULT_MONTHLY_SALARY_DATA.otherAllowance,
+              insuranceDeduction:
+                parsedTpl.insuranceDeduction !== undefined
+                  ? Number(parsedTpl.insuranceDeduction)
+                  : DEFAULT_MONTHLY_SALARY_DATA.insuranceDeduction,
+            };
+          }
+        }
+      } catch {}
     }
+
+    // Also check if there is a customized preceding month in salaryRecords <= target (year, month)
+    const targetYm = year * 12 + month;
+    let bestPrevYm = -1;
+    Object.entries(salaryRecords).forEach(([k, rec]) => {
+      if (!rec || typeof rec !== 'object' || k.startsWith('_')) return;
+      const parts = k.split('_');
+      if (parts.length !== 2) return;
+      const y = Number(parts[0]);
+      const m = Number(parts[1]);
+      if (!y || !m) return;
+      const ym = y * 12 + m;
+      const hasAllFields =
+        Number(rec.baseSalary) > 0 &&
+        Number(rec.kpiBonus) > 0 &&
+        Number(rec.salesBonus) > 0 &&
+        Number(rec.otherAllowance) > 0 &&
+        Number(rec.insuranceDeduction) > 0;
+      if (ym < targetYm && (rec.isCustomized || hasAllFields) && ym > bestPrevYm) {
+        bestPrevYm = ym;
+        baselineTemplate = {
+          baseSalary: Number(rec.baseSalary) || DEFAULT_MONTHLY_SALARY_DATA.baseSalary,
+          kpiBonus:
+            rec.isCustomized || Number(rec.kpiBonus) > 0
+              ? Number(rec.kpiBonus) || 0
+              : DEFAULT_MONTHLY_SALARY_DATA.kpiBonus,
+          salesBonus:
+            rec.isCustomized || Number(rec.salesBonus) > 0
+              ? Number(rec.salesBonus) || 0
+              : DEFAULT_MONTHLY_SALARY_DATA.salesBonus,
+          otherAllowance:
+            rec.isCustomized || Number(rec.otherAllowance) > 0
+              ? Number(rec.otherAllowance) || 0
+              : DEFAULT_MONTHLY_SALARY_DATA.otherAllowance,
+          insuranceDeduction:
+            rec.isCustomized || Number(rec.insuranceDeduction) > 0
+              ? Number(rec.insuranceDeduction) || 0
+              : DEFAULT_MONTHLY_SALARY_DATA.insuranceDeduction,
+        };
+      }
+    });
+
+    const mergeWithBaseline = (raw: any): MonthlySalaryData | null => {
+      if (!raw || typeof raw !== 'object') return null;
+      if (raw.isCustomized) {
+        return {
+          baseSalary: Number(raw.baseSalary) || 0,
+          kpiBonus: Number(raw.kpiBonus) || 0,
+          salesBonus: Number(raw.salesBonus) || 0,
+          otherAllowance: Number(raw.otherAllowance) || 0,
+          insuranceDeduction: Number(raw.insuranceDeduction) || 0,
+          isCustomized: true,
+        };
+      }
+      const bSal = Number(raw.baseSalary) || 0;
+      const kpi = Number(raw.kpiBonus) || 0;
+      const sales = Number(raw.salesBonus) || 0;
+      const allow = Number(raw.otherAllowance) || 0;
+      const ins = Number(raw.insuranceDeduction) || 0;
+      if (bSal === 0 && kpi === 0 && sales === 0 && allow === 0 && ins === 0) {
+        return null;
+      }
+      return {
+        baseSalary: bSal > 0 ? bSal : baselineTemplate.baseSalary,
+        kpiBonus: kpi > 0 ? kpi : baselineTemplate.kpiBonus,
+        salesBonus: sales > 0 ? sales : baselineTemplate.salesBonus,
+        otherAllowance: allow > 0 ? allow : baselineTemplate.otherAllowance,
+        insuranceDeduction: ins > 0 ? ins : baselineTemplate.insuranceDeduction,
+      };
+    };
+
+    const fromState = mergeWithBaseline(salaryRecords[key]);
+    if (fromState) return fromState;
+
+    if (workSettings?.salary_data && workSettings.salary_data[key]) {
+      const fromWs = mergeWithBaseline(workSettings.salary_data[key]);
+      if (fromWs) return fromWs;
+    }
+
     if (typeof window !== 'undefined') {
       const legacy = localStorage.getItem(`app_salary_${year}_${month}`);
       if (legacy) {
-        try { return JSON.parse(legacy); } catch {}
+        try {
+          const fromLegacy = mergeWithBaseline(JSON.parse(legacy));
+          if (fromLegacy) return fromLegacy;
+        } catch {}
       }
       const allRecords = localStorage.getItem('app_salary_records');
       if (allRecords) {
         try {
           const parsed = JSON.parse(allRecords);
-          if (parsed[key]) return parsed[key];
+          const fromAll = mergeWithBaseline(parsed?.[key]);
+          if (fromAll) return fromAll;
         } catch {}
       }
     }
-    return {
-      baseSalary: 0,
-      kpiBonus: 0,
-      salesBonus: 0,
-      otherAllowance: 0,
-      insuranceDeduction: 0,
-    };
+
+    return { ...baselineTemplate };
   };
 
   const saveSalaryRecord = async (
@@ -1862,12 +1982,19 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     silent: boolean = false
   ) => {
     const key = `${year}_${month}`;
-    const newMap = { ...salaryRecords, [key]: data };
+    const recordToSave: MonthlySalaryData = {
+      ...data,
+      isCustomized: true,
+    };
+    const newMap = { ...salaryRecords, [key]: recordToSave };
     setSalaryRecords(newMap);
     if (typeof window !== 'undefined') {
       localStorage.setItem('app_salary_records', JSON.stringify(newMap));
-      localStorage.setItem(`app_salary_${year}_${month}`, JSON.stringify(data));
-      window.dispatchEvent(new CustomEvent('app_salary_updated', { detail: { key, month, year, data } }));
+      localStorage.setItem(`app_salary_${year}_${month}`, JSON.stringify(recordToSave));
+      if (recordToSave.baseSalary > 0) {
+        localStorage.setItem('app_default_salary_template', JSON.stringify(recordToSave));
+      }
+      window.dispatchEvent(new CustomEvent('app_salary_updated', { detail: { key, month, year, data: recordToSave } }));
     }
 
     // Calculations for cloud summary based on 208 standard hours

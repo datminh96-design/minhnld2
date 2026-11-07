@@ -6,6 +6,7 @@ import {
   InvestmentTransaction, 
   PortfolioSnapshot,
   WorkSettings,
+  MonthlySalaryData,
   UserSettings,
   Profile,
   BusinessTripExpense,
@@ -28,6 +29,14 @@ export const DEFAULT_WORK_SETTINGS: WorkSettings = {
   default_break_end: '14:00',
   standard_hours_per_day: 8.0,
   standard_days_per_month: 26, // 26 days * 8h = 208h standard hours
+};
+
+export const DEFAULT_MONTHLY_SALARY_DATA: MonthlySalaryData = {
+  baseSalary: 7_000_000,
+  kpiBonus: 4_000_000,
+  salesBonus: 2_499_995,
+  otherAllowance: 200_000,
+  insuranceDeduction: 611_600,
 };
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {

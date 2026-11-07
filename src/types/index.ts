@@ -54,6 +54,7 @@ export interface MonthlySalaryData {
   salesBonus: number;
   otherAllowance: number;
   insuranceDeduction: number;
+  isCustomized?: boolean;
 }
 
 export interface SalaryRecord {

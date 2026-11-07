@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useData } from '../../context/DataContext';
 import { formatCurrency, numberToVietnameseWords } from '../../lib/utils';
+import { DEFAULT_MONTHLY_SALARY_DATA } from '../../lib/seedData';
 import { Save, Calculator, Cloud, CheckCircle2, Loader2, Clock, TrendingUp, Info, RefreshCw, X, Sparkles, Plus } from 'lucide-react';
 import { MonthlySalaryData } from '../../types';
 
@@ -234,12 +235,7 @@ export const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({
     setData(record);
     lastSavedDataStr.current = JSON.stringify(record);
     setIsSaved(false);
-
-    // If local record is empty, quietly pull from Supabase Cloud on mount
-    if (!record.baseSalary && isInitialMount.current) {
-      syncWithSupabase(false);
-    }
-  }, [month, year]);
+  }, [month, year, salaryRecords]);
 
   // Listen to custom window events for instant sync across components/tabs
   useEffect(() => {
@@ -283,7 +279,17 @@ export const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({
     setData((prev) => ({
       ...prev,
       [field]: val,
+      isCustomized: true,
     }));
+    setIsSaved(false);
+  };
+
+  const handleResetToStandardTemplate = () => {
+    const standardData: MonthlySalaryData = {
+      ...DEFAULT_MONTHLY_SALARY_DATA,
+      isCustomized: true,
+    };
+    setData(standardData);
     setIsSaved(false);
   };
 
@@ -434,9 +440,19 @@ export const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Cột nhập liệu */}
         <div className="space-y-4">
-          <h4 className="font-semibold text-sm text-slate-800 dark:text-slate-200 border-b border-slate-100 dark:border-slate-800 pb-2 flex items-center justify-between">
+          <h4 className="font-semibold text-sm text-slate-800 dark:text-slate-200 border-b border-slate-100 dark:border-slate-800 pb-2 flex items-center justify-between gap-2">
             <span>Thu Nhập Thường Xuyên</span>
-            <span className="text-[11px] font-normal text-slate-400">Đơn vị: VNĐ</span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleResetToStandardTemplate}
+                className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                title="Lấy lại thông số lương mặc định chuẩn (7tr / KPI 4tr / Bán hàng 2.499.995 / Phụ cấp 200k / BH 611.6k)"
+              >
+                Lấy thông số chuẩn
+              </button>
+              <span className="text-[11px] font-normal text-slate-400">Đơn vị: VNĐ</span>
+            </div>
           </h4>
           
           {/* Lương chính thức */}
