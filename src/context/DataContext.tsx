@@ -2025,7 +2025,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         channel.send({
           type: 'broadcast',
           event: 'salary_sync',
-          payload: { key, month, year, data, updated_at: new Date().toISOString() }
+          payload: { key, month, year, data: recordToSave, updated_at: new Date().toISOString() }
         });
       } catch (bcErr) {
         console.warn('Realtime broadcast error:', bcErr);
@@ -2042,7 +2042,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           break_duration_hours: 0,
           overtime_hours: 0,
           missing_hours: 0,
-          notes: `[SALARY_SYNC]:${JSON.stringify({ [key]: data })}`
+          notes: `[SALARY_SYNC]:${JSON.stringify({ [key]: recordToSave })}`
         }, '');
       } catch (logErr) {
         console.warn('Lỗi lưu work_logs sync salary:', logErr);
@@ -2052,7 +2052,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         const updatedWorkSettings = {
           ...workSettings,
-          salary_data: { ...(workSettings.salary_data || {}), [key]: data }
+          salary_data: {
+            ...(workSettings.salary_data || {}),
+            [key]: recordToSave,
+            _default_salary_template: recordToSave,
+          }
         };
         setWorkSettings(updatedWorkSettings);
         await runUpsert('work_settings', {

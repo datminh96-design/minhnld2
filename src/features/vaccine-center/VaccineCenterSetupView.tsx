@@ -23,9 +23,12 @@ import {
   ChevronRight,
   Lock,
   Unlock,
+  Syringe,
+  FlaskConical,
 } from 'lucide-react';
 import { useData } from '../../context/DataContext';
 import {
+  CenterType,
   CenterInfo,
   HandoverPartyInfo,
   EquipmentCategoryTab,
@@ -42,6 +45,11 @@ import {
   DEFAULT_CSVC_SIGNAGE_ROWS,
   DEFAULT_CSVC_TECH_ROWS,
   DEFAULT_INJECTION_ROOM_ROWS,
+  DEFAULT_LAB_CSVC_SIGNAGE_ROWS,
+  DEFAULT_LAB_ROOM_ROWS,
+  DEFAULT_LAB_CHECKLIST_ITEMS,
+  DEFAULT_LAB_TASKFORCE_JOBS,
+  DEFAULT_LAB_FRIDGE_LOGS,
 } from './vaccineCenterData';
 
 type SetupMainTab =
@@ -57,6 +65,7 @@ type EquipmentStatusFilter = 'all' | 'unentered' | 'enough' | 'shortage' | 'surp
 
 export interface VaccineCenterRecord {
   id: string;
+  centerType?: CenterType;
   status: 'in_progress' | 'completed';
   createdAt: string;
   completedAt?: string;
@@ -76,6 +85,7 @@ export interface VaccineCenterRecord {
 
 const CENTERS_LIST_STORAGE_KEY = 'tttc_centers_list_v1';
 const LEGACY_SINGLE_STORAGE_KEY = 'tttc_setup_state_v3';
+const ACTIVE_CENTER_TYPE_STORAGE_KEY = 'tttc_active_center_type_v1';
 
 const EMPTY_CENTER_INFO: CenterInfo = {
   code: '',
@@ -146,28 +156,56 @@ function formatHandoverDatePrintLine(dateStr?: string): string {
   return `Ngày ${raw}`;
 }
 
-function createBlankCenterRecord(initialInfo?: Partial<CenterInfo>): VaccineCenterRecord {
+function createBlankCenterRecord(
+  initialInfo?: Partial<CenterInfo>,
+  centerType: CenterType = 'tiem_chung'
+): VaccineCenterRecord {
   const mergedInfo: CenterInfo = {
     ...EMPTY_CENTER_INFO,
     ...initialInfo,
   };
+  const isLab = centerType === 'xet_nghiem';
   return {
-    id: `tttc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    id: `${isLab ? 'ttxn' : 'tttc'}_${Date.now()}_${Math.random()
+      .toString(36)
+      .slice(2, 7)}`,
+    centerType,
     status: 'in_progress',
     createdAt: formatNowVi(),
     centerInfo: mergedInfo,
     handoverParty: {
       ...EMPTY_HANDOVER_PARTY,
       delivererName: mergedInfo.leader || '',
+      delivererDept: isLab
+        ? 'Taskforce Xét Nghiệm Long Châu'
+        : 'Taskforce Vacxin Long Châu',
+      receiverDept: isLab ? 'Bác sĩ / Trưởng phòng XN' : 'Bác sĩ',
+      handoverNote: isLab
+        ? 'Bàn giao danh mục cơ sở vật chất lần đầu do Taskforce nhận tại shop mới Trung tâm xét nghiệm Long Châu'
+        : 'Bàn giao danh mục cơ sở vật chất lần đầu do Taskforce nhận tại shop mới Trung tâm tiêm chủng Long Châu',
       handoverDate: '',
     },
     equipmentList: [],
-    csvcSignageRows: DEFAULT_CSVC_SIGNAGE_ROWS.map((r) => ({ ...r })),
+    csvcSignageRows: (isLab
+      ? DEFAULT_LAB_CSVC_SIGNAGE_ROWS
+      : DEFAULT_CSVC_SIGNAGE_ROWS
+    ).map((r) => ({ ...r })),
     csvcTechRows: DEFAULT_CSVC_TECH_ROWS.map((r) => ({ ...r })),
-    injectionRoomRows: DEFAULT_INJECTION_ROOM_ROWS.map((r) => ({ ...r })),
-    checklistItems: DEFAULT_CHECKLIST_ITEMS.map((i) => ({ ...i })),
-    taskforceJobs: DEFAULT_TASKFORCE_JOBS.map((j) => ({ ...j })),
-    fridgeLogs: DEFAULT_FRIDGE_LOGS.map((l) => ({ ...l })),
+    injectionRoomRows: (isLab
+      ? DEFAULT_LAB_ROOM_ROWS
+      : DEFAULT_INJECTION_ROOM_ROWS
+    ).map((r) => ({ ...r })),
+    checklistItems: (isLab
+      ? DEFAULT_LAB_CHECKLIST_ITEMS
+      : DEFAULT_CHECKLIST_ITEMS
+    ).map((i) => ({ ...i })),
+    taskforceJobs: (isLab
+      ? DEFAULT_LAB_TASKFORCE_JOBS
+      : DEFAULT_TASKFORCE_JOBS
+    ).map((j) => ({ ...j })),
+    fridgeLogs: (isLab ? DEFAULT_LAB_FRIDGE_LOGS : DEFAULT_FRIDGE_LOGS).map(
+      (l) => ({ ...l })
+    ),
     reportPhotos: [],
     excelFileName: '',
     lastSavedTime: '',
@@ -236,6 +274,25 @@ export const VaccineCenterSetupView: React.FC = () => {
     return [];
   });
 
+  // Mode switcher: Tiêm chủng (TTTC) vs Xét nghiệm (TTXN)
+  const [activeCenterType, setActiveCenterType] = useState<CenterType>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(ACTIVE_CENTER_TYPE_STORAGE_KEY);
+      if (saved === 'xet_nghiem' || saved === 'tiem_chung') {
+        return saved;
+      }
+    }
+    return 'tiem_chung';
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ACTIVE_CENTER_TYPE_STORAGE_KEY, activeCenterType);
+    } catch {
+      // ignore storage error
+    }
+  }, [activeCenterType]);
+
   // selectedCenterId === null means we are on the Directory List view (Đang khai trương / Đã hoàn thành)
   const [selectedCenterId, setSelectedCenterId] = useState<string | null>(null);
   const [listSearchQuery, setListSearchQuery] = useState<string>('');
@@ -259,6 +316,16 @@ export const VaccineCenterSetupView: React.FC = () => {
     [centers, selectedCenterId]
   );
 
+  // Effective center type (from selectedCenter when inside detail view, or activeCenterType on directory view)
+  const currentCenterType: CenterType = selectedCenter
+    ? selectedCenter.centerType || 'tiem_chung'
+    : activeCenterType;
+  const isLab = currentCenterType === 'xet_nghiem';
+  const shortLabel = isLab ? 'TTXN' : 'TTTC';
+  const fullCenterTitle = isLab
+    ? 'Trung Tâm Xét Nghiệm'
+    : 'Trung Tâm Tiêm Chủng';
+
   const isReadOnlyReview = selectedCenter?.status === 'completed';
 
   // Helper to update currently selected center record
@@ -271,18 +338,37 @@ export const VaccineCenterSetupView: React.FC = () => {
     );
   };
 
+  // Counts by center type for the top switcher
+  const tttcTotalCount = useMemo(
+    () => centers.filter((c) => (c.centerType || 'tiem_chung') === 'tiem_chung').length,
+    [centers]
+  );
+  const ttxnTotalCount = useMemo(
+    () => centers.filter((c) => c.centerType === 'xet_nghiem').length,
+    [centers]
+  );
+
+  // Centers belonging to currently selected type (Tiêm chủng vs Xét nghiệm)
+  const centersOfActiveType = useMemo(
+    () =>
+      centers.filter(
+        (c) => (c.centerType || 'tiem_chung') === activeCenterType
+      ),
+    [centers, activeCenterType]
+  );
+
   // Directory filtered lists
   const filteredCenters = useMemo(() => {
-    if (!listSearchQuery.trim()) return centers;
+    if (!listSearchQuery.trim()) return centersOfActiveType;
     const q = listSearchQuery.toLowerCase().trim();
-    return centers.filter(
+    return centersOfActiveType.filter(
       (c) =>
         c.centerInfo.code.toLowerCase().includes(q) ||
         c.centerInfo.address.toLowerCase().includes(q) ||
         c.centerInfo.leader.toLowerCase().includes(q) ||
         c.centerInfo.asm.toLowerCase().includes(q)
     );
-  }, [centers, listSearchQuery]);
+  }, [centersOfActiveType, listSearchQuery]);
 
   const inProgressCenters = useMemo(
     () => filteredCenters.filter((c) => c.status === 'in_progress'),
@@ -297,20 +383,20 @@ export const VaccineCenterSetupView: React.FC = () => {
   // Directory actions
   const handleCreateNewCenter = (e: React.FormEvent) => {
     e.preventDefault();
-    const record = createBlankCenterRecord(newCenterForm);
+    const record = createBlankCenterRecord(newCenterForm, activeCenterType);
     setCenters((prev) => [record, ...prev]);
     setNewCenterForm(EMPTY_CENTER_INFO);
     setShowCreateModal(false);
     setSelectedCenterId(record.id);
     setActiveMainTab('center_info');
     addToast(
-      `Đã tạo hồ sơ khai trương TTTC ${record.centerInfo.code || 'mới'}!`,
+      `Đã tạo hồ sơ khai trương ${shortLabel} ${record.centerInfo.code || 'mới'}!`,
       'success'
     );
   };
 
   const handleQuickStartEmptyCenter = () => {
-    const record = createBlankCenterRecord();
+    const record = createBlankCenterRecord(undefined, activeCenterType);
     setCenters((prev) => [record, ...prev]);
     setSelectedCenterId(record.id);
     setActiveMainTab('center_info');
@@ -332,7 +418,7 @@ export const VaccineCenterSetupView: React.FC = () => {
       )
     );
     addToast(
-      'Đã chuyển TTTC sang danh sách Đã hoàn thành khai trương!',
+      `Đã chuyển ${shortLabel} sang danh sách Đã hoàn thành khai trương!`,
       'success'
     );
   };
@@ -350,7 +436,7 @@ export const VaccineCenterSetupView: React.FC = () => {
           : c
       )
     );
-    addToast('Đã chuyển TTTC về danh sách Đang khai trương để chỉnh sửa.', 'info');
+    addToast(`Đã chuyển ${shortLabel} về danh sách Đang khai trương để chỉnh sửa.`, 'info');
   };
 
   const handleDeleteCenter = (id: string, e?: React.MouseEvent) => {
@@ -359,7 +445,7 @@ export const VaccineCenterSetupView: React.FC = () => {
     if (selectedCenterId === id) {
       setSelectedCenterId(null);
     }
-    addToast('Đã xóa hồ sơ TTTC khỏi danh sách.', 'info');
+    addToast(`Đã xóa hồ sơ ${shortLabel} khỏi danh sách.`, 'info');
   };
 
   // ============================================================================
@@ -372,8 +458,10 @@ export const VaccineCenterSetupView: React.FC = () => {
     () =>
       selectedCenter?.csvcSignageRows && selectedCenter.csvcSignageRows.length > 0
         ? selectedCenter.csvcSignageRows
+        : isLab
+        ? DEFAULT_LAB_CSVC_SIGNAGE_ROWS
         : DEFAULT_CSVC_SIGNAGE_ROWS,
-    [selectedCenter?.csvcSignageRows]
+    [selectedCenter?.csvcSignageRows, isLab]
   );
   const csvcTechRows = useMemo(
     () =>
@@ -386,8 +474,10 @@ export const VaccineCenterSetupView: React.FC = () => {
     () =>
       selectedCenter?.injectionRoomRows && selectedCenter.injectionRoomRows.length > 0
         ? selectedCenter.injectionRoomRows
+        : isLab
+        ? DEFAULT_LAB_ROOM_ROWS
         : DEFAULT_INJECTION_ROOM_ROWS,
-    [selectedCenter?.injectionRoomRows]
+    [selectedCenter?.injectionRoomRows, isLab]
   );
   const checklistItems = selectedCenter?.checklistItems || [];
   const taskforceJobs = selectedCenter?.taskforceJobs || [];
@@ -509,14 +599,32 @@ export const VaccineCenterSetupView: React.FC = () => {
       return equipmentList.filter((item) => {
         if (item.tab !== 'admin') return false;
         const t = (item.type || '').toLowerCase();
-        return t.includes('phòng tiêm') || t.includes('phong tiem');
+        return (
+          t.includes('phòng tiêm') ||
+          t.includes('phong tiem') ||
+          t.includes('phòng xét nghiệm') ||
+          t.includes('phong xet nghiem') ||
+          t.includes('xét nghiệm') ||
+          t.includes('xet nghiem') ||
+          t.includes('lấy mẫu') ||
+          t.includes('lay mau')
+        );
       });
     }
     if (handoverSubTab === 'equipment') {
       return equipmentList.filter((item) => {
         if (item.tab !== 'admin') return false;
         const t = (item.type || '').toLowerCase();
-        return !t.includes('phòng tiêm') && !t.includes('phong tiem');
+        return (
+          !t.includes('phòng tiêm') &&
+          !t.includes('phong tiem') &&
+          !t.includes('phòng xét nghiệm') &&
+          !t.includes('phong xet nghiem') &&
+          !t.includes('xét nghiệm') &&
+          !t.includes('xet nghiem') &&
+          !t.includes('lấy mẫu') &&
+          !t.includes('lay mau')
+        );
       });
     }
     return [];
@@ -550,7 +658,7 @@ export const VaccineCenterSetupView: React.FC = () => {
         delivererName: prev.centerInfo.leader || prev.handoverParty.delivererName,
       },
     }));
-    addToast('Đã lưu thông tin Trung Tâm Tiêm Chủng thành công!', 'success');
+    addToast(`Đã lưu thông tin ${fullCenterTitle} thành công!`, 'success');
   };
 
   const handleClearCenterInfo = () => {
@@ -1075,25 +1183,36 @@ export const VaccineCenterSetupView: React.FC = () => {
       case 'equipment':
         return 'BIÊN BẢN BÀN GIAO TRANG THIẾT BỊ';
       case 'medicine':
-        return 'BIÊN BẢN BÀN GIAO DANH MỤC THUỐC';
+        return isLab
+          ? 'BIÊN BẢN BÀN GIAO DANH MỤC THUỐC & HÓA CHẤT'
+          : 'BIÊN BẢN BÀN GIAO DANH MỤC THUỐC';
       case 'injection_room':
-        return 'BIÊN BẢN BÀN GIAO THIẾT BỊ PHÒNG TIÊM';
+        return isLab
+          ? 'BIÊN BẢN BÀN GIAO THIẾT BỊ PHÒNG XÉT NGHIỆM'
+          : 'BIÊN BẢN BÀN GIAO THIẾT BỊ PHÒNG TIÊM';
       case 'csvc':
         return 'BIÊN BẢN BÀN GIAO CƠ SỞ VẬT CHẤT';
     }
   };
 
   const getHandoverNoteText = (sub: HandoverSubTab) => {
+    const centerNameLower = isLab
+      ? 'Trung tâm xét nghiệm Long Châu'
+      : 'Trung tâm tiêm chủng Long Châu';
     switch (sub) {
       case 'csvc':
-        return 'Bàn giao danh mục cơ sở vật chất lần đầu do Taskforce nhận tại shop mới Trung tâm tiêm chủng Long Châu';
+        return `Bàn giao danh mục cơ sở vật chất lần đầu do Taskforce nhận tại shop mới ${centerNameLower}`;
       case 'injection_room':
-        return 'Bàn giao danh mục thiết bị phòng tiêm lần đầu do Taskforce nhận tại shop mới Trung tâm tiêm chủng Long Châu';
+        return isLab
+          ? `Bàn giao danh mục thiết bị phòng xét nghiệm lần đầu do Taskforce nhận tại shop mới ${centerNameLower}`
+          : `Bàn giao danh mục thiết bị phòng tiêm lần đầu do Taskforce nhận tại shop mới ${centerNameLower}`;
       case 'medicine':
-        return 'Bàn giao danh mục thuốc & vật tư y tế lần đầu do Taskforce nhận tại shop mới Trung tâm tiêm chủng Long Châu';
+        return isLab
+          ? `Bàn giao danh mục thuốc & hóa chất xét nghiệm lần đầu do Taskforce nhận tại shop mới ${centerNameLower}`
+          : `Bàn giao danh mục thuốc & vật tư y tế lần đầu do Taskforce nhận tại shop mới ${centerNameLower}`;
       case 'equipment':
       default:
-        return 'Bàn giao trang thiết bị lần đầu do Taskforce nhận tại shop mới Trung tâm tiêm chủng Long Châu';
+        return `Bàn giao trang thiết bị lần đầu do Taskforce nhận tại shop mới ${centerNameLower}`;
     }
   };
 
@@ -1108,10 +1227,12 @@ export const VaccineCenterSetupView: React.FC = () => {
     updateSelectedCenter((prev) => {
       const currentList =
         listKey === 'csvcSignageRows'
-          ? prev.csvcSignageRows || DEFAULT_CSVC_SIGNAGE_ROWS
+          ? prev.csvcSignageRows ||
+            (isLab ? DEFAULT_LAB_CSVC_SIGNAGE_ROWS : DEFAULT_CSVC_SIGNAGE_ROWS)
           : listKey === 'csvcTechRows'
           ? prev.csvcTechRows || DEFAULT_CSVC_TECH_ROWS
-          : prev.injectionRoomRows || DEFAULT_INJECTION_ROOM_ROWS;
+          : prev.injectionRoomRows ||
+            (isLab ? DEFAULT_LAB_ROOM_ROWS : DEFAULT_INJECTION_ROOM_ROWS);
 
       return {
         ...prev,
@@ -1130,10 +1251,12 @@ export const VaccineCenterSetupView: React.FC = () => {
     updateSelectedCenter((prev) => {
       const currentList =
         listKey === 'csvcSignageRows'
-          ? prev.csvcSignageRows || DEFAULT_CSVC_SIGNAGE_ROWS
+          ? prev.csvcSignageRows ||
+            (isLab ? DEFAULT_LAB_CSVC_SIGNAGE_ROWS : DEFAULT_CSVC_SIGNAGE_ROWS)
           : listKey === 'csvcTechRows'
           ? prev.csvcTechRows || DEFAULT_CSVC_TECH_ROWS
-          : prev.injectionRoomRows || DEFAULT_INJECTION_ROOM_ROWS;
+          : prev.injectionRoomRows ||
+            (isLab ? DEFAULT_LAB_ROOM_ROWS : DEFAULT_INJECTION_ROOM_ROWS);
 
       const newRow: CsvcHandoverRow = {
         id: `${listKey}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -1159,10 +1282,12 @@ export const VaccineCenterSetupView: React.FC = () => {
     updateSelectedCenter((prev) => {
       const currentList =
         listKey === 'csvcSignageRows'
-          ? prev.csvcSignageRows || DEFAULT_CSVC_SIGNAGE_ROWS
+          ? prev.csvcSignageRows ||
+            (isLab ? DEFAULT_LAB_CSVC_SIGNAGE_ROWS : DEFAULT_CSVC_SIGNAGE_ROWS)
           : listKey === 'csvcTechRows'
           ? prev.csvcTechRows || DEFAULT_CSVC_TECH_ROWS
-          : prev.injectionRoomRows || DEFAULT_INJECTION_ROOM_ROWS;
+          : prev.injectionRoomRows ||
+            (isLab ? DEFAULT_LAB_ROOM_ROWS : DEFAULT_INJECTION_ROOM_ROWS);
 
       return {
         ...prev,
@@ -1173,20 +1298,73 @@ export const VaccineCenterSetupView: React.FC = () => {
   };
 
   // ============================================================================
-  // VIEW 1: DANH SÁCH TTTC ĐANG KHAI TRƯƠNG & ĐÃ HOÀN THÀNH KHAI TRƯƠNG
+  // VIEW 1: DANH SÁCH TTTC / TTXN ĐANG KHAI TRƯƠNG & ĐÃ HOÀN THÀNH KHAI TRƯƠNG
   // ============================================================================
   if (!selectedCenter) {
     return (
       <div className="space-y-6 pb-12">
-        {/* Top Directory Banner */}
+        {/* Top Directory Banner with Mode Switcher (Tiêm chủng vs Xét nghiệm) */}
         <div className="rounded-2xl bg-gradient-to-r from-[#0d9488] via-[#0ea599] to-[#10b2a5] text-white p-5 sm:p-6 shadow-md">
+          {/* Mode Switcher: Tiêm chủng (TTTC) | Xét nghiệm (TTXN) */}
+          <div className="grid grid-cols-2 gap-2 p-1.5 rounded-2xl bg-[#0f1e36]/30 backdrop-blur-xs border border-white/20 mb-4">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveCenterType('tiem_chung');
+                setShowCreateModal(false);
+              }}
+              className={`py-2.5 px-3 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                activeCenterType === 'tiem_chung'
+                  ? 'bg-white text-[#0f1e36] shadow-sm'
+                  : 'text-white/90 hover:bg-white/10'
+              }`}
+            >
+              <Syringe className="w-4 h-4 shrink-0" />
+              <span>Tiêm Chủng (TTTC)</span>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[11px] font-black tabular-nums ${
+                  activeCenterType === 'tiem_chung'
+                    ? 'bg-[#0d9488]/15 text-[#0d9488]'
+                    : 'bg-white/20 text-white'
+                }`}
+              >
+                {tttcTotalCount}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveCenterType('xet_nghiem');
+                setShowCreateModal(false);
+              }}
+              className={`py-2.5 px-3 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                activeCenterType === 'xet_nghiem'
+                  ? 'bg-white text-[#0f1e36] shadow-sm'
+                  : 'text-white/90 hover:bg-white/10'
+              }`}
+            >
+              <FlaskConical className="w-4 h-4 shrink-0" />
+              <span>Xét Nghiệm (TTXN)</span>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[11px] font-black tabular-nums ${
+                  activeCenterType === 'xet_nghiem'
+                    ? 'bg-[#0d9488]/15 text-[#0d9488]'
+                    : 'bg-white/20 text-white'
+                }`}
+              >
+                {ttxnTotalCount}
+              </span>
+            </button>
+          </div>
+
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
-                Quản Lý Khai Trương Trung Tâm Tiêm Chủng (TTTC)
+                Quản Lý Khai Trương {fullCenterTitle} ({shortLabel})
               </h1>
               <p className="text-xs sm:text-sm text-white/90 mt-1 font-medium">
-                Danh sách TTTC đang khai trương & lưu trữ hồ sơ các TTTC đã hoàn thành khai trương
+                Danh sách {shortLabel} đang khai trương & lưu trữ hồ sơ các {shortLabel} đã hoàn thành khai trương
               </p>
             </div>
 
@@ -1195,17 +1373,17 @@ export const VaccineCenterSetupView: React.FC = () => {
               onClick={() => setShowCreateModal(true)}
               className="px-4 py-2.5 rounded-xl bg-[#0f1e36] hover:bg-slate-900 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition-colors shrink-0 cursor-pointer"
             >
-              <Plus className="w-4 h-4" /> Thêm TTTC Đang Khai Trương
+              <Plus className="w-4 h-4" /> Thêm {shortLabel} Đang Khai Trương
             </button>
           </div>
 
           <div className="grid grid-cols-3 gap-3 mt-5 pt-4 border-t border-white/25">
             <div className="bg-white/15 backdrop-blur-xs rounded-xl px-3.5 py-2.5">
               <p className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-white/80">
-                Tổng Số TTTC
+                Tổng Số {shortLabel}
               </p>
               <p className="text-lg sm:text-2xl font-extrabold text-white tabular-nums mt-0.5">
-                {centers.length}
+                {centersOfActiveType.length}
               </p>
             </div>
 
@@ -1214,7 +1392,7 @@ export const VaccineCenterSetupView: React.FC = () => {
                 Đang Khai Trương
               </p>
               <p className="text-lg sm:text-2xl font-extrabold text-slate-900 tabular-nums mt-0.5">
-                {centers.filter((c) => c.status === 'in_progress').length}
+                {centersOfActiveType.filter((c) => c.status === 'in_progress').length}
               </p>
             </div>
 
@@ -1223,19 +1401,19 @@ export const VaccineCenterSetupView: React.FC = () => {
                 Đã Hoàn Thành
               </p>
               <p className="text-lg sm:text-2xl font-extrabold text-emerald-700 tabular-nums mt-0.5">
-                {centers.filter((c) => c.status === 'completed').length}
+                {centersOfActiveType.filter((c) => c.status === 'completed').length}
               </p>
             </div>
           </div>
         </div>
 
-        {/* Create New TTTC Modal / Inline Card */}
+        {/* Create New TTTC / TTXN Modal / Inline Card */}
         {showCreateModal && (
           <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 border-2 border-[#0d9488] shadow-lg space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div>
                 <h2 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white">
-                  Tạo Mới TTTC Đang Khai Trương
+                  Tạo Mới {shortLabel} Đang Khai Trương ({fullCenterTitle})
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   Nhập thông tin cơ bản (hoặc tạo trống để điền sau trong phần Thông tin trung tâm)
@@ -1350,13 +1528,13 @@ export const VaccineCenterSetupView: React.FC = () => {
         )}
 
         {/* Search Bar */}
-        {centers.length > 0 && (
+        {centersOfActiveType.length > 0 && (
           <div className="relative">
             <input
               type="text"
               value={listSearchQuery}
               onChange={(e) => setListSearchQuery(e.target.value)}
-              placeholder="Tìm kiếm TTTC theo Mã TT, Địa chỉ, Leader, ASM..."
+              placeholder={`Tìm kiếm ${shortLabel} theo Mã TT, Địa chỉ, Leader, ASM...`}
               className="w-full pl-10 pr-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs sm:text-sm text-slate-900 dark:text-slate-100 shadow-xs focus:outline-none focus:ring-2 focus:ring-[#0d9488]"
             />
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -1369,7 +1547,7 @@ export const VaccineCenterSetupView: React.FC = () => {
             <div className="flex items-center gap-2.5">
               <span className="w-2.5 h-2.5 rounded-full bg-[#0d9488] animate-pulse" />
               <h2 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white">
-                1. Danh Sách TTTC Đang Khai Trương ({inProgressCenters.length})
+                1. Danh Sách {shortLabel} Đang Khai Trương ({inProgressCenters.length})
               </h2>
             </div>
             <button
@@ -1377,7 +1555,7 @@ export const VaccineCenterSetupView: React.FC = () => {
               onClick={handleQuickStartEmptyCenter}
               className="text-xs font-bold text-[#0d9488] hover:underline flex items-center gap-1 cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5" /> Tạo nhanh TTTC mới
+              <Plus className="w-3.5 h-3.5" /> Tạo nhanh {shortLabel} mới
             </button>
           </div>
 
@@ -1386,10 +1564,10 @@ export const VaccineCenterSetupView: React.FC = () => {
               <Building2 className="w-10 h-10 text-teal-500 mx-auto opacity-80" />
               <div>
                 <p className="text-sm font-bold text-slate-800 dark:text-slate-200">
-                  Chưa có TTTC nào trong danh sách Đang khai trương
+                  Chưa có {shortLabel} nào trong danh sách Đang khai trương
                 </p>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Nhấn nút bên dưới để bắt đầu thiết lập Checklist Setup Trung Tâm Tiêm Chủng mới.
+                  Nhấn nút bên dưới để bắt đầu thiết lập Checklist Setup {fullCenterTitle} mới.
                 </p>
               </div>
               <button
@@ -1397,7 +1575,7 @@ export const VaccineCenterSetupView: React.FC = () => {
                 onClick={handleQuickStartEmptyCenter}
                 className="px-5 py-2.5 rounded-xl bg-[#0d9488] hover:bg-[#0b7a70] text-white font-bold text-xs sm:text-sm inline-flex items-center gap-2 shadow-xs cursor-pointer"
               >
-                <Plus className="w-4 h-4" /> Bắt đầu Khai Trương TTTC Mới
+                <Plus className="w-4 h-4" /> Bắt đầu Khai Trương {shortLabel} Mới
               </button>
             </div>
           ) : (
@@ -1521,13 +1699,13 @@ export const VaccineCenterSetupView: React.FC = () => {
           <div className="flex items-center gap-2.5">
             <CheckCircle2 className="w-5 h-5 text-emerald-600" />
             <h2 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white">
-              2. Danh Sách TTTC Đã Hoàn Thành Khai Trương ({completedCenters.length})
+              2. Danh Sách {shortLabel} Đã Hoàn Thành Khai Trương ({completedCenters.length})
             </h2>
           </div>
 
           {completedCenters.length === 0 ? (
             <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200/80 dark:border-slate-800 text-center text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-              Chưa có TTTC nào hoàn thành khai trương. Khi một TTTC đang khai trương hoàn tất, nhấn &ldquo;Hoàn thành khai trương&rdquo; để lưu vào danh sách này để xem lại bất cứ lúc nào.
+              Chưa có {shortLabel} nào hoàn thành khai trương. Khi một {shortLabel} đang khai trương hoàn tất, nhấn &ldquo;Hoàn thành khai trương&rdquo; để lưu vào danh sách này để xem lại bất cứ lúc nào.
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1682,13 +1860,27 @@ export const VaccineCenterSetupView: React.FC = () => {
 
       {/* Top Back Bar & Status Controls */}
       <div className="flex flex-wrap items-center justify-between gap-2 bg-white dark:bg-slate-900 px-4 py-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs print:hidden">
-        <button
-          type="button"
-          onClick={() => setSelectedCenterId(null)}
-          className="inline-flex items-center gap-2 text-xs sm:text-sm font-extrabold text-slate-700 dark:text-slate-200 hover:text-[#0d9488] transition-colors cursor-pointer"
-        >
-          <ArrowLeft className="w-4 h-4" /> Quay lại danh sách TTTC
-        </button>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setSelectedCenterId(null)}
+            className="inline-flex items-center gap-2 text-xs sm:text-sm font-extrabold text-slate-700 dark:text-slate-200 hover:text-[#0d9488] transition-colors cursor-pointer"
+          >
+            <ArrowLeft className="w-4 h-4" /> Quay lại danh sách {shortLabel}
+          </button>
+
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-extrabold bg-[#0d9488]/10 text-[#0d9488] dark:text-teal-300">
+            {isLab ? (
+              <>
+                <FlaskConical className="w-3.5 h-3.5" /> Xét Nghiệm (TTXN)
+              </>
+            ) : (
+              <>
+                <Syringe className="w-3.5 h-3.5" /> Tiêm Chủng (TTTC)
+              </>
+            )}
+          </span>
+        </div>
 
         <div className="flex flex-wrap items-center gap-2">
           {selectedCenter.status === 'in_progress' ? (
@@ -1727,10 +1919,10 @@ export const VaccineCenterSetupView: React.FC = () => {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div>
             <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
-              Checklist Setup Trung Tâm Tiêm Chủng
+              Checklist Setup {fullCenterTitle}
             </h1>
             <p className="text-xs sm:text-sm text-white/90 mt-0.5 font-medium">
-              Taskforce thị trường — theo dõi tiến độ khai trương
+              Taskforce thị trường — theo dõi tiến độ khai trương {shortLabel}
             </p>
           </div>
         </div>
@@ -2083,7 +2275,7 @@ export const VaccineCenterSetupView: React.FC = () => {
             </div>
           </div>
 
-          {/* Sub-tabs: Danh mục hành chính | Danh mục thuốc */}
+          {/* Sub-tabs: Danh mục hành chính | Danh mục thuốc / Hóa chất */}
           <div className="flex items-center gap-2 pt-1">
             <button
               type="button"
@@ -2106,7 +2298,7 @@ export const VaccineCenterSetupView: React.FC = () => {
                   : 'bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
               }`}
             >
-              Danh mục thuốc ({medicineItems.length})
+              {isLab ? 'Danh mục thuốc / Hóa chất' : 'Danh mục thuốc'} ({medicineItems.length})
             </button>
           </div>
 
@@ -2694,7 +2886,7 @@ export const VaccineCenterSetupView: React.FC = () => {
       )}
 
       {/* ===================================================================== */}
-      {/* TAB 5: HƯỚNG DẪN THẨM ĐỊNH TỦ VẮC XIN GSP                              */}
+      {/* TAB 5: HƯỚNG DẪN THẨM ĐỊNH TỦ GSP                                      */}
       {/* ===================================================================== */}
       {activeMainTab === 'fridge_guide' && (
         <div className="space-y-4">
@@ -2702,11 +2894,15 @@ export const VaccineCenterSetupView: React.FC = () => {
             <div className="flex items-center gap-2.5">
               <Thermometer className="w-6 h-6 text-teal-400" />
               <h2 className="text-lg sm:text-xl font-extrabold">
-                Hướng Dẫn Thẩm Định Tủ Bảo Quản Vắc Xin (Chuẩn GSP 2°C – 8°C)
+                {isLab
+                  ? 'Hướng Dẫn Thẩm Định Tủ Bảo Quản Hóa Chất & Mẫu Xét Nghiệm (Chuẩn GSP 2°C – 8°C)'
+                  : 'Hướng Dẫn Thẩm Định Tủ Bảo Quản Vắc Xin (Chuẩn GSP 2°C – 8°C)'}
               </h2>
             </div>
             <p className="text-xs sm:text-sm text-slate-200 mt-1">
-              Quy trình bắt buộc đối với Taskforce & Dược sĩ trước khi nhập vắc xin về Trung tâm {centerInfo.code}
+              {isLab
+                ? `Quy trình bắt buộc đối với Taskforce & Kỹ thuật viên XN trước khi nhận hóa chất sinh phẩm về Trung tâm ${centerInfo.code}`
+                : `Quy trình bắt buộc đối với Taskforce & Dược sĩ trước khi nhập vắc xin về Trung tâm ${centerInfo.code}`}
             </p>
           </div>
 
@@ -2946,8 +3142,14 @@ export const VaccineCenterSetupView: React.FC = () => {
             {(
               [
                 { id: 'equipment', label: 'Trang thiết bị' },
-                { id: 'medicine', label: 'Danh mục thuốc' },
-                { id: 'injection_room', label: 'Thiết bị phòng tiêm' },
+                {
+                  id: 'medicine',
+                  label: isLab ? 'Danh mục thuốc / Hóa chất' : 'Danh mục thuốc',
+                },
+                {
+                  id: 'injection_room',
+                  label: isLab ? 'Thiết bị phòng xét nghiệm' : 'Thiết bị phòng tiêm',
+                },
                 { id: 'csvc', label: 'CSVC' },
               ] as Array<{ id: HandoverSubTab; label: string }>
             ).map((tab) => (
@@ -2980,25 +3182,12 @@ export const VaccineCenterSetupView: React.FC = () => {
           <div className="bg-[#f7f6f1] text-slate-900 rounded-2xl p-4 sm:p-8 border border-slate-300/90 space-y-4">
             {/* Document Header with FPT Retail & Long Châu Logo + Title (Matches IMG_0817) */}
             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pt-1 pb-2">
-              <div className="flex items-center gap-2 shrink-0">
-                <div className="flex flex-col items-center">
-                  <div className="flex items-center gap-0.5">
-                    <span className="inline-block w-3 h-2.5 rounded-[2px] bg-[#00529b] -skew-x-12" />
-                    <span className="inline-block w-3 h-2.5 rounded-[2px] bg-[#f37021] -skew-x-12" />
-                    <span className="inline-block w-3 h-2.5 rounded-[2px] bg-[#50b848] -skew-x-12" />
-                  </div>
-                  <span className="text-[8px] font-extrabold text-[#00529b] tracking-tight mt-0.5">
-                    FPT Retail
-                  </span>
-                </div>
-                <div className="leading-none">
-                  <p className="text-[9px] font-extrabold text-[#00529b] tracking-tight uppercase">
-                    TRUNG TÂM TIÊM CHỦNG
-                  </p>
-                  <p className="text-sm sm:text-base font-black text-[#00529b] tracking-tight uppercase">
-                    LONG CHÂU
-                  </p>
-                </div>
+              <div className="flex items-center shrink-0">
+                <img
+                  src="/assets/aistudio/IMG_1049_db21df38.jpeg"
+                  alt="Tiêm Chủng Long Châu"
+                  className="h-10 sm:h-12 w-auto object-contain rounded"
+                />
               </div>
 
               <div className="text-center flex-1">
@@ -3790,7 +3979,7 @@ export const VaccineCenterSetupView: React.FC = () => {
 
                 <div>
                   <p className="text-xs sm:text-sm font-extrabold text-[#111827]">
-                    Bác sĩ TTTC Long Châu
+                    {isLab ? 'Bác sĩ TTXN Long Châu' : 'Bác sĩ TTTC Long Châu'}
                   </p>
                   <p className="text-[11px] sm:text-xs italic text-slate-500 mt-0.5">
                     Ký và ghi rõ họ tên
@@ -3909,82 +4098,20 @@ export const VaccineCenterSetupView: React.FC = () => {
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
                     width: '175px',
                   }}
                 >
-                  <div
+                  <img
+                    src="/assets/aistudio/IMG_1049_db21df38.jpeg"
+                    alt="Tiêm Chủng Long Châu"
                     style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
+                      height: '44px',
+                      width: 'auto',
+                      objectFit: 'contain',
+                      borderRadius: '4px',
+                      display: 'block',
                     }}
-                  >
-                    <div style={{ display: 'flex', gap: '2px' }}>
-                      <span
-                        style={{
-                          display: 'inline-block',
-                          width: '10px',
-                          height: '8px',
-                          backgroundColor: '#00529b',
-                          borderRadius: '1px',
-                          transform: 'skewX(-12deg)',
-                        }}
-                      />
-                      <span
-                        style={{
-                          display: 'inline-block',
-                          width: '10px',
-                          height: '8px',
-                          backgroundColor: '#f37021',
-                          borderRadius: '1px',
-                          transform: 'skewX(-12deg)',
-                        }}
-                      />
-                      <span
-                        style={{
-                          display: 'inline-block',
-                          width: '10px',
-                          height: '8px',
-                          backgroundColor: '#50b848',
-                          borderRadius: '1px',
-                          transform: 'skewX(-12deg)',
-                        }}
-                      />
-                    </div>
-                    <span
-                      style={{
-                        fontSize: '7px',
-                        fontWeight: 800,
-                        color: '#00529b',
-                        marginTop: '2px',
-                      }}
-                    >
-                      FPT Retail
-                    </span>
-                  </div>
-                  <div style={{ lineHeight: 1.05 }}>
-                    <div
-                      style={{
-                        fontSize: '8px',
-                        fontWeight: 800,
-                        color: '#00529b',
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      TRUNG TÂM TIÊM CHỦNG
-                    </div>
-                    <div
-                      style={{
-                        fontSize: '14px',
-                        fontWeight: 900,
-                        color: '#00529b',
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      LONG CHÂU
-                    </div>
-                  </div>
+                  />
                 </div>
 
                 <div style={{ flex: 1, textAlign: 'center' }}>
@@ -4284,7 +4411,7 @@ export const VaccineCenterSetupView: React.FC = () => {
                         color: '#111827',
                       }}
                     >
-                      Bác sĩ TTTC Long Châu
+                      {isLab ? 'Bác sĩ TTXN Long Châu' : 'Bác sĩ TTTC Long Châu'}
                     </div>
                     <div
                       style={{

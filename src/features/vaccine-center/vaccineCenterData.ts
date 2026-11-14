@@ -72,6 +72,41 @@ export const DEFAULT_INJECTION_ROOM_ROWS: CsvcHandoverRow[] = [
   { id: 'inj_10', name: 'Cân điện tử đo chiều cao cân nặng', qty: 2, unit: 'Cái', note: '' },
 ];
 
+export type CenterType = 'tiem_chung' | 'xet_nghiem';
+
+export const DEFAULT_LAB_CSVC_SIGNAGE_ROWS: CsvcHandoverRow[] = [
+  { id: 'lsig_1', name: 'A1_Bang thong tin TTXN', qty: 2, unit: 'Cai', note: '' },
+  { id: 'lsig_2', name: 'Bang gia niem yet dich vu xet nghiem', qty: 2, unit: 'Cai', note: '' },
+  { id: 'lsig_3', name: 'Bang huong dan quy trinh lay mau xet nghiem', qty: 2, unit: 'Cai', note: '' },
+  { id: 'lsig_4', name: 'Bang noi quy trung tam xet nghiem', qty: 1, unit: 'Cai', note: '' },
+  { id: 'lsig_5', name: 'Bang quy dinh an toan sinh hoc cap II', qty: 2, unit: 'Cai', note: '' },
+  { id: 'lsig_6', name: 'Bang theo doi nhiet do tu bao quan hoa chat & mau', qty: 2, unit: 'Cai', note: '' },
+  { id: 'lsig_7', name: 'Bang ten phong tu van & tra ket qua', qty: 2, unit: 'Cai', note: '' },
+  { id: 'lsig_8', name: 'Bang ten phong lay mau xet nghiem', qty: 2, unit: 'Cai', note: '' },
+  { id: 'lsig_9', name: 'Bang ten phong xu ly & phan tich mau', qty: 1, unit: 'Cai', note: '' },
+  { id: 'lsig_10', name: 'Bang chi dan khu vuc cho lay mau', qty: 1, unit: 'Cai', note: '' },
+  { id: 'lsig_11', name: 'Bang chi dan nha ve sinh & lay mau nuoc tieu (WC)', qty: 2, unit: 'Cai', note: '' },
+  { id: 'lsig_12', name: 'Bang phan loai chat thai y te & sinh pham', qty: 4, unit: 'Cai', note: '' },
+  { id: 'lsig_13', name: 'Quy trinh rua tay thuong quy & sat khuan', qty: 3, unit: 'Cai', note: '' },
+  { id: 'lsig_14', name: 'Hotline ho tro y khoa', qty: 1, unit: 'Cai', note: '' },
+  { id: 'lsig_15', name: 'Luu y nhin an truoc khi lay mau xet nghiem', qty: 2, unit: 'Cai', note: '' },
+  { id: 'lsig_16', name: 'Khu vuc luu tru rac y te nguy hai', qty: 1, unit: 'Cai', note: '' },
+  { id: 'lsig_17', name: 'Cam quay phim chup hinh khu vuc xet nghiem', qty: 4, unit: 'Cai', note: '' },
+];
+
+export const DEFAULT_LAB_ROOM_ROWS: CsvcHandoverRow[] = [
+  { id: 'lab_1', name: 'Tủ lạnh chuyên dụng bảo quản hóa chất & mẫu bệnh phẩm Haier', qty: 2, unit: 'Cái', note: '' },
+  { id: 'lab_2', name: 'Máy xét nghiệm huyết học tự động 5 thành phần bạch cầu', qty: 1, unit: 'Bộ', note: '' },
+  { id: 'lab_3', name: 'Máy xét nghiệm sinh hóa – miễn dịch tự động', qty: 1, unit: 'Bộ', note: '' },
+  { id: 'lab_4', name: 'Máy phân tích nước tiểu tự động 11 thông số', qty: 1, unit: 'Cái', note: '' },
+  { id: 'lab_5', name: 'Máy ly tâm ống máu kỹ thuật số tốc độ cao', qty: 2, unit: 'Cái', note: '' },
+  { id: 'lab_6', name: 'Tủ an toàn sinh học cấp II (Biosafety Cabinet)', qty: 1, unit: 'Bộ', note: '' },
+  { id: 'lab_7', name: 'Ghế lấy máu xét nghiệm chuyên dụng có tựa tay điều chỉnh', qty: 3, unit: 'Cái', note: '' },
+  { id: 'lab_8', name: 'Bộ micropipette đơn kênh các dải thể tích (10-1000µL)', qty: 4, unit: 'Bộ', note: '' },
+  { id: 'lab_9', name: 'Hòm lạnh vận chuyển mẫu xét nghiệm chuyên dụng kèm LogTag', qty: 4, unit: 'Cái', note: '' },
+  { id: 'lab_10', name: 'Xe đẩy inox 3 tầng đựng dụng cụ lấy mẫu xét nghiệm', qty: 2, unit: 'Cái', note: '' },
+];
+
 export type EquipmentCategoryTab = 'admin' | 'medicine';
 export type HandoverSubTab = 'equipment' | 'medicine' | 'injection_room' | 'csvc';
 
@@ -538,3 +573,165 @@ export const DEFAULT_REPORT_PHOTOS: ReportPhotoItem[] = [
     note: 'Đã ký xác nhận bàn giao lần đầu tại shop mới',
   },
 ];
+
+export const DEFAULT_LAB_CHECKLIST_ITEMS: ChecklistItem[] = [
+  {
+    id: 'lchk_1',
+    area: '1. Mặt tiền & Biển bảng POSM',
+    title: 'Bảng hiệu chính Trung Tâm Xét Nghiệm Long Châu, đèn LED mặt tiền và hộp đèn vẫy hoạt động 100%',
+    standard: 'Đúng thiết kế nhận diện thương hiệu, sáng đều không chập chờn',
+    completed: true,
+    verifier: 'Nguyễn Lê Đạt Minh',
+    note: 'Đã nghiệm thu cùng nhà thầu quảng cáo',
+  },
+  {
+    id: 'lchk_2',
+    area: '1. Mặt tiền & Biển bảng POSM',
+    title: 'Standee, băng rôn khai trương, bảng giá niêm yết các gói xét nghiệm tại sảnh tiếp đón',
+    standard: 'Đặt đúng vị trí quy định, thông tin giá khớp hệ thống LIS/HIS',
+    completed: true,
+    verifier: 'Nguyễn Lê Đạt Minh',
+    note: 'Hoàn tất 100%',
+  },
+  {
+    id: 'lchk_3',
+    area: '2. Quầy Lễ Tân & Sảnh Tiếp Đón',
+    title: 'Máy lấy số thứ tự, màn hình TV gọi số, máy in tem barcode ống máu và máy in kết quả hoạt động ổn định',
+    standard: 'Kết nối mạng LAN/WiFi & phần mềm LIS thông suốt, in thử tem barcode rõ nét',
+    completed: true,
+    verifier: 'Nguyễn Lê Đạt Minh',
+    note: 'IT đã cấu hình đồng bộ',
+  },
+  {
+    id: 'lchk_4',
+    area: '3. Phòng Lấy Mẫu Xét Nghiệm',
+    title: 'Ghế lấy máu chuyên dụng, xe đẩy dụng cụ lấy mẫu, ống nghiệm chân không, hộp đựng vật sắc nhọn đầy đủ',
+    standard: 'Đảm bảo vô khuẩn, bố trí một chiều thuận tiện cho khách hàng',
+    completed: true,
+    verifier: 'Nguyễn Lê Đạt Minh',
+    note: 'Đạt chuẩn lấy mẫu y khoa',
+  },
+  {
+    id: 'lchk_5',
+    area: '4. Phòng Xử Lý & Máy Xét Nghiệm',
+    title: 'Máy xét nghiệm huyết học, sinh hóa – miễn dịch, máy ly tâm, tủ an toàn sinh học cấp II đã lắp đặt & hiệu chuẩn',
+    standard: 'Đã chạy mẫu nội kiểm (QC) đạt 100%, dán tem kiểm định thiết bị',
+    completed: true,
+    verifier: 'Nguyễn Văn Bách',
+    note: 'Kỹ sư hãng & Trưởng phòng XN đã nghiệm thu',
+  },
+  {
+    id: 'lchk_6',
+    area: '5. Tủ Bảo Quản Mẫu & Hóa Chất Sinh Phẩm',
+    title: 'Tủ lạnh bảo quản hóa chất & mẫu bệnh phẩm đạt 2°C - 8°C liên tục 48h, thiết bị LogTag cảnh báo hoạt động tốt',
+    standard: 'Đạt chuẩn bảo quản sinh phẩm chẩn đoán, có UPS dự phòng & máy phát điện',
+    completed: true,
+    verifier: 'Nguyễn Lê Đạt Minh',
+    note: 'Biên bản thẩm định tủ đạt 100%',
+  },
+  {
+    id: 'lchk_7',
+    area: '6. Pháp Lý, An Toàn Sinh Học & Xử Lý Rác Y Tế',
+    title: 'Hồ sơ công bố cơ sở đạt chuẩn An toàn sinh học cấp II, hợp đồng thu gom rác thải lây nhiễm, bình PCCC',
+    standard: 'Đủ hồ sơ pháp lý bản cứng tại trung tâm phục vụ đoàn thẩm định Sở Y Tế',
+    completed: true,
+    verifier: 'Trần Gia Thái',
+    note: 'ASM đã phê duyệt',
+  },
+];
+
+export const DEFAULT_LAB_TASKFORCE_JOBS: TaskforceJobItem[] = [
+  {
+    id: 'ljob_1',
+    phase: 'Giai đoạn 1: Nhận mặt bằng & Hạ tầng (T-7)',
+    title: 'Nghiệm thu xây dựng phòng xét nghiệm, hệ thống cấp thoát nước RO, điện 3 pha, UPS & điều hòa',
+    assignee: 'Nguyễn Lê Đạt Minh',
+    dueDate: '24/10/2026',
+    priority: 'Cao',
+    completed: true,
+    note: 'Đã ký biên bản nghiệm thu với Ban Xây Dựng',
+  },
+  {
+    id: 'ljob_2',
+    phase: 'Giai đoạn 2: Nhận hàng & Kiểm kê thiết bị XN (T-5)',
+    title: 'Nhận và kiểm kê danh mục máy xét nghiệm, thiết bị phòng lấy mẫu & hóa chất sinh phẩm',
+    assignee: 'Nguyễn Lê Đạt Minh',
+    dueDate: '26/10/2026',
+    priority: 'Cao',
+    completed: true,
+    note: 'Đã cập nhật số lượng thực tế lên hệ thống',
+  },
+  {
+    id: 'ljob_3',
+    phase: 'Giai đoạn 3: Thẩm định tủ bảo quản & Nội kiểm máy XN (T-3)',
+    title: 'Lắp đặt tủ Haier, hiệu chuẩn LogTag 48h và chạy chuẩn QC các máy huyết học / sinh hóa',
+    assignee: 'Nguyễn Lê Đạt Minh',
+    dueDate: '28/10/2026',
+    priority: 'Cao',
+    completed: true,
+    note: 'Nhiệt độ tủ 4.2°C - 5.0°C, kết quả QC đạt 100%',
+  },
+  {
+    id: 'ljob_4',
+    phase: 'Giai đoạn 4: Setup LIS/HIS & Chạy thử quy trình (T-2)',
+    title: 'Kiểm tra luồng khách hàng giả lập: Tiếp đón → Chỉ định → Lấy mẫu & dán Barcode → Phân tích → Trả kết quả',
+    assignee: 'Nguyễn Văn Bách',
+    dueDate: '29/10/2026',
+    priority: 'Cao',
+    completed: true,
+    note: '100% nhân sự nắm vững SOP vận hành phòng xét nghiệm',
+  },
+  {
+    id: 'ljob_5',
+    phase: 'Giai đoạn 5: Bàn giao & Khai trương (T-0)',
+    title: 'Lập và xuất PDF A4 Biên bản bàn giao trang thiết bị, hóa chất, thiết bị phòng xét nghiệm, CSVC',
+    assignee: 'Nguyễn Lê Đạt Minh',
+    dueDate: '30/10/2026',
+    priority: 'Cao',
+    completed: true,
+    note: 'Bàn giao đầy đủ cho Phụ trách chuyên môn TTXN',
+  },
+];
+
+export const DEFAULT_LAB_FRIDGE_LOGS: FridgeValidationLog[] = [
+  {
+    id: 'lflg_1',
+    fridgeCode: 'TU-XN-01 (Tủ hóa chất & sinh phẩm)',
+    model: 'Haier Biomedical HYC-290',
+    sensorSerial: 'LT-WIFI-991021',
+    stepName: 'Bước 1: Chạy ổn định không tải 24 giờ',
+    targetTemp: '2.0°C – 8.0°C',
+    measuredTemp: '4.4°C (Min 3.7°C / Max 5.1°C)',
+    alarmStatus: 'Đạt',
+    checkedAt: '28/10/2026 08:30',
+    inspector: 'Nguyễn Lê Đạt Minh',
+    note: 'Tủ hoạt động êm, nhiệt độ đồng đều các khay chứa thuốc thử',
+  },
+  {
+    id: 'lflg_2',
+    fridgeCode: 'TU-XN-01 (Tủ hóa chất & sinh phẩm)',
+    model: 'Haier Biomedical HYC-290',
+    sensorSerial: 'LT-WIFI-991021',
+    stepName: 'Bước 2: Kiểm tra cảnh báo mở cửa > 2 phút & ngưỡng > 8°C',
+    targetTemp: 'Còi hú + SMS/App cảnh báo',
+    measuredTemp: 'Kích hoạt sau 90 giây tại 8.1°C',
+    alarmStatus: 'Đạt',
+    checkedAt: '28/10/2026 14:00',
+    inspector: 'Nguyễn Lê Đạt Minh',
+    note: 'Đã nhận cảnh báo tức thời qua hệ thống giám sát',
+  },
+  {
+    id: 'lflg_3',
+    fridgeCode: 'TU-XN-02 (Tủ lưu mẫu bệnh phẩm)',
+    model: 'Haier Biomedical HBC-150',
+    sensorSerial: 'LT-WIFI-991025',
+    stepName: 'Bước 3: Thử nghiệm giả lập mất điện lưới (Chạy UPS + Bình tích lạnh)',
+    targetTemp: 'Giữ 2°C – 8°C tối thiểu 24h',
+    measuredTemp: '5.0°C sau 12 giờ ngắt nguồn lưới',
+    alarmStatus: 'Đạt',
+    checkedAt: '29/10/2026 09:15',
+    inspector: 'Nguyễn Văn Bách',
+    note: 'UPS tự động chuyển mạch 0ms, giữ lạnh mẫu bệnh phẩm đạt chuẩn',
+  },
+];
+
