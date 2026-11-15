@@ -3180,17 +3180,17 @@ export const VaccineCenterSetupView: React.FC = () => {
 
           {/* Printable Handover Card */}
           <div className="bg-[#f7f6f1] text-slate-900 rounded-2xl p-4 sm:p-8 border border-slate-300/90 space-y-4">
-            {/* Document Header with FPT Retail & Long Châu Logo + Title (Matches IMG_0817) */}
-            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pt-1 pb-2">
-              <div className="flex items-center shrink-0">
+            {/* Document Header with Tiêm Chủng Long Châu Logo + Title */}
+            <div className="flex flex-col sm:flex-row items-start justify-between gap-2 pt-0 pb-2">
+              <div className="flex items-start justify-start shrink-0 self-start overflow-hidden">
                 <img
-                  src="/assets/aistudio/IMG_1049_db21df38.jpeg"
+                  src="/assets/aistudio/IMG_1052_13229a7d.jpeg"
                   alt="Tiêm Chủng Long Châu"
-                  className="h-10 sm:h-12 w-auto object-contain rounded"
+                  className="h-14 sm:h-16 w-auto object-contain mix-blend-multiply -ml-4 -mt-2.5 -mb-2 select-none pointer-events-none"
                 />
               </div>
 
-              <div className="text-center flex-1">
+              <div className="text-center flex-1 w-full sm:w-auto">
                 <h2 className="text-base sm:text-xl font-extrabold text-[#111827] uppercase tracking-tight">
                   {getHandoverTitle(handoverSubTab)}
                 </h2>
@@ -4097,18 +4097,23 @@ export const VaccineCenterSetupView: React.FC = () => {
                 <div
                   style={{
                     display: 'flex',
-                    alignItems: 'center',
-                    width: '175px',
+                    alignItems: 'flex-start',
+                    justifyContent: 'flex-start',
+                    width: '185px',
+                    overflow: 'hidden',
                   }}
                 >
                   <img
-                    src="/assets/aistudio/IMG_1049_db21df38.jpeg"
+                    src="/assets/aistudio/IMG_1052_13229a7d.jpeg"
                     alt="Tiêm Chủng Long Châu"
                     style={{
-                      height: '44px',
+                      height: '60px',
                       width: 'auto',
                       objectFit: 'contain',
-                      borderRadius: '4px',
+                      mixBlendMode: 'multiply',
+                      marginLeft: '-18px',
+                      marginTop: '-11px',
+                      marginBottom: '-8px',
                       display: 'block',
                     }}
                   />
